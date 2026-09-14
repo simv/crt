@@ -1,10 +1,10 @@
 ---
 id: CRT-0002
 title: M2 — Annotation tools and capture engine
-status: backlog
+status: in_progress
 priority: high
 created: 2026-09-14T20:50:00+08:00
-updated: 2026-09-14T20:50:00+08:00
+updated: 2026-09-15T07:15:00+08:00
 url: null
 route: null
 session: null
@@ -43,3 +43,4 @@ Do not start the chat panel here; keep the M3 boundary clean so the SDK work is 
 
 ## Log
 - 2026-09-14T20:50+08:00 — created from PRD milestone M2 during project setup.
+- 2026-09-15T07:15+08:00 — claimed by worker session d88bfc31-01d0-4811-b430-0b1454f12e52. Decision: CRT-0001 (the dependency) is in `review` on PR #2, not yet on `main`, so this branch `crt/CRT-0002-m2-annotate-and-capture` is stacked on `crt/CRT-0001-m1-skeleton-and-proxy` and the PR targets that branch; retarget to `main` once #2 merges. The untracked `Claude outputs/` folder in the working tree is not part of the repo and is left alone.
