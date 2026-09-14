@@ -1,10 +1,10 @@
 ---
 id: CRT-0001
 title: M1 — Proxy server with overlay injection and HMR passthrough
-status: backlog
+status: in_progress
 priority: high
 created: 2026-09-14T20:50:00+08:00
-updated: 2026-09-14T20:50:00+08:00
+updated: 2026-09-15T06:50:00+08:00
 url: null
 route: null
 session: null
@@ -45,3 +45,4 @@ Keep all proxy logic in `packages/server/src/proxy.ts`, injection in `inject.ts`
 
 ## Log
 - 2026-09-14T20:50+08:00 — created from PRD milestone M1 during project setup.
+- 2026-09-15T06:50+08:00 — claimed by worker session 00c065ff-ff11-42b4-ae2b-a46a7618b8ad (first build session, branch crt/CRT-0001-m1-skeleton-and-proxy).
