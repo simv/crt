@@ -17,10 +17,11 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "dev": "tsc -p tsconfig.json --watch"
+    "dev": "tsc -p tsconfig.json --watch",
+    "e2e": "playwright test"
   },
-  "dependencies": {},
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/node": "^22.10.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
