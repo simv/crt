@@ -1,0 +1,28 @@
+{
+  "name": "claude-review-tool",
+  "version": "0.0.1",
+  "description": "Claude Review Tool (CRT): annotate your local site in the browser, talk to Claude in-page, get a self-contained task file in your repo.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "crt": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "dev": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

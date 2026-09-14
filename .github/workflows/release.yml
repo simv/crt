@@ -1,0 +1,36 @@
+name: release
+
+# Tag v* on main → build → publish claude-review-tool to npm → GitHub Release.
+# Requires repo secret NPM_TOKEN (automation token with publish rights).
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm run check
+      - name: version matches tag
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./packages/server/package.json').version")
+          test "$TAG" = "$PKG" || { echo "tag $TAG != package version $PKG"; exit 1; }
+      - run: npm publish --workspace packages/server --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
