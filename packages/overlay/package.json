@@ -1,0 +1,15 @@
+{
+  "name": "@crt/overlay",
+  "version": "0.0.1",
+  "private": true,
+  "description": "CRT in-page overlay: launcher, annotation tools, capture engine, chat panel. Built into a single file served by the CRT server.",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --format=iife --target=es2020 --minify --outfile=../server/dist/overlay.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0"
+  }
+}

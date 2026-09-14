@@ -1,0 +1,16 @@
+{
+  "name": "crt",
+  "owner": {
+    "name": "Simon (simv)",
+    "url": "https://github.com/simv"
+  },
+  "plugins": [
+    {
+      "name": "crt",
+      "source": "./plugin",
+      "description": "Claude Review Tool: annotate your local site in the browser, talk to Claude in-page, and turn feedback into self-contained task files that any session can pick up with /crt:next.",
+      "version": "0.0.1",
+      "author": { "name": "Simon (simv)" }
+    }
+  ]
+}
