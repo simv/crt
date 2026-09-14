@@ -1,10 +1,10 @@
 ---
 id: CRT-0001
 title: M1 — Proxy server with overlay injection and HMR passthrough
-status: in_progress
+status: review
 priority: high
 created: 2026-09-14T20:50:00+08:00
-updated: 2026-09-15T07:10:00+08:00
+updated: 2026-09-15T07:15:00+08:00
 url: null
 route: null
 session: null
@@ -33,7 +33,7 @@ None — greenfield task from the PRD.
 9. Clear one-line errors (N-6) for: target unreachable, port in use, no target found.
 
 ## Definition of Done
-- [ ] `npm run check` and `npm run e2e` pass locally on Windows and in CI on ubuntu + windows. — local Windows: check (50 unit tests) and e2e (6 Playwright tests) green; CI: pending on the PR.
+- [x] `npm run check` and `npm run e2e` pass locally on Windows and in CI on ubuntu + windows. — local Windows: check (50 unit tests) and e2e (6 Playwright tests) green; CI run 34907161022 on PR #2: `check (ubuntu-latest)`, `check (windows-latest)`, `e2e (ubuntu)` all pass (e2e log: "6 passed").
 - [ ] Manual: the trial Next.js app on :3000 works through http://localhost:4400 with HMR (edit a component, see it update without reload); the CRT launcher is visible on every page. — manual, pending (see Log for what to check).
 - [x] `curl -H "Accept-Encoding: gzip" http://localhost:4400/` returns injected HTML with correct `Content-Length` and no `Content-Encoding`. — verified with curl against `crt serve --target` in front of the e2e fixture (`/gzip` and `/br` routes); asserted by `test/proxy.test.ts` and `e2e/proxy.spec.ts`.
 - [x] `/__crt/health` reports the detected target and project root. — curl shows `{"ok":true,"target":"http://localhost:3999","projectRoot":"C:\Projects\Claude\review-tool"}`; asserted in unit + e2e.
@@ -54,3 +54,4 @@ Keep all proxy logic in `packages/server/src/proxy.ts`, injection in `inject.ts`
   - **Verification.** `npm run check` green on Windows (Node 24.18, npm 11). `npm run e2e` green on Windows (Chromium headless shell). Manual curl session against fixture + `crt serve --target http://localhost:3999 --port 4499`: `/gzip` with `Accept-Encoding: gzip` → 200, no `content-encoding`, `content-length: 314` matching the injected body, tag before `</head>`; `/redirect` → `location: http://localhost:4499/?from=redirect`; `/echo-headers` shows `host: localhost:3999` and `x-forwarded-{host,proto,for}`; `/csp` → `script-src 'nonce-abc' 'self'`; `/__crt/nope` → 404 JSON; `/__crt/overlay.js` → `text/javascript`, `cache-control: no-store`; a Node `WebSocket` to `ws://localhost:4499/ws` echoed. N-6: port in use / target down / nothing on probe ports each print one `crt: …` line and exit 1; `--port abc` likewise. `--open` ran without error (a browser tab should have opened; not visually confirmed from the session). `crt serve` printed `CRT ready at http://localhost:4499 → http://localhost:3999 (project: C:\Projects\Claude\review-tool, 5 tasks)`.
   - **Manual check for Simon (DoD item 2).** With the trial Next.js app running on :3000, from its folder run `node C:\Projects\Claude\review-tool\packages\server\dist\cli.js serve --open` (or `npx claude-review-tool serve --open` once published). Expect the `CRT ready at http://localhost:4400 → http://localhost:3000 (project: …)` line and a tab on :4400. Check: (a) the black **CRT** pill is bottom-right on every route, including after client-side navigation; (b) DevTools → Network → WS shows `_next/webpack-hmr` connected via `localhost:4400` with `101`; (c) edit a component's JSX text, save — the page updates in place without a full reload and the CRT pill stays; (d) `curl -s -D - -H "Accept-Encoding: gzip" http://localhost:4400/ | head -20` shows no `content-encoding`, a `content-length`, and `<script src="/__crt/overlay.js" defer></script>` before `</head>`; (e) `curl http://localhost:4400/__crt/health` names the target and the app's git root. If HMR does not connect, note the WS status code and the server's console output in this Log.
   - **CI.** DoD item 1 stays unticked until the PR's `check (ubuntu-latest)`, `check (windows-latest)` and `e2e (ubuntu)` jobs are green; will be ticked in a follow-up commit on this branch.
+- 2026-09-15T07:15+08:00 — worker session 00c065ff-ff11-42b4-ae2b-a46a7618b8ad: CI green on PR #2 (https://github.com/simv/crt/pull/2); DoD item 1 ticked. Status → review. Only the manual Next.js/HMR check (DoD item 2) remains, for Simon.
