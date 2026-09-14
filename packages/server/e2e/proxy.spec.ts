@@ -12,16 +12,16 @@ test("page served through CRT has the overlay launcher in a shadow root (F-2, F-
   await expect(host).toHaveCount(1);
   const shadow = await host.evaluate((el) => ({
     hasShadow: el.shadowRoot !== null,
-    button: el.shadowRoot?.querySelector("button")?.textContent?.trim() ?? null,
+    launcher: el.shadowRoot?.querySelector(".launcher")?.textContent?.trim().split(/\s/)[0] ?? null,
   }));
-  expect(shadow).toEqual({ hasShadow: true, button: "CRT" });
-  await expect(host.locator("button")).toBeVisible();
+  expect(shadow).toEqual({ hasShadow: true, launcher: "CRT" });
+  await expect(host.locator(".launcher")).toBeVisible();
 });
 
 test("launcher is present on every page, including gzip and brotli-encoded ones (F-2)", async ({ page }) => {
   for (const path of ["/gzip", "/br", "/chunked", "/nohead"]) {
     await page.goto(path);
-    await expect(page.locator("#crt-host button"), path).toBeVisible();
+    await expect(page.locator("#crt-host .launcher"), path).toBeVisible();
   }
 });
 
@@ -66,5 +66,5 @@ test("absolute redirects to the target are rewritten to the CRT origin (F-4)", a
   await page.goto("/redirect");
   expect(new URL(page.url()).origin).toBe("http://localhost:4499");
   expect(new URL(page.url()).search).toBe("?from=redirect");
-  await expect(page.locator("#crt-host button")).toBeVisible();
+  await expect(page.locator("#crt-host .launcher")).toBeVisible();
 });

@@ -9,6 +9,11 @@
 //   GET  /nohead        HTML fragment with neither <head> nor <body>
 //   GET  /csp           HTML with a Content-Security-Policy that forbids scripts
 //   GET  /redirect      302 → http://localhost:<port>/ (absolute, points at the fixture itself)
+//   GET  /app           annotation playground: ids, classes, data-*, ARIA, a fixed header, long
+//                       scroll, and a console.error + uncaught error fired at load (M2 capture spec)
+//   GET  /react         React 18 dev build (UMD from node_modules) rendering a small component tree
+//                       with __source set, for the fiber-walk spec (F-18)
+//   GET  /vendor/*.js   react.development.js / react-dom.development.js
 //   GET  /api/json      application/json
 //   GET  /echo-headers  JSON of the request headers as received
 //   POST /echo          echoes the request body back as application/octet-stream
@@ -16,7 +21,10 @@
 //   anything else       404 text/plain
 
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { brotliCompressSync, gzipSync } from "node:zlib";
 
@@ -33,6 +41,106 @@ const PAGE = `<!doctype html>
 </body>
 </html>
 `;
+
+const APP_PAGE = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>CRT fixture app</title>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; }
+    header.top { position: fixed; top: 0; left: 0; right: 0; height: 48px; background: #223; color: #fff;
+                 display: flex; align-items: center; padding: 0 16px; }
+    main { padding: 64px 16px 16px; }
+    .card { border: 1px solid #ccc; border-radius: 8px; padding: 12px; margin: 12px 0; width: 320px; }
+    .card .price { font-weight: bold; color: #063; }
+    .spacer { height: 1600px; background: linear-gradient(#fff, #eee); }
+    #footer-note { padding: 12px; background: #ffd; }
+  </style>
+</head>
+<body>
+  <header class="top" id="top-bar"><strong>Fixture shop</strong></header>
+  <main>
+    <h1 id="heading">CRT fixture app</h1>
+    <section class="cards" data-section="products" aria-label="Products">
+      <article class="card" data-product-id="p-1" data-testid="card-1">
+        <h2 class="title">Widget</h2>
+        <p class="desc">A fine widget.</p>
+        <span class="price" role="text" aria-label="Price of Widget">$10.00</span>
+        <button type="button" class="buy">Buy</button>
+      </article>
+      <article class="card featured" data-product-id="p-2" data-testid="card-2">
+        <h2 class="title">Gadget</h2>
+        <p class="desc">An even finer gadget.</p>
+        <span class="price">$20.00</span>
+        <button type="button" class="buy">Buy</button>
+      </article>
+    </section>
+    <div class="spacer"></div>
+    <p id="footer-note">Bottom of the page.</p>
+  </main>
+  <script>
+    window.__fixture = "app";
+    console.error("fixture: something went wrong %s", "at load");
+    console.warn("fixture: a warning");
+    setTimeout(() => { throw new Error("fixture: uncaught boom"); }, 0);
+    Promise.reject(new Error("fixture: rejected"));
+  </script>
+</body>
+</html>
+`;
+
+const REACT_PAGE = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>CRT fixture react</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="/vendor/react.development.js"></script>
+  <script src="/vendor/react-dom.development.js"></script>
+  <script>
+    // Hand-written createElement calls with __source, as the JSX dev transform would emit.
+    const h = (type, props, ...children) => React.createElement(type, props, ...children);
+    const src = (line) => ({ fileName: "src/components/Shop.jsx", lineNumber: line, columnNumber: 5 });
+    function Price({ value }) {
+      return h("span", { className: "price", __source: src(30) }, "$" + value.toFixed(2));
+    }
+    const FancyButton = React.forwardRef(function FancyButton(props, ref) {
+      return h("button", { ref, type: "button", className: "buy", __source: src(40) }, props.children);
+    });
+    const MemoDesc = React.memo(function Desc({ text }) {
+      return h("p", { className: "desc", __source: src(50) }, text);
+    });
+    class Card extends React.Component {
+      render() {
+        return h("article", { className: "card", "data-product-id": this.props.id, __source: src(20) },
+          h("h2", { className: "title", __source: src(21) }, this.props.title),
+          h(MemoDesc, { text: this.props.desc, __source: src(22) }),
+          h(Price, { value: this.props.price, __source: src(23) }),
+          h(FancyButton, { __source: src(24) }, "Buy"));
+      }
+    }
+    function Shop() {
+      return h("section", { className: "cards", __source: src(10) },
+        h(Card, { id: "p-1", title: "Widget", desc: "A fine widget.", price: 10, __source: src(11) }),
+        h(Card, { id: "p-2", title: "Gadget", desc: "An even finer gadget.", price: 20, __source: src(12) }));
+    }
+    function App() { return h(Shop, { __source: src(5) }); }
+    ReactDOM.createRoot(document.getElementById("root")).render(h(App, { __source: src(1) }));
+  </script>
+</body>
+</html>
+`;
+
+// The UMD builds are not in React's `exports` map, so locate the package dir via package.json.
+const require = createRequire(import.meta.url);
+const pkgDir = (name) => dirname(require.resolve(`${name}/package.json`));
+const VENDOR = {
+  "/vendor/react.development.js": () => join(pkgDir("react"), "umd", "react.development.js"),
+  "/vendor/react-dom.development.js": () => join(pkgDir("react-dom"), "umd", "react-dom.development.js"),
+};
 
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
@@ -55,6 +163,10 @@ export function startFixture(opts = {}) {
     switch (path) {
       case "/":
         return html(PAGE);
+      case "/app":
+        return html(APP_PAGE);
+      case "/react":
+        return html(REACT_PAGE);
       case "/gzip": {
         if (!/\bgzip\b/.test(accepts)) return html(PAGE);
         const gz = gzipSync(PAGE);
@@ -110,9 +222,16 @@ export function startFixture(opts = {}) {
         });
         return;
       }
-      default:
+      default: {
+        const vendor = VENDOR[path];
+        if (vendor) {
+          const js = readFileSync(vendor());
+          res.writeHead(200, { "content-type": "text/javascript", "content-length": String(js.length) });
+          return res.end(js);
+        }
         res.writeHead(404, { "content-type": "text/plain" });
         return res.end(`fixture: no route ${path}`);
+      }
     }
   });
 

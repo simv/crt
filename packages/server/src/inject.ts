@@ -7,6 +7,10 @@ import { brotliDecompressSync, gunzipSync, inflateRawSync, inflateSync } from "n
 
 export const OVERLAY_PATH = "/__crt/overlay.js";
 export const OVERLAY_TAG = `<script src="${OVERLAY_PATH}" defer></script>`;
+/** F-20: a ~1 KB blocking script that hooks console/errors before the page's own scripts run. */
+export const EARLY_PATH = "/__crt/early.js";
+export const EARLY_TAG = `<script src="${EARLY_PATH}"></script>`;
+export const INJECT_TAGS = EARLY_TAG + OVERLAY_TAG;
 
 /** Content-Encodings we can decode in-process; anything else is passed through uninjected. */
 export const SUPPORTED_ENCODINGS = ["gzip", "x-gzip", "deflate", "br", "identity"] as const;
@@ -18,10 +22,11 @@ export function isHtml(contentType: string | string[] | undefined): boolean {
 }
 
 /**
- * Insert the overlay tag before `</head>`, else before `</body>`, else append.
- * Case-insensitive; the first match wins. Idempotent: an existing tag is left alone.
+ * Insert the early-hook + overlay tags before `</head>`, else before `</body>`, else append.
+ * Case-insensitive; the first match wins. Idempotent: an existing overlay tag is left alone.
  */
-export function injectOverlayTag(html: string, tag: string = OVERLAY_TAG): string {
+export function injectOverlayTag(html: string, tag: string = INJECT_TAGS): string {
+  if (html.includes(OVERLAY_TAG)) return html;
   if (html.includes(tag)) return html;
   const head = /<\/head\s*>/i.exec(html);
   if (head) return html.slice(0, head.index) + tag + html.slice(head.index);

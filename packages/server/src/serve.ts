@@ -1,11 +1,12 @@
 /**
- * `crt serve` (PRD F-1, F-4, F-5, N-6): run `init`, resolve the target, bind the proxy
- * to 127.0.0.1, print the one-line status, and optionally open the browser.
+ * `crt serve` (PRD F-1, F-4, F-5, F-23, N-6): run `init`, prune stale captures, resolve the
+ * target, bind the proxy to 127.0.0.1, print the one-line status, and optionally open the browser.
  * Every failure surfaces as a CrtError with a single actionable line.
  */
 import { spawn } from "node:child_process";
 import { readdirSync } from "node:fs";
 import type { Server } from "node:http";
+import { pruneCaptures } from "./captures.js";
 import { CrtError } from "./errors.js";
 import { initProject, readConfig } from "./init.js";
 import { findProjectRoot } from "./project.js";
@@ -41,6 +42,8 @@ export async function serve(opts: ServeOptions): Promise<ServeHandle> {
 
   const init = initProject(projectRoot);
   if (init.created.length) log(`crt init: created ${init.created.join(", ")}`);
+  const pruned = pruneCaptures(projectRoot);
+  if (pruned.length) log(`crt: pruned ${pruned.length} capture${pruned.length === 1 ? "" : "s"} older than 7 days`);
 
   const config = readConfig(projectRoot);
   const port = opts.port ?? config.port;
