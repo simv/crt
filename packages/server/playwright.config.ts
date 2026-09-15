@@ -27,7 +27,10 @@ export default defineConfig({
       timeout: 15_000,
     },
     {
-      command: `node dist/cli.js serve --target http://localhost:${FIXTURE_PORT} --port ${CRT_PORT}`,
+      // e2e/fixture/crt.mjs runs `crt serve` from a scratch project (e2e/.project/) with the
+      // scripted session driver, so the chat spec never needs a Claude login and nothing is
+      // written under this repo's .crt/.
+      command: `node e2e/fixture/crt.mjs --target http://localhost:${FIXTURE_PORT} --port ${CRT_PORT}`,
       url: `http://localhost:${CRT_PORT}/__crt/health`,
       reuseExistingServer: false,
       timeout: 15_000,

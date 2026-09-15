@@ -1,11 +1,13 @@
 /**
  * Overlay UI (PRD F-7…F-13): launcher, toolbar, Select / Box / Pin tools, numbered markers,
- * the notes panel and the Send flow. Everything renders inside the Shadow DOM host; the host
- * itself is a fixed, pointer-transparent full-viewport layer, and only the widgets opt back in
- * to pointer events, so the page underneath keeps working while CRT is idle.
+ * the notes panel, the Send flow and the chat panel it opens (chat.ts). Everything renders inside
+ * the Shadow DOM host; the host itself is a fixed, pointer-transparent full-viewport layer, and
+ * only the widgets opt back in to pointer events, so the page underneath keeps working while CRT
+ * is idle.
  */
 import { type Annotation, AnnotationStore, toViewportRect } from "./annotations.js";
 import { capture, send, type SendResult } from "./capture.js";
+import { CHAT_CSS, ChatPanel } from "./chat.js";
 import { nearestComponentName } from "./component.js";
 import { labelOf } from "./element.js";
 import { ACCENT } from "./screenshot.js";
@@ -31,6 +33,7 @@ const CSS = `
   .dock { position: fixed; pointer-events: auto; display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
           width: min(360px, calc(100vw - 32px)); }
   .dock[hidden] { display: none; }
+  .dock.chat-open { width: min(520px, calc(100vw - 32px)); }
   .toolbar { display: flex; gap: 4px; align-items: center; padding: 6px; border-radius: 12px; background: #fff;
              box-shadow: 0 8px 28px rgba(0,0,0,.22); border: 1px solid rgba(0,0,0,.08); }
   .toolbar button { padding: 6px 10px; border-radius: 8px; font-weight: 500; }
@@ -83,6 +86,7 @@ const CSS = `
   .hint { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); pointer-events: none; padding: 6px 12px;
           border-radius: 999px; background: rgba(17,17,17,.9); color: #fff; font-size: 12px; }
   .hint[hidden] { display: none; }
+${CHAT_CSS}
 `;
 
 const HINTS: Record<Tool, string> = {
@@ -116,6 +120,7 @@ export class OverlayUI {
   private readonly drag: HTMLElement;
   private readonly markers: HTMLElement;
   private readonly hint: HTMLElement;
+  readonly chat: ChatPanel;
 
   constructor(store: AnnotationStore) {
     this.store = store;
@@ -160,6 +165,11 @@ export class OverlayUI {
     this.drag = q(".drag");
     this.markers = q(".markers");
     this.hint = q(".hint");
+    this.chat = new ChatPanel(this.dock, (open) => {
+      this.dock.classList.toggle("chat-open", open);
+      if (open && !this.open) this.toggle(true);
+      this.render();
+    });
 
     this.restoreLauncher();
     this.wireLauncher();
@@ -170,6 +180,7 @@ export class OverlayUI {
     document.documentElement.appendChild(this.host);
     this.placeLauncher(); // needs the launcher's real height, so after mount
     this.render();
+    void this.chat.restore(); // a reload mid-conversation re-opens the chat (F-25)
   }
 
   // ---- public surface (also exposed on window.__crt for tests) ------------------------------
@@ -216,7 +227,13 @@ export class OverlayUI {
     return el;
   }
 
-  /** F-13: freeze, capture, POST, then clear the annotations and show where they went. */
+  /**
+   * F-13: freeze, capture, POST, clear the annotations, then open the chat on a new intake
+   * session (F-24). The session is warm-started in parallel with the capture so the Claude
+   * Code process boots while the page is being rasterised (N-2). A capture that saved but
+   * whose session failed to start is still reported as sent — the files are on disk and the
+   * status line says what went wrong.
+   */
   async sendToClaude(): Promise<SendResult> {
     if (this.busy) throw new Error("already sending");
     if (!this.store.count()) throw new Error("nothing to send: add an annotation first");
@@ -224,14 +241,26 @@ export class OverlayUI {
     this.setTool(null);
     this.showStatus("Capturing page…");
     this.render();
+    const warm = this.chat.warmStart().catch(() => null);
     try {
       const result = await capture(this.store);
       this.showStatus("Sending to Claude…");
       const sent = await send(result);
       this.store.clear();
       this.showStatus(`Capture saved: <code>${escapeHtml(sent.dir)}</code>`, false, true);
+      try {
+        const sessionId = await warm;
+        if (sessionId) await this.chat.attachCapture(sessionId, sent.id);
+        else await this.chat.startFromCapture(sent.id);
+      } catch (err) {
+        this.showStatus(
+          `Capture saved: <code>${escapeHtml(sent.dir)}</code> — but Claude did not start: ${escapeHtml(err instanceof Error ? err.message : String(err))}`,
+          true,
+        );
+      }
       return sent;
     } catch (err) {
+      void warm.then((id) => (id ? this.chat.abandon(id) : undefined));
       this.showStatus(`Send failed: ${escapeHtml(err instanceof Error ? err.message : String(err))}`, true);
       throw err;
     } finally {
@@ -364,7 +393,7 @@ export class OverlayUI {
   }
 
   private renderPanel(items: Annotation[]): void {
-    this.panel.hidden = !this.open || items.length === 0;
+    this.panel.hidden = !this.open || items.length === 0 || this.chat.isOpen();
     const active = this.root.activeElement as HTMLTextAreaElement | null;
     const activeN = active?.closest<HTMLElement>(".item")?.dataset.n;
     const existing = new Map<string, HTMLElement>();

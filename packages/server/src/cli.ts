@@ -5,18 +5,20 @@
  * Commands (see docs/PRD.md §6):
  *   crt serve [--target <url>] [--port <n>] [--open]   F-1, F-5
  *   crt init                                           F-35
- *   crt tasks [--json]                                 F-33
- *   crt task <ID>                                      F-33
+ *   crt tasks [--json]                                 F-33 (also refreshes the README index, F-34)
+ *   crt task <ID> [--validate]                         F-33 (F-32 format check)
  *
- * M1 implements `serve` and `init`; `tasks`/`task` arrive in M3.
  * Every failure is one `crt: <message>` line on stderr and a non-zero exit (N-6).
  */
+import { readFileSync } from "node:fs";
+import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "./args.js";
 import { CrtError } from "./errors.js";
-import { initProject } from "./init.js";
+import { initProject, readConfig } from "./init.js";
 import { findProjectRoot } from "./project.js";
 import { serve } from "./serve.js";
+import { findTaskFile, listTasks, validateTaskText, writeIndex } from "./tasks.js";
 
 const USAGE = [
   "crt — Claude Review Tool",
@@ -25,11 +27,11 @@ const USAGE = [
   "  crt serve [--target <url>] [--port <n>] [--open]",
   "  crt init",
   "  crt tasks [--json]",
-  "  crt task <ID>",
+  "  crt task <ID> [--validate]",
 ].join("\n");
 
 async function main(argv: string[]): Promise<number> {
-  const { command, flags } = parseArgs(argv);
+  const { command, positionals, flags } = parseArgs(argv);
   switch (command) {
     case "serve": {
       const handle = await serve({
@@ -37,6 +39,7 @@ async function main(argv: string[]): Promise<number> {
         port: portFlag(flags.port),
         open: flags.open === true,
         overlayPath: fileURLToPath(new URL("./overlay.js", import.meta.url)),
+        intakePromptPath: fileURLToPath(new URL("./intake.md", import.meta.url)),
       });
       const stop = () => {
         void handle.close().then(() => process.exit(0));
@@ -55,10 +58,46 @@ async function main(argv: string[]): Promise<number> {
       );
       return 0;
     }
-    case "tasks":
-    case "task":
-      console.error(`crt ${command}: not implemented yet (see docs/PRD.md milestone M3)`);
-      return 2;
+    case "tasks": {
+      const tasksDir = tasksDirOf(findProjectRoot());
+      const tasks = listTasks(tasksDir);
+      writeIndex(tasksDir);
+      if (flags.json === true) {
+        console.log(JSON.stringify({ tasksDir, tasks }, null, 2));
+        return 0;
+      }
+      if (!tasks.length) {
+        console.log(`no tasks in ${tasksDir}`);
+        return 0;
+      }
+      const statusW = Math.max(...tasks.map((t) => t.status.length));
+      const priorityW = Math.max(...tasks.map((t) => t.priority.length));
+      for (const t of tasks) {
+        console.log(`${t.id}  ${t.status.padEnd(statusW)}  ${t.priority.padEnd(priorityW)}  ${t.title}  (${t.updated.slice(0, 10)})`);
+      }
+      const backlog = tasks.filter((t) => t.status === "backlog").length;
+      console.log(`${tasks.length} task${tasks.length === 1 ? "" : "s"}, ${backlog} in backlog`);
+      return 0;
+    }
+    case "task": {
+      const id = positionals[0];
+      if (!id || !/^CRT-\d{4}$/i.test(id)) throw new CrtError("usage: crt task <CRT-NNNN> [--validate]", 2);
+      const file = findTaskFile(tasksDirOf(findProjectRoot()), id);
+      if (!file) throw new CrtError(`no task ${id.toUpperCase()} in .crt/tasks`);
+      const text = readFileSync(file, "utf8");
+      if (flags.validate === true) {
+        const errors = validateTaskText(text, basename(file));
+        if (errors.length) {
+          console.error(`crt task: ${basename(file)} does not match the F-32 format:`);
+          for (const e of errors) console.error(`  - ${e}`);
+          return 1;
+        }
+        console.log(`crt task: ${basename(file)} is valid`);
+        return 0;
+      }
+      process.stdout.write(text);
+      return 0;
+    }
     case undefined:
       console.log(USAGE);
       return 0;
@@ -66,6 +105,10 @@ async function main(argv: string[]): Promise<number> {
       console.error(`crt: unknown command "${command}"\n\n${USAGE}`);
       return 1;
   }
+}
+
+function tasksDirOf(root: string): string {
+  return resolve(root, readConfig(root).tasksDir);
 }
 
 function stringFlag(value: string | boolean | undefined, usage: string): string | undefined {

@@ -9,6 +9,7 @@
 import type { CaptureBundle } from "../../server/src/capture-schema.js";
 import { type Annotation, AnnotationStore } from "./annotations.js";
 import { capture, type SendResult } from "./capture.js";
+import type { ChatSnapshot } from "./chat.js";
 import { detectComponents, detectFramework } from "./component.js";
 import { clearConsoleEntries, consoleEntries, installConsoleHooks } from "./console-hook.js";
 import { describeElement } from "./element.js";
@@ -40,6 +41,17 @@ export interface CrtTestHooks {
   framework(): ReturnType<typeof detectFramework>;
   consoleEntries(): ReturnType<typeof consoleEntries>;
   clearConsole(): void;
+  /** Chat panel (M3): drive and observe the intake session. */
+  chat: {
+    snapshot(): ChatSnapshot;
+    isOpen(): boolean;
+    open(sessionId: string): void;
+    show(open: boolean): void;
+    send(text: string): Promise<void>;
+    respond(permissionId: string, behavior: "allow" | "deny"): Promise<void>;
+    interrupt(): Promise<void>;
+    discard(): Promise<void>;
+  };
 }
 
 function resolve(target: Element | string): Element {
@@ -88,6 +100,16 @@ function mount(): void {
     framework: () => detectFramework(),
     consoleEntries: () => consoleEntries(),
     clearConsole: () => clearConsoleEntries(),
+    chat: {
+      snapshot: () => ui.chat.snapshot(),
+      isOpen: () => ui.chat.isOpen(),
+      open: (id) => ui.chat.open(id),
+      show: (open) => ui.chat.show(open),
+      send: (text) => ui.chat.send(text),
+      respond: (id, behavior) => ui.chat.respond(id, behavior),
+      interrupt: () => ui.chat.interrupt(),
+      discard: () => ui.chat.discard(),
+    },
   };
   // Merge onto the object early.js may already have created (it holds the console buffer).
   Object.assign((window as unknown as { __crt: object }).__crt, hooks);

@@ -6,8 +6,9 @@
  *     and re-served uncompressed with a correct Content-Length (F-2).
  *   • WebSocket upgrades are replayed over a raw TCP/TLS socket and piped untouched,
  *     so Next.js / Vite HMR keep working (F-3).
- *   • /__crt/overlay.js, /__crt/early.js, /__crt/health and POST /__crt/captures (F-13, F-23)
- *     are served here; anything else under /__crt/ is a 404 and never reaches the target (F-4).
+ *   • /__crt/overlay.js, /__crt/early.js, /__crt/health, POST /__crt/captures (F-13, F-23) and
+ *     the /__crt/sessions routes (sessions.ts, F-24…F-30) are served here; anything else under
+ *     /__crt/ is a 404 and never reaches the target (F-4).
  * The caller binds the returned server to 127.0.0.1 (see serve.ts).
  */
 import { readFile } from "node:fs/promises";
@@ -27,7 +28,9 @@ import { dirname, join } from "node:path";
 import type { Duplex } from "node:stream";
 import { connect as tlsConnect } from "node:tls";
 import { CaptureValidationError, writeCapture } from "./captures.js";
+import { json, readJson } from "./http.js";
 import { decodeBody, EARLY_PATH, filterAcceptEncoding, injectOverlayTag, isHtml, OVERLAY_PATH, relaxCsp } from "./inject.js";
+import { handleSessionRoute, SESSIONS_PATH, type SessionRegistry } from "./sessions.js";
 
 export interface ProxyOptions {
   /** Target origin, e.g. `http://localhost:3000`. */
@@ -36,6 +39,8 @@ export interface ProxyOptions {
   projectRoot: string;
   /** Absolute path of the built overlay bundle (dist/overlay.js). */
   overlayPath: string;
+  /** Intake sessions (F-24). Absent → the /__crt/sessions routes answer 503. */
+  sessions?: SessionRegistry;
 }
 
 export const CRT_PREFIX = "/__crt";
@@ -205,7 +210,9 @@ async function handleCrtRoute(
   res: ServerResponse,
   opts: ProxyOptions,
 ): Promise<void> {
-  const path = url.split("?")[0];
+  const qs = url.indexOf("?");
+  const path = qs === -1 ? url : url.slice(0, qs);
+  const query = new URLSearchParams(qs === -1 ? "" : url.slice(qs + 1));
   if (path === OVERLAY_PATH || path === EARLY_PATH) {
     try {
       const js = await readFile(path === OVERLAY_PATH ? opts.overlayPath : earlyPath(opts.overlayPath));
@@ -230,15 +237,13 @@ async function handleCrtRoute(
       json(res, 405, { ok: false, error: "POST a capture bundle here" });
       return;
     }
-    let body: unknown;
-    try {
-      body = JSON.parse((await readBody(req, MAX_CAPTURE_BODY)).toString("utf8"));
-    } catch (err) {
-      json(res, err instanceof BodyTooLarge ? 413 : 400, { ok: false, error: `capture body: ${(err as Error).message}` });
+    const body = await readJson(req, MAX_CAPTURE_BODY);
+    if (!body.ok) {
+      json(res, body.status, { ok: false, error: `capture ${body.error}` });
       return;
     }
     try {
-      const written = writeCapture(opts.projectRoot, body);
+      const written = writeCapture(opts.projectRoot, body.value);
       json(res, 201, { ok: true, id: written.id, dir: written.dir, files: written.files });
     } catch (err) {
       if (err instanceof CaptureValidationError) {
@@ -249,44 +254,18 @@ async function handleCrtRoute(
     }
     return;
   }
-  json(res, 404, { ok: false, error: `no CRT route ${path}` });
-}
-
-class BodyTooLarge extends Error {
-  constructor(limit: number) {
-    super(`body exceeds ${limit} bytes`);
+  if (path === SESSIONS_PATH || path.startsWith(SESSIONS_PATH + "/")) {
+    if (!opts.sessions) {
+      json(res, 503, { ok: false, error: "intake sessions are not enabled on this server" });
+      return;
+    }
+    await handleSessionRoute(path, query, req, res, opts.sessions);
+    return;
   }
-}
-
-function readBody(req: IncomingMessage, limit: number): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    req.on("data", (c: Buffer) => {
-      size += c.length;
-      if (size > limit) {
-        reject(new BodyTooLarge(limit));
-        req.destroy();
-        return;
-      }
-      chunks.push(c);
-    });
-    req.on("end", () => resolve(Buffer.concat(chunks)));
-    req.on("error", reject);
-  });
+  json(res, 404, { ok: false, error: `no CRT route ${path}` });
 }
 
 /** early.js sits next to overlay.js in dist/. */
 function earlyPath(overlayPath: string): string {
   return join(dirname(overlayPath), "early.js");
-}
-
-function json(res: ServerResponse, status: number, body: unknown): void {
-  const text = JSON.stringify(body);
-  res.writeHead(status, {
-    "content-type": "application/json; charset=utf-8",
-    "content-length": String(Buffer.byteLength(text)),
-    "cache-control": "no-store",
-  });
-  res.end(text);
 }
