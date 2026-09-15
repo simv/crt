@@ -1,10 +1,10 @@
 ---
 id: CRT-0004
 title: M4 — Plugin install path, /crt:next worker and SessionStart hook
-status: backlog
+status: in_progress
 priority: normal
 created: 2026-09-14T20:50:00+08:00
-updated: 2026-09-14T20:50:00+08:00
+updated: 2026-09-15T10:32:00+08:00
 url: null
 route: null
 session: null
@@ -39,3 +39,4 @@ Open question 2 in the PRD (auto-merge) stays "no" for this milestone.
 
 ## Log
 - 2026-09-14T20:50+08:00 — created from PRD milestone M4 during project setup.
+- 2026-09-15T10:32+08:00 — claimed by build session (Claude Code, VS Code); branch `crt/CRT-0004-m4-worker-skill-and-plugin`. Found at claim time: `claude-review-tool` is not on npm yet (404), so every `npx -y claude-review-tool@latest` in the skills fails today; plugin `crt@crt` is already installed from GitHub `simv/crt`.
