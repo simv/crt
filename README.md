@@ -11,6 +11,10 @@ claude plugin marketplace add simv/crt
 claude plugin install crt@crt
 ```
 
+That gives every Claude Code session `/crt:serve`, `/crt:next`, `/crt:tasks`, `/crt:task`, `/crt:done` and `/crt:intake`, plus a SessionStart hook that says `CRT: N of M tasks in backlog …` whenever the project has backlog tasks (and stays silent otherwise). Restart Claude Code after installing; `claude plugin update crt@crt` picks up new versions (the plugin tracks `main`).
+
+The skills run the `crt` CLI as `npx --no crt` when the project has it installed (a devDependency, a global install, or this repo's workspace), otherwise as `npx -y claude-review-tool@latest`. Until the package is published (milestone M5), install it from a checkout: `npm i -g ./packages/server` after `npm run build`.
+
 ## Use
 
 ```bash
@@ -24,12 +28,16 @@ Browse as usual. Click the **CRT** button in the corner, select an element or dr
 Later, in any session on that project:
 
 ```
-/crt:tasks         # what's outstanding
-/crt:next          # pick the next backlog task and take it to a PR, without stopping
-/crt:task CRT-0001 # show one task
+/crt:tasks           # what's outstanding
+/crt:next            # pick the next backlog task and take it to a PR, without stopping
+/crt:next CRT-0001   # work (or retry) a specific task
+/crt:task CRT-0001   # show one task and the next action for it
+/crt:done CRT-0001   # after the PR merges: mark it done, record the PR URL
 ```
 
-Without the plugin: `npx claude-review-tool serve --open` in the project folder.
+`/crt:next` claims the task (`status: in_progress`, log entry, branch `crt/CRT-0001-<slug>`), implements the **Ask**, ticks each **Definition of Done** item it verified, sets `status: review`, commits, pushes and opens a PR whose body is the task's Summary + DoD + a link to the task file. It never asks you anything: if the task file is not enough to proceed it sets `status: blocked` with the question in the **Log** — answer it under **Notes** and run `/crt:next CRT-0001` again. Merging is yours.
+
+Without the plugin: `npx claude-review-tool serve --open` in the project folder, and `crt tasks` / `crt task <ID>` for the list.
 
 ### `crt serve` flags
 
@@ -64,5 +72,7 @@ npm ci
 npm run check   # typecheck, lint, unit tests, build
 npm run e2e     # Playwright smoke: fixture app behind a real `crt serve` (needs `npx playwright install chromium` once)
 ```
+
+Plugin changes: `claude plugin validate ./plugin` (and `.` for the marketplace) must pass — CI runs both. To try a local skill edit before it is on `main`, run `claude --plugin-dir ./plugin` in the project you are testing against, or `claude plugin marketplace add ./` from a fresh profile (`CLAUDE_CONFIG_DIR=<empty dir>`).
 
 License: MIT.
