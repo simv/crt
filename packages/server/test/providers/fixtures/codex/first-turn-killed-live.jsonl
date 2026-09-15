@@ -1,0 +1,6 @@
+# codex-cli 0.154.0 — recorded 2026-09-15 on win32 (CRT-0009 spike, docs/spikes/codex-2026-09.md)
+# command: codex.exe exec --json -c approval_policy="never" -c mcp_servers.crt.default_tools_approval_mode="approve" -c model_reasoning_effort="low" -c mcp_servers.crt.command='C:\Program Files\nodejs\node.exe' -c mcp_servers.crt.args=['C:\Projects\Claude\review-tool\docs\spikes\codex-2026-09\probe\mcp-probe.mjs'] -c mcp_servers.crt.env={PROBE_LOG='C:\Projects\Claude\review-tool\docs\spikes\codex-2026-09\probe\out\after-kill-killed.probe.log', PROBE_PORT='47123'} --image C:\Projects\Claude\review-tool\docs\spikes\codex-2026-09\probe\red.png --sandbox read-only -C C:\Projects\Claude\crt-codex-spike-repo -   (prompt on stdin)
+# NOTE: killed with taskkill /T /F 6 s after thread.started, while the model was still reasoning; resumed in resume-after-kill.jsonl
+{"type":"thread.started","thread_id":"01a0a4ca-bf96-7012-a0e2-4af3465e39aa"}
+{"type":"turn.started"}
+# exit code 1 (signal null) after 6520 ms

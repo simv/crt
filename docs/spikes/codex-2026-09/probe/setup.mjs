@@ -1,14 +1,13 @@
-// One-time setup for the spike: a scratch git repo with an AGENTS.md (in the OS temp dir, or $SPIKE_REPO) and a tiny PNG
+// One-time setup for the spike: a scratch git repo with an AGENTS.md (a sibling of this repo — the Windows sandbox denied a %TEMP% short path — or $SPIKE_REPO) and a tiny PNG
 // for --image (./red.png). Idempotent. usage: node setup.mjs
 import { spawnSync } from "node:child_process";
 import { deflateSync } from "node:zlib";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const repo = process.env.SPIKE_REPO || join(tmpdir(), "crt-codex-spike-repo");
+const repo = process.env.SPIKE_REPO || join(here, "..", "..", "..", "..", "..", "crt-codex-spike-repo");
 
 if (!existsSync(join(repo, ".git"))) {
   mkdirSync(repo, { recursive: true });
