@@ -1,10 +1,10 @@
 ---
 id: CRT-0007
 title: Note textarea loses focus on every keystroke
-status: review
+status: done
 priority: high
 created: 2026-09-15T13:20:00+08:00
-updated: 2026-09-15T13:36:00+08:00
+updated: 2026-09-15T13:40:00+08:00
 url: null
 route: null
 session: null
@@ -37,3 +37,4 @@ The chat textarea (`ChatPanel`) was never affected — nothing re-renders it on 
 - 2026-09-15T13:20+08:00 — claimed; reproduced with a per-keystroke Playwright test (focus lost after the first key).
 - 2026-09-15T13:30+08:00 — fixed `renderPanel` to reconcile in place (stale rows removed first, positional `insertBefore` only when a row's index changed). Focus test passes; capture + chat specs pass (24/24).
 - 2026-09-15T13:36+08:00 — verified: `npm run check` exits 0 (typecheck, lint, 122 unit tests, overlay + server build). Ready for review.
+- 2026-09-15T13:40+08:00 — done; merged in https://github.com/simv/crt/pull/13
