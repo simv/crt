@@ -1,0 +1,7 @@
+# codex-cli 0.154.0 — recorded 2026-09-15 on win32 (CRT-0009 spike, docs/spikes/codex-2026-09.md)
+# command: codex.exe exec resume 01a0a4ca-bf96-7012-a0e2-4af3465e39aa --json -c approval_policy="never" -c mcp_servers.crt.default_tools_approval_mode="approve" -c model_reasoning_effort="low" -c mcp_servers.crt.command='C:\Program Files\nodejs\node.exe' -c mcp_servers.crt.args=['C:\Projects\Claude\review-tool\docs\spikes\codex-2026-09\probe\mcp-probe.mjs'] -c mcp_servers.crt.env={PROBE_LOG='C:\Projects\Claude\review-tool\docs\spikes\codex-2026-09\probe\out\after-kill-resumed.probe.log', PROBE_PORT='47123'} --image C:\Projects\Claude\review-tool\docs\spikes\codex-2026-09\probe\red.png -c sandbox_mode="read-only" -   (prompt on stdin; cwd = C:\Projects\Claude\crt-codex-spike-repo)
+{"type":"thread.started","thread_id":"01a0a4ca-bf96-7012-a0e2-4af3465e39aa"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"You asked me to ping CRT with `turn one`, run `Get-ChildItem Env:CODEX*`, quote its output, and reply in at most three short lines."}}
+{"type":"turn.completed","usage":{"input_tokens":26231,"cached_input_tokens":25344,"cache_write_input_tokens":0,"output_tokens":79,"reasoning_output_tokens":12}}
+# exit code 0 (signal null) after 6276 ms

@@ -1,0 +1,9 @@
+# codex-cli 0.154.0 — recorded 2026-09-15 on win32 (CRT-0009 spike, docs/spikes/codex-2026-09.md)
+# command: codex.exe exec resume 01a0a4ca-1dff-7f52-b571-4aad430f5d30 --json -c approval_policy="never" -c mcp_servers.crt.default_tools_approval_mode="approve" -c model_reasoning_effort="low" -c mcp_servers.crt.command='C:\Program Files\nodejs\node.exe' -c mcp_servers.crt.args=['C:\Projects\Claude\review-tool\docs\spikes\codex-2026-09\probe\mcp-probe.mjs'] -c mcp_servers.crt.env={PROBE_LOG='C:\Projects\Claude\review-tool\docs\spikes\codex-2026-09\probe\out\resume.probe.log', PROBE_PORT='47123'} --image C:\Projects\Claude\review-tool\docs\spikes\codex-2026-09\probe\red.png -c sandbox_mode="read-only" -   (prompt on stdin; cwd = C:\Projects\Claude\crt-codex-spike-repo)
+{"type":"thread.started","thread_id":"01a0a4ca-1dff-7f52-b571-4aad430f5d30"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","type":"mcp_tool_call","server":"crt","tool":"crt_ping","arguments":{"message":"turn two"},"result":null,"error":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_0","type":"mcp_tool_call","server":"crt","tool":"crt_ping","arguments":{"message":"turn two"},"result":{"content":[{"type":"text","text":"listener replied 200: pong #7"}],"structured_content":null},"error":null,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"listener replied 200: pong #7\n\nPrevious ping message: `turn one`"}}
+{"type":"turn.completed","usage":{"input_tokens":67284,"cached_input_tokens":61312,"cache_write_input_tokens":0,"output_tokens":357,"reasoning_output_tokens":30}}
+# exit code 0 (signal null) after 7366 ms

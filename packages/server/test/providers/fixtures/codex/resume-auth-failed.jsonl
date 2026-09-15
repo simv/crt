@@ -1,0 +1,8 @@
+# codex-cli 0.154.0 — recorded 2026-09-15 on Windows 11 (CRT-0009 spike, docs/spikes/codex-2026-09.md)
+# command: codex.exe exec resume 01a0a4b1-dccf-7620-bc39-0d1297f547f2 --json -c approval_policy="never" -c model_reasoning_effort="low" -c mcp_servers.crt.* (as above) --image red.png -c sandbox_mode="read-only" -   (prompt on stdin; cwd = <repo>, resume has no -C/--sandbox)
+# exit code 1 after 3221 ms; thread.started carries the SAME thread_id as first-turn-auth-failed.jsonl
+# happy-path recording pending: resume.jsonl
+{"type":"thread.started","thread_id":"01a0a4b1-dccf-7620-bc39-0d1297f547f2"}
+{"type":"turn.started"}
+{"type":"error","message":"Your access token could not be refreshed. Please log out and sign in again."}
+{"type":"turn.failed","error":{"message":"Your access token could not be refreshed. Please log out and sign in again."}}
