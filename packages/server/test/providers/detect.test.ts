@@ -62,7 +62,7 @@ async function registry(opts: { root: string; env?: NodeJS.ProcessEnv; config?: 
 const detect = (dir: string, preflights: Record<string, PreflightResult>, env: NodeJS.ProcessEnv = {}) => formatDecision(detectProvider({ root: dir, env, profiles: profiles(), preflights }));
 
 describe("marker scan (F-44 step 3)", () => {
-  it("finds directory and file markers in the root only, names only, in profile order", () => {
+  it("finds directory and file markers in the root only, names only, in profile order (F-44)", () => {
     const dir = root(".claude/", "CLAUDE.md", "AGENTS.md", "packages/web/.codex/", "CLAUDE.md.bak");
     expect(scanMarkers(dir, profiles())).toEqual({ claude: [".claude/", "CLAUDE.md", "AGENTS.md"], codex: ["AGENTS.md"] });
     // A file named like a directory marker (and vice versa) does not count.
@@ -111,7 +111,7 @@ describe("auto-detection (F-44)", () => {
     expect(detect(root("AGENTS.md"), { claude: CLAUDE_OK, codex: CODEX_NOT_ON_PATH }, { CODEX_THREAD_ID: "x" })).toBe("claude — AGENTS.md; codex not on PATH");
   });
 
-  it("this repo → `→ claude — .claude/, CLAUDE.md` (M7 DoD)", () => {
+  it("this repo → `→ claude — .claude/, CLAUDE.md`, the M7 DoD line (F-44, F-45)", () => {
     expect(detect(REPO_ROOT, both)).toBe("claude — .claude/, CLAUDE.md");
   });
 });
@@ -213,7 +213,7 @@ describe("resolution order (F-43)", () => {
 });
 
 describe("crt providers (F-45, F-57)", () => {
-  it("prints one row per built-in profile and the decision line, in the exact F-45 layout", async () => {
+  it("prints one row per built-in profile and the decision line, in the exact layout (F-45)", async () => {
     const r = await registry({ root: root(".claude/", "CLAUDE.md", "AGENTS.md"), profiles: profiles({ ...CLAUDE_OK, version: null }, CODEX_NOT_ON_PATH) });
     expect(renderProviders(r.status(), r.detection())).toBe(
       [
@@ -239,7 +239,7 @@ describe("crt providers (F-45, F-57)", () => {
     expect(lines[2]).toBe("→ claude — codex too old (0.100.0)");
   });
 
-  it("--json returns the F-57 payload without stub, hints or the human state", async () => {
+  it("--json returns the payload without stub, hints or the human state (F-45, F-57)", async () => {
     const r = await registry({ root: root("AGENTS.md"), env: { CRT_PROVIDER: "claude" } });
     const payload = r.payload();
     expect(payload).toEqual({

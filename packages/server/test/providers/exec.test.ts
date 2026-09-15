@@ -36,14 +36,14 @@ function fakeNpmInstall(bin: string, name = "codex"): string {
 }
 
 describe("parseNpmShim (F-53, N-10)", () => {
-  it("extracts the JS entry from a .cmd shim and from an sh shim, relative to the shim's directory", () => {
+  it("extracts the JS entry from a .cmd shim and from an sh shim, relative to the shim's directory (F-53, N-10)", () => {
     const cmd = parseNpmShim(CMD_SHIM("node_modules\\@openai\\codex\\bin\\codex.js"), "C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd", "win32");
     expect(cmd).toBe("C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\bin\\codex.js");
     const sh = parseNpmShim(SH_SHIM("node_modules/@openai/codex/bin/codex.js"), "/usr/local/bin/codex", "linux");
     expect(sh).toBe("/usr/local/bin/node_modules/@openai/codex/bin/codex.js");
   });
 
-  it("returns null for anything that is not npm-shaped", () => {
+  it("returns null for anything that is not npm-shaped (N-10)", () => {
     expect(parseNpmShim('@echo off\r\n"C:\\real\\codex.exe" %*', "C:\\bin\\codex.cmd", "win32")).toBeNull();
     expect(parseNpmShim("#!/bin/sh\nexec /opt/codex/codex \"$@\"", "/usr/bin/codex", "linux")).toBeNull();
     expect(parseNpmShim("", "/usr/bin/codex", "linux")).toBeNull();
@@ -55,7 +55,7 @@ const WIN = process.platform === "win32";
 // The PATH scans use the platform's own path rules and real files, so each platform's branch runs
 // on its own CI runner (windows-latest / ubuntu-latest, N-10); parseNpmShim above covers both anywhere.
 describe("findOnPath / resolveExecutable (F-53, N-10)", () => {
-  it.skipIf(!WIN)("on Windows prefers <name>.exe over a shim, across the whole PATH, honouring PATHEXT", () => {
+  it.skipIf(!WIN)("on Windows prefers <name>.exe over a shim, across the whole PATH, honouring PATHEXT (F-53, N-10)", () => {
     const shimDir = join(tmp, "npm");
     const exeDir = join(tmp, "bin");
     mkdirSync(shimDir);
@@ -70,7 +70,7 @@ describe("findOnPath / resolveExecutable (F-53, N-10)", () => {
     expect(findOnPath("nothing", "win32", env)).toBeNull();
   });
 
-  it.skipIf(!WIN)("on Windows runs an npm .cmd shim's JS entry with our own Node and never returns the .cmd itself", () => {
+  it.skipIf(!WIN)("on Windows runs an npm .cmd shim's JS entry with our own Node and never returns the .cmd itself (F-53, N-10)", () => {
     const shimDir = join(tmp, "npm");
     mkdirSync(shimDir);
     const entry = fakeNpmInstall(shimDir);
@@ -81,7 +81,7 @@ describe("findOnPath / resolveExecutable (F-53, N-10)", () => {
     expect(findOnPath("other", "win32", { PATH: shimDir, PATHEXT: ".EXE;.CMD" })).toBeNull();
   });
 
-  it.skipIf(WIN)("on POSIX runs an npm sh shim's JS entry with our own Node and a plain executable directly", () => {
+  it.skipIf(WIN)("on POSIX runs an npm sh shim's JS entry with our own Node and a plain executable directly (F-53, N-10)", () => {
     const bin = join(tmp, "bin");
     mkdirSync(bin);
     const entry = fakeNpmInstall(bin);
@@ -111,7 +111,7 @@ describe("findOnPath / resolveExecutable (F-53, N-10)", () => {
 });
 
 describe("runExecutable / killProcessTree (F-53, N-10)", () => {
-  it("runs a resolved executable without a shell and reports exit code and output", async () => {
+  it("runs a resolved executable without a shell and reports exit code and output (N-10)", async () => {
     const exe = { command: process.execPath, args: ["-e", "console.log('v ' + process.argv[1]); console.error('warn'); process.exit(Number(process.argv[2] ?? 0))"], via: "shim" as const, found: "x" };
     expect(await runExecutable(exe, ["1.2.3"])).toEqual({ status: 0, stdout: "v 1.2.3\n", stderr: "warn\n", error: null });
     expect(await runExecutable(exe, ["1.2.3", "3"])).toMatchObject({ status: 3, error: null });
@@ -120,7 +120,7 @@ describe("runExecutable / killProcessTree (F-53, N-10)", () => {
     expect(await runExecutable(slow, [], { timeoutMs: 200 })).toMatchObject({ status: null, error: "timed out" });
   });
 
-  it("kills a process and its children (taskkill /T on Windows, the process group on POSIX)", async () => {
+  it("kills a process and its children (taskkill /T on Windows, the process group on POSIX) (F-53, N-10)", async () => {
     // A parent that spawns a child; both idle until killed.
     const script = "const { spawn } = require('node:child_process'); const c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }); process.stdout.write(String(c.pid)); setInterval(() => {}, 1000);";
     const parent = spawn(process.execPath, ["-e", script], { stdio: ["ignore", "pipe", "ignore"], detached: process.platform !== "win32", windowsHide: true });
