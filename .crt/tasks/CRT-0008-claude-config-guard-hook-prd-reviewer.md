@@ -1,10 +1,10 @@
 ---
 id: CRT-0008
 title: Claude Code config — convention guard hook and prd-reviewer subagent
-status: review
+status: done
 priority: normal
 created: 2026-09-15T14:45:00+08:00
-updated: 2026-09-15T15:05:00+08:00
+updated: 2026-09-15T15:10:00+08:00
 url: null
 route: null
 session: null
@@ -43,3 +43,4 @@ The guard's SDK rule is scoped to product scripts (`packages/*/src/**`, `plugin/
 - 2026-09-15T14:57+08:00 — verified: `npm run check` exits 0 — typecheck, 129 unit tests (7 new in guard-hook.test.ts), overlay + server build (DoD 4).
 - 2026-09-15T15:03+08:00 — verified: headless run delegating to prd-reviewer — `subagent_stats.by_type` `{"prd-reviewer":1}`, report covered sections 2–6 and ended `PR-READY WITH NOTES` (DoD 3).
 - 2026-09-15T15:05+08:00 — ready for review: changed .claude/settings.json, .claude/hooks/guard.mjs, .claude/agents/prd-reviewer.md, packages/server/test/guard-hook.test.ts; reviewer's only notes are test-title IDs (no ID exists for PRD §12) and this task file, now added.
+- 2026-09-15T15:10+08:00 — done; merged in https://github.com/simv/crt/pull/16
