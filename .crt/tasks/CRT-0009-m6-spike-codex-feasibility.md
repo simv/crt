@@ -1,10 +1,10 @@
 ---
 id: CRT-0009
 title: M6 — Spike: Codex CLI feasibility on Windows (exec --json, MCP under sandbox, resume)
-status: in_progress
+status: review
 priority: high
 created: 2026-09-15T17:30:00+08:00
-updated: 2026-09-15T18:45:16+08:00
+updated: 2026-09-15T19:05:15+08:00
 url: null
 route: null
 session: null
@@ -33,7 +33,7 @@ No page capture: this is a research task created from PRD-providers milestone M6
 - [ ] Manual (Simon): every question in the Ask has a verdict in `docs/spikes/codex-2026-09.md`, with the tested `codex --version` at the top.
 - [ ] Manual (Simon): the MCP-under-sandbox verdict is explicit (reachable / unreachable + fallback), and F-53 in `docs/PRD-providers.md` is amended in the same PR if the fallback is needed.
 - [ ] `packages/server/test/providers/fixtures/codex/` contains at least a first-turn run, a resume run and a resume-after-kill run; a unit test `fixtures parse and contain thread.started, item.completed, turn.completed (F-53)` passes.
-- [ ] `npm run check` passes.
+- [x] `npm run check` passes. — Worker: typecheck + 134 unit tests (1 skipped: the happy-path fixture test, see Log) + build, green on Windows.
 
 ## Notes
 This task is mostly Manual: it needs a logged-in Codex CLI, which `/crt:next` does not have. The worker should create the fixtures directory, the parsing test and the spike doc skeleton, leave the Manual items unticked, set `review`, and name them in its reply (PRD-providers §8). Simon fills in the runs.
@@ -41,3 +41,9 @@ This task is mostly Manual: it needs a logged-in Codex CLI, which `/crt:next` do
 ## Log
 - 2026-09-15T17:30+08:00 — created from PRD-providers milestone M6 by the planning session that wrote docs/PRD-providers.md.
 - 2026-09-15T18:45:16+08:00 — claimed by worker session 069dc8c8-12a5-4ea6-bc01-4eae478e3f7e. Branched from `docs/prd-providers` (PR #17, still open) because the task file does not exist on `main` yet; the PR for this task is stacked on that branch.
+- 2026-09-15T19:05:15+08:00 — worker hand-over. The CLI installed cleanly and `login status` said logged in, so the worker ran the spike itself instead of only scaffolding it; the stored ChatGPT refresh token (from May) is stale, so every model turn ended in `error` + `turn.failed` — everything that happens before the model is contacted was still observable and is recorded.
+  - **Changed:** `docs/spikes/codex-2026-09.md` (verdict table + verbatim output per Ask item); `docs/spikes/codex-2026-09/probe/*.mjs` (setup, listener, MCP probe, runner, kill probe, sandbox env dump, binary strings scan — re-runnable) + `.gitignore` for its output; `packages/server/test/providers/fixtures/codex/{first-turn-auth-failed,resume-auth-failed,first-turn-killed,resume-after-kill-auth-failed}.jsonl` (real recordings with `#` headers); `packages/server/test/providers/codex-fixtures.test.ts`; one "M6 verdicts" bullet under F-53 in `docs/PRD-providers.md`.
+  - **Verdicts observed on this machine:** the stdio MCP server IS spawned by `exec --sandbox read-only` and DOES reach 127.0.0.1 (HTTP 200) — no fallback needed. `exec` rejects `--ask-for-approval` (exit 2) → `-c approval_policy="never"`. `exec resume` rejects `--sandbox` and `-C` → `-c sandbox_mode="read-only"` + spawn with cwd = project. Resume re-emits the same `thread_id`; an unknown non-UUID id silently starts a new thread; unknown UUID → exit 1 with a stderr error. `taskkill /T /F` mid-turn then resume works (kills the MCP child too). `login status` exits 0/1 but does not validate the token; `codex doctor` neither. Windows sandbox inherits the full env and adds no `CODEX_*` → `launchEnv: []`. Skills: `.agents/skills` (project) / `~/.codex/skills` (user). Telemetry: `-c analytics.enabled=false` (validated with `--strict-config`).
+  - **DoD:** item 4 ticked. Items 1–2 are Manual (Simon) and left unticked per the Notes; item 2 is fully evidenced (reachable, F-53 amended) and needs only confirmation; item 1 has three sub-questions that need a valid login (model calls the tool and the POST reaches the listener; text deltas vs whole `item.completed`; `CODEX_*` in model-run shells) — each has its exact command in the spike doc. Item 3 unticked: the recorded fixtures cover the auth-failed path and are tested (header, event order, same thread id on resume, kill shape); the three happy-path files `first-turn.jsonl`, `resume.jsonl`, `resume-after-kill.jsonl` need `codex login` first, and the named test `fixtures parse and contain thread.started, item.completed, turn.completed (F-53)` is `it.skipIf` until all three exist, then runs for real.
+  - **Simon's steps:** `codex login`; `cd docs/spikes/codex-2026-09/probe && node setup.mjs`; start `node listener.mjs 47123 <log>`; `node spike.mjs first-turn turn1`; `node spike.mjs resume resume <thread_id>`; `node kill.mjs after-kill 4000`; copy `out/first-turn.jsonl`, `out/resume.jsonl`, `out/after-kill-resumed.jsonl` (as `resume-after-kill.jsonl`) into the fixtures dir; fill the three Manual rows in the spike doc; tick items 1–3.
+  - **Decisions:** PR stacked on `docs/prd-providers` (PR #17) because the task file is not on `main`. F-53 amended with a pointer bullet only (flag deltas per §12 rule 1), not rewritten. `model_reasoning_effort="low"` used in spike runs for speed (it is in the recorded command lines). Scratch repo lives in the OS temp dir so no nested git repo lands in this repo. Global `npm i -g @openai/codex` was performed as the Ask instructs.
