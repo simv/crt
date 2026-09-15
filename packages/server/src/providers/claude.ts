@@ -30,7 +30,7 @@ import {
   tool,
 } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod/v4";
-import { PERMISSION_TIMEOUT_MS } from "./permissions.js";
+import { PERMISSION_TIMEOUT_MS } from "../permissions.js";
 import type {
   SessionDriver,
   SessionEvent,
@@ -38,7 +38,7 @@ import type {
   StartSessionOptions,
   UserInput,
   WriteTaskRequest,
-} from "./session-events.js";
+} from "../session-events.js";
 
 export const CRT_MCP_SERVER = "crt";
 export const WRITE_TASK_TOOL = "write_task";

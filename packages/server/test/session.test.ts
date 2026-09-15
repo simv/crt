@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import type { SessionEvent } from "../src/session-events.js";
-import { describeInput, describeSessionError, loginProblem, startSession, toolLabel } from "../src/session.js";
+import { describeInput, describeSessionError, loginProblem, startSession, toolLabel } from "../src/providers/claude.js";
 
 // Pure helpers always run. The real Agent SDK session (PRD §12 smoke test) runs only when a
 // Claude login is available: CLAUDE_CODE_OAUTH_TOKEN, a CLI credentials file, or CRT_SESSION_SMOKE=1.

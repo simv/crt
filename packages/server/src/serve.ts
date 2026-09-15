@@ -14,7 +14,7 @@ import { CrtError } from "./errors.js";
 import { initProject, readConfig } from "./init.js";
 import { findProjectRoot } from "./project.js";
 import { createProxyServer } from "./proxy.js";
-import { startSession } from "./session.js";
+import { startSession } from "./providers/claude.js";
 import type { SessionStarter } from "./session-events.js";
 import { startStubSession } from "./session-stub.js";
 import { SessionRegistry } from "./sessions.js";
