@@ -43,9 +43,58 @@ crt serve [--target <url>] [--port <n>] [--open]
 | `--port <n>` | `4400` (or `port` in `.crt/config.json`) | Port CRT listens on. Always bound to `127.0.0.1`. |
 | `--open` | off | Open the CRT URL in your default browser once ready. |
 
-On success it prints one line — `CRT ready at http://localhost:4400 → http://localhost:3000 (project: C:\my-app, 3 tasks)` — and keeps running until Ctrl+C. `crt serve` first runs `crt init`, which creates `.crt/tasks/`, `.crt/config.json` and adds `.crt/captures/` to `.gitignore` (idempotent). If the target is down, no dev server can be found, or the port is taken, it prints a single `crt: …` line telling you what to do and exits non-zero.
+On success it prints one line — `CRT ready at http://localhost:4400 → http://localhost:3000 (project: C:\my-app, 3 tasks)` — and keeps running until Ctrl+C. `crt serve` first runs `crt init`, which creates `.crt/tasks/`, `.crt/config.json` and adds `.crt/captures/` to `.gitignore` (idempotent). Every failure is a single `crt: …` line on stderr and a non-zero exit — see [Troubleshooting](#troubleshooting) for what each one means.
 
 Through the proxy, HTML responses get `<script src="/__crt/overlay.js" defer>` injected (compressed responses are decompressed first), WebSocket upgrades such as Next.js and Vite HMR pass straight through, and `http://localhost:4400/__crt/health` reports the detected target and project root. All CRT routes live under `/__crt/`.
+
+## Troubleshooting
+
+Each `crt serve` failure is one line on stderr, prefixed `crt: `, followed by a non-zero exit. `<…>` below marks values filled in at runtime.
+
+### No dev server found
+
+```
+crt: no dev server found on ports 3000, 5173, 8080, 4200, 8000, 3001 — start it, or pass --target <url>
+```
+
+You ran `crt serve` without `--target` and without `target` in `.crt/config.json`, and nothing answered HTTP on any of the probed ports. Start your dev server first, or point CRT at it explicitly with `--target <url>` (or set `target` in `.crt/config.json`).
+
+### Target unreachable
+
+```
+crt: target <origin> is not responding — start your dev server there or pass --target <url>
+```
+
+CRT had an explicit target — from `--target` or from `.crt/config.json` — but the connection was refused or timed out after 1.5s. Check the dev server really is up on that host and port (any HTTP status counts as up, so a 404 is fine) and that the port is not a typo.
+
+### Target not a valid URL
+
+```
+crt: target "<value>" is not a valid URL — use e.g. --target http://localhost:3000
+crt: target "<value>" must be http:// or https://
+```
+
+The `--target` value (or `target` in `.crt/config.json`) could not be parsed as a URL; the second line means it parsed but used some other scheme. Pass a bare port (`3000`), a host and port (`localhost:3000`) or a full `http://`/`https://` URL.
+
+### Port in use
+
+```
+crt: port <port> is already in use — stop the other process or pass --port <n>
+```
+
+Something else — usually a `crt serve` you left running — already holds CRT's listen port on `127.0.0.1`. Stop that process, or run CRT on another port with `--port <n>` (or set `port` in `.crt/config.json`); any other bind failure prints `crt: cannot listen on 127.0.0.1:<port> (<code>)` instead.
+
+### No Claude login (shown in the page, not on the CLI)
+
+```
+not logged in to Claude Code — run `claude` in a terminal and complete /login (or set CLAUDE_CODE_OAUTH_TOKEN), then send again
+```
+
+The proxy started fine, but the Claude Code session behind **Send to Claude** has no usable credentials, so the error arrives in the in-page chat. Run `claude` in a terminal and complete `/login` (or set `CLAUDE_CODE_OAUTH_TOKEN`), then send your note again — no need to restart `crt serve`.
+
+### No `.git` in the project
+
+Not an error. CRT uses the nearest ancestor of the launch directory that contains `.git` as the project root and falls back to the launch directory itself, so `.crt/` is created wherever you ran `crt serve`. If the `project:` path in the ready line (or in `/__crt/health`) is not where you want `.crt/tasks/` to live, run `crt serve` from your project root — or `git init` it.
 
 ## Repository
 
