@@ -37,6 +37,8 @@ Run each against `git diff main...HEAD` (added lines only) and report file:line 
 | Nothing leaves the machine except Claude API calls (N-4) | new `fetch(`, `http.request(`, `https.`, `WebSocket(` to a non-target, non-loopback host; any analytics/telemetry |
 | Server writes only under `.crt/` and the OS temp dir (N-5, CLAUDE.md) | `writeFile`, `mkdir`, `rename`, `rm`, `appendFile`, `createWriteStream` whose path is not derived from the `.crt` dir, `tmpdir()`, or (in `init.ts`) the project `.gitignore` |
 | Agent SDK only in `session.ts` (CLAUDE.md, PRD §12) | an import or require of the `claude-agent-sdk` package in any script other than `packages/server/src/session.ts` (the PreToolUse guard hook blocks this at edit time; confirm nothing slipped in via Bash) |
+| Agent SDK pinned exactly (CLAUDE.md, PRD §12) | the `claude-agent-sdk` entry in `packages/server/package.json` gaining a `^`, `~` or range |
+| Intake instructions have one source (CLAUDE.md) | any change under `packages/server/dist/` or to `intake.md` — edit `plugin/skills/intake/SKILL.md` instead |
 | Windows-first (N-1, CLAUDE.md) | string-concatenated or template-literal paths with `/` or `\\` instead of `node:path`; `spawn`/`exec` with `shell: true` or without `shell: false`; `"\r\n"` written to files; `process.platform` branches without a Windows case |
 | Overlay: no globals but `window.__crt`, Shadow DOM only (CLAUDE.md) | `window.<anything>` / `globalThis.<anything>` assignment other than `__crt`; `document.body.append`/`innerHTML` outside the shadow root; a framework import in `packages/overlay` |
 | Node built-ins over dependencies (CLAUDE.md) | a new entry in any `dependencies`/`devDependencies` — ask what real code it removes |
