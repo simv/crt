@@ -224,6 +224,6 @@ npm run e2e     # Playwright smoke: fixture app behind a real `crt serve` (needs
 
 Plugin changes: `claude plugin validate ./plugin` (and `.` for the marketplace) must pass — CI runs both. To try a local skill edit before it is on `main`, run `claude --plugin-dir ./plugin` in the project you are testing against, or `claude plugin marketplace add ./` from a fresh profile (`CLAUDE_CONFIG_DIR=<empty dir>`).
 
-Release: bump `version` in `packages/server/package.json` (and the plugin manifests), merge, then `git tag v<version> && git push origin v<version>`. The `release` workflow checks the tag matches the package version, runs `npm run check`, publishes `claude-review-tool` to npm with provenance (repo secret `NPM_TOKEN`) and creates a GitHub Release with generated notes.
+Release: bump `version` in `packages/server/package.json` (and the plugin manifests), merge, then `git tag v<version> && git push origin v<version>`. The `release` workflow checks the tag matches the package version, runs `npm run check`, publishes `claude-review-tool` to npm (repo secret `NPM_TOKEN`; no provenance while the repo is private) and creates a GitHub Release with generated notes.
 
 License: MIT.
