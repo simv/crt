@@ -512,14 +512,22 @@ export class OverlayUI {
     }
   }
 
+  /**
+   * Reconcile the note rows in place. Every keystroke in a note re-renders (the store notifies
+   * on `setNote`), and detaching a focused textarea — even to re-insert the same node — blurs
+   * it, so rows are patched where they stand and only moved when their position changed.
+   */
   private renderPanel(items: Annotation[]): void {
     this.panel.hidden = !this.open || items.length === 0 || this.chat.isOpen() || !this.sessions.hidden;
     const active = this.root.activeElement as HTMLTextAreaElement | null;
-    const activeN = active?.closest<HTMLElement>(".item")?.dataset.n;
+    const activeId = active?.closest<HTMLElement>(".item")?.dataset.id;
+    const keep = new Set(items.map((a) => a.id));
     const existing = new Map<string, HTMLElement>();
-    for (const el of Array.from(this.panel.querySelectorAll<HTMLElement>(".item"))) existing.set(el.dataset.id!, el);
-    const frag = document.createDocumentFragment();
-    for (const a of items) {
+    for (const el of Array.from(this.panel.querySelectorAll<HTMLElement>(".item"))) {
+      if (keep.has(el.dataset.id!)) existing.set(el.dataset.id!, el);
+      else el.remove();
+    }
+    items.forEach((a, i) => {
       let el = existing.get(a.id);
       if (!el) {
         el = document.createElement("div");
@@ -531,10 +539,9 @@ export class OverlayUI {
       (el.querySelector(".num") as HTMLElement).textContent = String(a.n);
       (el.querySelector(".label") as HTMLElement).textContent = describeAnnotation(a);
       const ta = el.querySelector("textarea") as HTMLTextAreaElement;
-      if (ta.value !== a.note && activeN !== String(a.n)) ta.value = a.note;
-      frag.appendChild(el);
-    }
-    this.panel.replaceChildren(frag);
+      if (ta.value !== a.note && activeId !== a.id) ta.value = a.note;
+      if (this.panel.children[i] !== el) this.panel.insertBefore(el, this.panel.children[i] ?? null);
+    });
   }
 
   private renderMarkers(items: Annotation[]): void {

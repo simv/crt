@@ -87,9 +87,15 @@ test.describe("chat panel (F-24, F-25, F-26, F-28, F-29)", () => {
     await expect(shadow(page, ".tool .out").nth(1)).toHaveText("12 passing");
     await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
 
-    // Multi-turn input (F-25): Enter sends.
-    await shadow(page, ".chat-input textarea").fill("write");
-    await shadow(page, ".chat-input textarea").press("Enter");
+    // Multi-turn input (F-25): typed key by key (focus must survive every keystroke), Enter sends.
+    const input = shadow(page, ".chat-input textarea");
+    await expect(input).toBeFocused();
+    for (const key of "write") {
+      await page.keyboard.press(key);
+      await expect(input).toBeFocused();
+    }
+    await expect(input).toHaveValue("write");
+    await input.press("Enter");
     await expect(shadow(page, ".msg.user").nth(1)).toHaveText("write");
     await expect(shadow(page, ".chat-task")).toBeVisible();
     await expect(shadow(page, ".chat-task b")).toHaveText(/^CRT-\d{4}$/);
