@@ -1,10 +1,10 @@
 ---
 id: CRT-0010
 title: M7 — Provider abstraction, server side (profiles, resolution, detection, crt providers)
-status: backlog
+status: in_progress
 priority: normal
 created: 2026-09-15T17:30:00+08:00
-updated: 2026-09-15T17:30:00+08:00
+updated: 2026-09-15T19:53:49+08:00
 url: null
 route: null
 session: null
@@ -44,3 +44,4 @@ Keep the move of `session.ts` as a pure rename in its own commit so the diff is 
 
 ## Log
 - 2026-09-15T17:30+08:00 — created from PRD-providers milestone M7 by the planning session that wrote docs/PRD-providers.md.
+- 2026-09-15T19:53:49+08:00 — claimed by worker session 1ae79ebd-6306-4dec-b6d4-d31301c3f184
