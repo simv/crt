@@ -6,14 +6,16 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { startFixture, type Fixture } from "../e2e/fixture/server.mjs";
 import { writeCapture } from "../src/captures.js";
 import { createProxyServer } from "../src/proxy.js";
+import { stubProfile } from "../src/providers/stub.js";
+import { ProviderRegistry } from "../src/session.js";
 import type { SessionEvent } from "../src/session-events.js";
-import { startStubSession } from "../src/session-stub.js";
 import { SessionRegistry } from "../src/sessions.js";
-import { validateTaskText } from "../src/tasks.js";
+import { parseTask, validateTaskText } from "../src/tasks.js";
 import { samplePost } from "./helpers/sample-capture.js";
 
-// The registry and its /__crt/sessions routes, driven by the scripted stub (session-stub.ts).
-// The real driver is exercised by session.test.ts when a Claude login is available.
+// The registry and its /__crt/sessions routes, driven by the scripted stub (providers/stub.ts),
+// selected through the real provider resolution with CRT_SESSION_STUB=1 (F-43 step 0).
+// The Claude driver is exercised by session.test.ts when a Claude login is available.
 
 let fixture: Fixture;
 let proxy: Server;
@@ -26,11 +28,13 @@ beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), "crt-sessions-"));
   mkdirSync(join(root, ".crt", "tasks"), { recursive: true });
   fixture = await startFixture();
+  const providers = new ProviderRegistry({ root, env: { CRT_SESSION_STUB: "1" }, log: (l) => logs.push(l) });
+  await providers.refresh();
   registry = new SessionRegistry({
     projectRoot: root,
     tasksDir: join(root, ".crt", "tasks"),
     intakePrompt: "INTAKE $ARGUMENTS",
-    start: startStubSession,
+    providers,
     permissionTimeoutMs: 400,
     log: (l) => logs.push(l),
   });
@@ -109,8 +113,9 @@ describe("session routes (F-24, F-25, F-29)", () => {
     const r = await api("POST", "/__crt/sessions", { captureId: cap.id });
     expect(r.status).toBe(201);
     expect(r.json.id).toMatch(/^[0-9a-f-]{36}$/);
-    expect(r.json.session).toMatchObject({ captureId: cap.id, state: "starting", taskId: null });
-    expect(logs.at(-1)).toContain(`claude --resume ${r.json.id as string}`);
+    // F-47: the provider is known at once, the native id only from the init event.
+    expect(r.json.session).toMatchObject({ captureId: cap.id, state: "starting", taskId: null, provider: "stub", nativeSessionId: null });
+    expect(logs.at(-1)).toContain(`session ${r.json.id as string} started on stub`);
 
     expect((await api("POST", "/__crt/sessions", { captureId: "20200101-000000-dead" })).status).toBe(404);
     expect((await api("POST", "/__crt/sessions", { captureId: 42 })).status).toBe(400);
@@ -130,6 +135,12 @@ describe("session routes (F-24, F-25, F-29)", () => {
     expect(types[0]).toBe("user");
     expect(first.events[0]).toMatchObject({ type: "user", text: expect.stringContaining(`CRT intake for capture ${cap.id}`), images: ["viewport (annotated)", "annotation 1", "annotation 2"] });
     expect(types).toContain("init");
+    // F-47: the init event carries the provider identity; the registry learns the native id from it.
+    const init = first.events.find((e) => e.type === "init") as Extract<SessionEvent, { type: "init" }>;
+    expect(init).toMatchObject({ sessionId: id, nativeSessionId: id, provider: "stub", displayName: stubProfile.displayName, model: "stub-model", agentVersion: "stub", resumeCommand: stubProfile.resumeCommand(id), capabilities: stubProfile.capabilities });
+    expect(registry.get(id)?.nativeSessionId).toBe(id);
+    // F-63: the resume hint in the log comes from the profile, not from a hard-coded "claude --resume".
+    expect(logs.find((l) => l.includes(`session ${id} is`))).toContain(stubProfile.resumeCommand(id)!);
     expect(types).toContain("assistant_start");
     expect(types.filter((t) => t === "text").length).toBeGreaterThan(3);
     expect(first.events.find((e) => e.type === "tool_use")).toMatchObject({ name: "Read", label: "Read src/components/Cart.tsx" });
@@ -174,7 +185,13 @@ describe("session routes (F-24, F-25, F-29)", () => {
     // F-23 / F-32 / F-34 on disk
     const file = join(root, written.path);
     expect(validateTaskText(readFileSync(file, "utf8"), "CRT-0001-cart-total-excludes-applied-discount.md")).toEqual([]);
-    expect(readFileSync(file, "utf8")).toContain(`session: ${id}`);
+    // F-48: session is the native id, provider follows it, and the Log names both.
+    const task = parseTask(readFileSync(file, "utf8"));
+    expect(task.frontmatter).toMatchObject({ session: id, provider: "stub" });
+    expect(readFileSync(file, "utf8")).toContain(`session: ${id}
+provider: stub
+`);
+    expect(task.sections.Log).toContain(`created by intake session ${id} (stub) from capture ${cap.id}.`);
     expect(readdirSync(join(root, ".crt", "tasks", "assets", "CRT-0001"))).toContain("viewport.png");
     expect(existsSync(cap.dir)).toBe(false);
     expect(readFileSync(join(root, ".crt", "tasks", "README.md"), "utf8")).toContain("[CRT-0001]");
@@ -257,6 +274,25 @@ describe("session routes (F-24, F-25, F-29)", () => {
     const got = await collect(`/__crt/sessions/${id}/events`, (e) => e.type === "user");
     expect((got.events[0] as { text: string }).text).not.toContain("Quick note");
     registry.close(id);
+  });
+
+  it("an explicitly requested provider that cannot be used fails the session at once with the N-7 line (F-43)", async () => {
+    // A registry without the stub env: claude is listed but its preflight has not run, so it fails.
+    const providers = new ProviderRegistry({ root, env: {}, log: () => undefined });
+    const strict = new SessionRegistry({ projectRoot: root, tasksDir: join(root, ".crt", "tasks"), intakePrompt: "x", providers });
+    const cap = writeCapture(root, samplePost());
+    const info = strict.create(cap.id, { provider: "nope" });
+    expect(info).toMatchObject({ provider: "nope", state: "starting" });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(strict.get(info.id)?.state).toBe("error");
+    const events: SessionEvent[] = [];
+    strict.subscribe(info.id, 0, (_seq, e) => events.push(e));
+    expect(events[0]).toEqual({ type: "error", message: 'provider "nope" is not a built-in provider (claude, codex)' });
+    expect(events[1]).toMatchObject({ type: "state", state: "error" });
+    // F-30: the row stays listable and the session cannot be driven.
+    expect(strict.list().map((s) => s.id)).toContain(info.id);
+    expect(strict.send(info.id, "hi")).toBe(false);
+    strict.closeAll();
   });
 
   it("answers 503 when the server has no session registry", async () => {

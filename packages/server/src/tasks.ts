@@ -2,9 +2,10 @@
  * Task store (PRD §6.5: F-31 ids, F-32 file format, F-33 listing, F-34 index; F-23 asset move).
  *
  * A task is `<tasksDir>/<ID>-<slug>.md`: YAML frontmatter (a fixed set of scalar/list keys — the
- * tiny parser below handles exactly the subset the format uses) followed by seven `##` sections in
- * a fixed order. IDs are allocated by scanning the directory for the highest existing one, so
- * there is no counter file to conflict on. `README.md` in the same directory is a generated table
+ * tiny parser below handles exactly the subset the format uses; unknown keys are ignored since
+ * v0.2, PRD-providers F-48) followed by seven `##` sections in a fixed order. IDs are allocated
+ * by scanning the directory for the highest existing one, so there is no counter file to
+ * conflict on. `README.md` in the same directory is a generated table
  * and is rewritten whenever a task is created or `crt tasks` notices it is stale.
  * Everything is written with `\n` line endings.
  */
@@ -29,6 +30,7 @@ export const FRONTMATTER_KEYS = [
   "url",
   "route",
   "session",
+  "provider",
   "tags",
   "files",
 ] as const;
@@ -48,7 +50,10 @@ export interface TaskFrontmatter {
   updated: string;
   url: string | null;
   route: string | null;
+  /** The provider's own session id (PRD-providers §5.4), or null. */
   session: string | null;
+  /** Provider that wrote the task (F-48); null in v0.1 files. */
+  provider: string | null;
   tags: string[];
   files: string[];
 }
@@ -65,6 +70,8 @@ export interface TaskSummary {
   priority: TaskPriority;
   title: string;
   updated: string;
+  /** F-48: `provider:` when present (v0.1 files have none). */
+  provider: string | null;
   /** File name inside the tasks directory. */
   file: string;
 }
@@ -245,11 +252,11 @@ export function validateTaskText(text: string, fileName?: string): string[] {
   str("url", true);
   str("route", true);
   str("session", true);
+  // F-48: `provider:` is optional (v0.1 files) and, like any key this version does not know,
+  // never a reason to reject the file.
+  if (d.provider !== undefined && Array.isArray(d.provider)) errors.push('frontmatter: "provider" must be a scalar');
   list("tags");
   list("files");
-  for (const key of Object.keys(d)) {
-    if (!(FRONTMATTER_KEYS as readonly string[]).includes(key)) errors.push(`frontmatter: unknown key "${key}"`);
-  }
   if (fileName !== undefined) {
     const fm2 = TASK_FILE_RE.exec(fileName);
     if (!fm2) errors.push(`file name "${fileName}" is not CRT-NNNN-<slug>.md`);
@@ -301,6 +308,7 @@ export function parseTask(text: string, fileName?: string): Task {
       url: n("url"),
       route: n("route"),
       session: n("session"),
+      provider: n("provider"),
       tags: data.tags as string[],
       files: data.files as string[],
     },
@@ -322,6 +330,7 @@ export function serializeTask(task: Task): string {
     `url: ${yamlScalar(f.url)}`,
     `route: ${yamlScalar(f.route)}`,
     `session: ${yamlScalar(f.session)}`,
+    `provider: ${yamlScalar(f.provider)}`,
     `tags: ${yamlList(f.tags)}`,
     `files: ${yamlList(f.files)}`,
     "---",
@@ -398,6 +407,7 @@ export function listTasks(tasksDir: string): TaskSummary[] {
       priority: typeof d.priority === "string" && (TASK_PRIORITIES as readonly string[]).includes(d.priority) ? (d.priority as TaskPriority) : "normal",
       title: d.title,
       updated: typeof d.updated === "string" ? d.updated : "",
+      provider: typeof d.provider === "string" ? d.provider : null,
       file: name,
     });
   }
@@ -453,8 +463,10 @@ export interface NewTaskInput {
   priority?: TaskPriority;
   tags?: string[];
   files?: string[];
-  /** Intake session id (frontmatter `session`, and named in the first Log entry). */
+  /** The provider's own session id (frontmatter `session`, and named in the first Log entry; §5.4). */
   session: string | null;
+  /** Provider id (frontmatter `provider`, and the suffix of the first Log entry; F-48). Omit for v0.1 wording. */
+  provider?: string | null;
   /** Capture whose assets move to `.crt/tasks/assets/<ID>/` and whose page info fills url/route/Evidence. */
   captureId?: string | null;
 }
@@ -500,7 +512,7 @@ export function createTask(root: string, tasksDir: string, input: NewTaskInput, 
 
   const stamp = localIso(now);
   const dod = input.definitionOfDone.map((d) => d.trim()).filter(Boolean).map((d) => (/^- \[[ x]\]/i.test(d) ? d : `- [ ] ${d.replace(/^-\s*/, "")}`));
-  const who = input.session ? `intake session ${input.session}` : "intake";
+  const who = `${input.session ? `intake session ${input.session}` : "intake"}${input.provider ? ` (${input.provider})` : ""}`;
   const task: Task = {
     frontmatter: {
       id,
@@ -512,6 +524,7 @@ export function createTask(root: string, tasksDir: string, input: NewTaskInput, 
       url: capture?.page.url ?? null,
       route: capture?.framework.route ?? capture?.page.pathname ?? null,
       session: input.session,
+      provider: input.provider ?? null,
       tags: (input.tags ?? []).map((t) => t.trim()).filter(Boolean),
       files: (input.files ?? []).map((f) => f.trim()).filter(Boolean),
     },

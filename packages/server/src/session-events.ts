@@ -1,8 +1,9 @@
 /**
- * The contract between an intake session and the chat panel (PRD F-25, F-26, F-28, F-29).
- * `session.ts` (real, on the Agent SDK) and `session-stub.ts` (scripted, for e2e) both produce
- * these events; `sessions.ts` numbers them and streams them over SSE; the overlay imports only
- * the types. Nothing here depends on the SDK, so this file is safe for the overlay bundle.
+ * The contract between an intake session and the chat panel (PRD F-25, F-26, F-28, F-29;
+ * PRD-providers F-42, F-46, F-47). Every provider driver under `providers/` (Claude on the Agent
+ * SDK, the scripted stub, Codex from CRT-0012) produces these events; `sessions.ts` numbers them
+ * and streams them over SSE; the overlay imports only the types. Nothing here depends on the SDK
+ * or on any provider module, so this file is safe for the overlay bundle.
  */
 
 export type SessionState =
@@ -35,9 +36,44 @@ export interface UserInput {
   images?: UserImage[];
 }
 
+/**
+ * F-46: what a provider can do; the overlay adapts its chrome to it (M8). Reference values are
+ * in PRD-providers F-46; each profile declares its own in `providers/<id>.ts`.
+ */
+export interface ProviderCapabilities {
+  /** Partial text (deltas) rather than whole messages. */
+  streaming: boolean;
+  /** Emits tool_use / tool_result events. */
+  toolEvents: boolean;
+  /** `interactive`: Allow/Deny cards (F-26); `sandboxed`: the agent's own read-only sandbox; `none`. */
+  permissions: "interactive" | "sandboxed" | "none";
+  /** How images reach the agent: base64 in the message, a file path, or not at all. */
+  images: "inline" | "path" | "none";
+  /** The session can be continued in a terminal (`resumeCommand` on init). */
+  resume: boolean;
+  /** `interrupt()` does something (F-29). */
+  interrupt: boolean;
+  /** Where the intake instructions go: the system prompt, or prepended to the first message (F-51). */
+  instructions: "system" | "first-message";
+}
+
 export type SessionEvent =
   | { type: "state"; state: SessionState; detail?: string }
-  | { type: "init"; sessionId: string; model: string; cwd: string; claudeCodeVersion: string }
+  /**
+   * F-47: emitted once the provider's own session id is known. `sessionId` is CRT's registry
+   * key; `nativeSessionId` is what the developer can resume (equal for Claude and the stub).
+   */
+  | {
+      type: "init";
+      sessionId: string;
+      nativeSessionId: string;
+      provider: string;
+      displayName: string;
+      model: string | null;
+      agentVersion: string | null;
+      resumeCommand: string | null;
+      capabilities: ProviderCapabilities;
+    }
   /** Echo of a developer message, so a reconnecting panel can rebuild the transcript. */
   | { type: "user"; text: string; images: string[] }
   | { type: "assistant_start"; messageId: string }
@@ -60,9 +96,13 @@ export type SessionEvent =
   | { type: "task_written"; id: string; path: string }
   | { type: "error"; message: string };
 
-/** What the server knows about a session without replaying its events (F-30). */
+/** What the server knows about a session without replaying its events (F-30, F-47). */
 export interface SessionInfo {
   id: string;
+  /** Provider profile id the session runs on (F-43). */
+  provider: string;
+  /** The provider's own session id; null until the `init` event (PRD-providers §5.4). */
+  nativeSessionId: string | null;
   captureId: string | null;
   startedAt: string;
   state: SessionState;
@@ -89,7 +129,7 @@ export interface WriteTaskRequest {
   files?: string[];
 }
 
-/** One intake session as seen by the registry: the real driver and the stub implement this. */
+/** One intake session as seen by the registry: every provider driver implements this (F-42). */
 export interface SessionDriver {
   readonly id: string;
   /** Queue a developer message (starts the next turn). */
@@ -104,7 +144,7 @@ export interface SessionDriver {
 }
 
 export interface StartSessionOptions {
-  /** Session UUID; resumable later with `claude --resume <id>` (F-28). */
+  /** CRT session UUID (the registry key); Claude uses it as its own session id (F-28, §5.4). */
   id: string;
   /** Project root: the session's cwd (PRD goal 6). */
   cwd: string;

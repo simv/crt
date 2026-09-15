@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,6 +51,7 @@ function sampleTask(): Task {
       url: "http://localhost:3000/cart?promo=SAVE10",
       route: "/cart",
       session: "7a3d0000-0000-4000-8000-000000000000",
+      provider: "claude",
       tags: ["cart", "pricing"],
       files: ["src/components/Cart.tsx", "src/lib/pricing.ts"],
     },
@@ -61,7 +62,7 @@ function sampleTask(): Task {
       Ask: "Apply the discount to the total.",
       "Definition of Done": "- [ ] Total applies the discount\n- [ ] Test covers it",
       Notes: "None.",
-      Log: "- 2026-09-14T10:32+08:00 — created by intake session 7a3d…",
+      Log: "- 2026-09-14T10:32+08:00 — created by intake session 7a3d… (claude)",
     },
   };
 }
@@ -174,10 +175,11 @@ Do it.
         'frontmatter: missing "route"',
         'frontmatter: missing "session"',
         'frontmatter: "tags" must be a list like [a, b]',
-        'frontmatter: unknown key "extra"',
         "file name id CRT-0007 does not match frontmatter id CRT-7",
       ]),
     );
+    // F-48: unknown keys are ignored since v0.2, so a newer CRT never breaks an older reader again.
+    expect(errors.some((e) => /unknown key/.test(e))).toBe(false);
     expect(errors.find((e) => e.startsWith("sections must be exactly"))).toBeDefined();
     expect(validateTaskText("no frontmatter")).toEqual(["missing YAML frontmatter (--- … ---) at the top of the file"]);
   });
@@ -271,6 +273,7 @@ describe("createTask (F-23, F-31, F-32, F-34)", () => {
     tags: ["cart"],
     files: ["src/components/Cart.tsx"],
     session: "7a3d0000-0000-4000-8000-000000000000",
+    provider: "claude",
   };
 
   it("writes a valid file, moves the capture's assets, fills url/route/Evidence and regenerates the index", () => {
@@ -290,6 +293,7 @@ describe("createTask (F-23, F-31, F-32, F-34)", () => {
       url: "http://localhost:4400/cart?promo=SAVE10#top",
       route: "/cart",
       session: input.session,
+      provider: "claude",
       tags: ["cart"],
       files: ["src/components/Cart.tsx"],
     });
@@ -300,7 +304,8 @@ describe("createTask (F-23, F-31, F-32, F-34)", () => {
     expect(task.sections.Evidence).toContain('Annotation 1 — `<span id="total" class="cart-total">` in `CartSummary` (src/components/Cart.tsx:88), selector `#total`: "total excludes discount"');
     expect(task.sections.Evidence).toContain('Annotation 2 — pin at (300, 400): "missing a coupon field here"');
     expect(task.sections.Evidence).toContain("Failed requests at send time: 1 (first: GET /api/cart/promo → 500) — see capture.json.");
-    expect(task.sections.Log).toBe(`- ${logStamp(NOW)} — created by intake session ${input.session} from capture ${capture.id}.`);
+    // F-48: the first Log bullet names the native session id and the provider.
+    expect(task.sections.Log).toBe(`- ${logStamp(NOW)} — created by intake session ${input.session} (claude) from capture ${capture.id}.`);
 
     // F-23: assets moved, capture dir gone
     expect(readdirSync(created.assetsDir!).sort()).toEqual(["ann-1.png", "ann-2.png", "capture.json", "viewport-annotated.png", "viewport.png"]);
@@ -323,5 +328,75 @@ describe("createTask (F-23, F-31, F-32, F-34)", () => {
     expect(() => createTask(root, tasksDir, { ...input, title: " ", definitionOfDone: [] }, NOW)).toThrow(/title is required; definitionOfDone/);
     expect(() => createTask(root, tasksDir, { ...input, captureId: "20260101-000000-dead" }, NOW)).toThrow(/capture 20260101-000000-dead not found/);
     expect(readdirSync(tasksDir)).toEqual([]);
+  });
+
+  it("keeps the v0.1 wording when no provider is given (F-48)", () => {
+    const { provider: _provider, ...v01 } = input;
+    const created = createTask(root, tasksDir, { ...v01, session: null }, NOW);
+    const text = readFileSync(created.path, "utf8");
+    expect(text).toContain("\nsession: null\nprovider: null\n");
+    expect(parseTask(text).sections.Log).toBe(`- ${logStamp(NOW)} — created by intake.`);
+  });
+});
+
+describe("golden task (PRD-providers M7 DoD, F-48)", () => {
+  /** The file the v0.1 code produced for this exact input, recorded before the provider work started. */
+  const GOLDEN_V01 = fileURLToPath(new URL("./fixtures/golden/task-v0.1.md", import.meta.url));
+  const CAPTURE_ID = "20260915-103200-g01d";
+  const SESSION = "7a3d0000-0000-4000-8000-000000000000";
+
+  it("a task rendered from a fixed request with clock, session and capture stubbed equals the v0.1 golden plus `provider: claude` and the Log suffix (F-48)", () => {
+    // Stub the capture id: writeCapture salts it, so rename the directory to the fixed one.
+    const cap = writeCapture(root, samplePost(), NOW);
+    renameSync(cap.dir, join(root, ".crt", "captures", CAPTURE_ID));
+    const created = createTask(
+      root,
+      tasksDir,
+      {
+        title: "Cart total excludes applied discount",
+        summary: "The cart total ignores the SAVE10 promo that the page shows as applied.",
+        context: "Reproduce: open /cart?promo=SAVE10. `CartSummary` (src/components/Cart.tsx:88) renders `subtotal` instead of `total`.",
+        ask: "Render the discounted total and cover it with a unit test.",
+        definitionOfDone: ["Cart total applies the promo discount", "Unit test covers the discounted total"],
+        notes: "Golden fixture; nothing was read from disk.",
+        tags: ["cart", "pricing"],
+        files: ["src/components/Cart.tsx"],
+        session: SESSION,
+        provider: "claude",
+        captureId: CAPTURE_ID,
+      },
+      NOW,
+    );
+    // The golden was recorded at +08:00; only the offset depends on the machine running the test.
+    const offset = localIso(NOW).slice(-6);
+    const golden = readFileSync(GOLDEN_V01, "utf8").split("+08:00").join(offset);
+    const expected = golden
+      .replace(`session: ${SESSION}\n`, `session: ${SESSION}\nprovider: claude\n`)
+      .replace(`created by intake session ${SESSION} from capture`, `created by intake session ${SESSION} (claude) from capture`);
+    expect(expected).not.toBe(golden);
+    expect(readFileSync(created.path, "utf8")).toBe(expected);
+  });
+
+  it("a v0.1 task file (no provider key) still validates and parses with provider null (F-48)", () => {
+    const text = readFileSync(GOLDEN_V01, "utf8");
+    expect(validateTaskText(text, "CRT-0001-cart-total-excludes-applied-discount.md")).toEqual([]);
+    const task = parseTask(text);
+    expect(task.frontmatter.provider).toBeNull();
+    expect(task.frontmatter.session).toBe(SESSION);
+    // A future key is ignored too, not rejected.
+    expect(validateTaskText(text.replace("session:", "future_key: whatever\nsession:"))).toEqual([]);
+    expect(validateTaskText(text.replace("session:", "provider: [a, b]\nsession:"))).toEqual(['frontmatter: "provider" must be a scalar']);
+  });
+
+  it("listTasks and crt tasks --json carry provider, null for v0.1 files (F-48)", () => {
+    writeFileSync(join(tasksDir, "CRT-0001-cart-total-excludes-applied-discount.md"), readFileSync(GOLDEN_V01, "utf8"));
+    const t = sampleTask();
+    t.frontmatter.id = "CRT-0002";
+    t.frontmatter.provider = "codex";
+    writeFileSync(join(tasksDir, "CRT-0002-cart-total-excludes-applied-discount.md"), serializeTask(t));
+    expect(listTasks(tasksDir).map((x) => [x.id, x.provider])).toEqual([
+      ["CRT-0001", null],
+      ["CRT-0002", "codex"],
+    ]);
   });
 });

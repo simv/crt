@@ -1,10 +1,11 @@
 /**
- * Intake session on the Claude Agent SDK (PRD §5.3, F-24…F-29, N-6).
+ * The `claude` provider: an intake session on the Claude Agent SDK (PRD §5.3, F-24…F-29, N-6;
+ * PRD-providers F-52). The v0.1 driver, unchanged in behaviour, plus its profile (F-42).
  *
  * This is the only module that imports `@anthropic-ai/claude-agent-sdk` (CLAUDE.md, PRD §12).
- * It exposes one function, `startSession`, that returns a `SessionDriver` (session-events.ts);
- * everything above it — the registry, SSE, the panel — talks to that interface only, so the SDK
- * surface used here stays small and swappable:
+ * It exposes `claudeProfile` and `startSession`, which returns a `SessionDriver`
+ * (session-events.ts); everything above it — the registry, SSE, the panel — talks to that
+ * interface only, so the SDK surface used here stays small and swappable:
  *
  *   query({ prompt: <async iterable of user messages>, options })   streaming input (F-25)
  *   options: cwd, sessionId, settingSources, systemPrompt preset+append, includePartialMessages,
@@ -13,9 +14,14 @@
  *
  * Messages consumed: system/init, stream_event (text deltas), assistant (tool_use blocks),
  * user (tool_result blocks), result, auth_status.
+ *
+ * Preflight (F-52): the SDK's bundled `claude` binary resolves → installed; login is only known
+ * once a session starts (`loginProblem`), so `loggedIn` is "unknown"; the version is the SDK's.
  */
 import { randomUUID } from "node:crypto";
-import { relative } from "node:path";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join, relative } from "node:path";
 import {
   type CanUseTool,
   createSdkMcpServer,
@@ -32,6 +38,7 @@ import {
 import { z } from "zod/v4";
 import { PERMISSION_TIMEOUT_MS } from "../permissions.js";
 import type {
+  ProviderCapabilities,
   SessionDriver,
   SessionEvent,
   SessionState,
@@ -39,6 +46,7 @@ import type {
   UserInput,
   WriteTaskRequest,
 } from "../session-events.js";
+import type { PreflightResult, ProviderProfile } from "./types.js";
 
 export const CRT_MCP_SERVER = "crt";
 export const WRITE_TASK_TOOL = "write_task";
@@ -46,6 +54,59 @@ export const WRITE_TASK_TOOL = "write_task";
 export const WRITE_TASK_TOOL_FULL = `mcp__${CRT_MCP_SERVER}__${WRITE_TASK_TOOL}`;
 
 const STDERR_TAIL_LINES = 30;
+const SDK_PACKAGE = "@anthropic-ai/claude-agent-sdk";
+
+/** F-46 reference values for Claude Code. */
+export const CLAUDE_CAPABILITIES: ProviderCapabilities = {
+  streaming: true,
+  toolEvents: true,
+  permissions: "interactive",
+  images: "inline",
+  resume: true,
+  interrupt: true,
+  instructions: "system",
+};
+
+/** F-42/F-52: the `claude` profile. Markers per F-44; `CLAUDECODE` is what Claude Code sets in its shells. */
+export const claudeProfile: ProviderProfile = {
+  id: "claude",
+  displayName: "Claude",
+  agentName: "Claude Code (Agent SDK)",
+  markers: { private: [".claude/", "CLAUDE.md"], shared: ["AGENTS.md"] },
+  launchEnv: ["CLAUDECODE"],
+  hints: { install: "reinstall claude-review-tool (npm install)", login: "run `claude` in a terminal and complete /login" },
+  capabilities: CLAUDE_CAPABILITIES,
+  telemetryOptOut: [],
+  preflight: async () => claudePreflight(),
+  resumeCommand: (id) => `claude --resume ${id}`,
+  start: startSession,
+};
+
+/**
+ * F-52: the SDK ships the CLI as `@anthropic-ai/claude-agent-sdk-<platform>-<arch>/claude[.exe]`;
+ * if that package is missing the install is broken (the N-6 line `describeSessionError` prints).
+ */
+export function claudePreflight(platform: NodeJS.Platform = process.platform, arch: string = process.arch): PreflightResult {
+  const require = createRequire(import.meta.url);
+  let version: string | null = null;
+  try {
+    const sdkMain = require.resolve(SDK_PACKAGE);
+    version = (JSON.parse(readFileSync(join(dirname(sdkMain), "package.json"), "utf8")) as { version?: string }).version ?? null;
+  } catch {
+    // resolution below reports the problem
+  }
+  try {
+    require.resolve(`${SDK_PACKAGE}-${platform}-${arch}/claude${platform === "win32" ? ".exe" : ""}`);
+  } catch {
+    return {
+      installed: false,
+      loggedIn: "unknown",
+      version,
+      problem: `Claude Code binary not found — reinstall claude-review-tool (\`npm install\`) so ${SDK_PACKAGE}-${platform}-${arch} is present`,
+    };
+  }
+  return { installed: true, loggedIn: "unknown", version, problem: null };
+}
 
 /** Streaming-input source for `query()`: a queue the panel pushes user messages into. */
 class InputQueue implements AsyncIterable<SDKUserMessage> {
@@ -221,7 +282,18 @@ export function startSession(opts: StartSessionOptions): SessionDriver {
     switch (msg.type) {
       case "system":
         if (msg.subtype === "init") {
-          emit({ type: "init", sessionId: msg.session_id, model: msg.model, cwd: msg.cwd, claudeCodeVersion: msg.claude_code_version });
+          // F-47: Claude Code adopted CRT's UUID as its own session id, so the native id is `opts.id`.
+          emit({
+            type: "init",
+            sessionId: opts.id,
+            nativeSessionId: msg.session_id,
+            provider: claudeProfile.id,
+            displayName: claudeProfile.displayName,
+            model: msg.model,
+            agentVersion: msg.claude_code_version,
+            resumeCommand: claudeProfile.resumeCommand(msg.session_id),
+            capabilities: CLAUDE_CAPABILITIES,
+          });
           setState("running");
         }
         return;

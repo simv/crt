@@ -2,11 +2,12 @@
 /**
  * CRT command-line entry point.
  *
- * Commands (see docs/PRD.md §6):
- *   crt serve [--target <url>] [--port <n>] [--open]   F-1, F-5
- *   crt init                                           F-35
- *   crt tasks [--json]                                 F-33 (also refreshes the README index, F-34)
- *   crt task <ID> [--validate]                         F-33 (F-32 format check)
+ * Commands (see docs/PRD.md §6 and docs/PRD-providers.md §6):
+ *   crt serve [--target <url>] [--port <n>] [--open] [--provider <id>]   F-1, F-5, F-43
+ *   crt init                                                             F-35
+ *   crt tasks [--json]                                                   F-33 (also refreshes the README index, F-34)
+ *   crt task <ID> [--validate]                                           F-33 (F-32 format check)
+ *   crt providers [--json] [--refresh]                                   F-45 (every provider's state + the F-44 decision)
  *
  * Every failure is one `crt: <message>` line on stderr and a non-zero exit (N-6).
  */
@@ -18,16 +19,18 @@ import { CrtError } from "./errors.js";
 import { initProject, readConfig } from "./init.js";
 import { findProjectRoot } from "./project.js";
 import { serve } from "./serve.js";
+import { ProviderRegistry, renderProviders } from "./session.js";
 import { findTaskFile, listTasks, validateTaskText, writeIndex } from "./tasks.js";
 
 const USAGE = [
   "crt — Claude Review Tool",
   "",
   "Usage:",
-  "  crt serve [--target <url>] [--port <n>] [--open]",
+  "  crt serve [--target <url>] [--port <n>] [--open] [--provider <id>]",
   "  crt init",
   "  crt tasks [--json]",
   "  crt task <ID> [--validate]",
+  "  crt providers [--json] [--refresh]",
 ].join("\n");
 
 async function main(argv: string[]): Promise<number> {
@@ -38,6 +41,7 @@ async function main(argv: string[]): Promise<number> {
         target: stringFlag(flags.target, "--target <url>"),
         port: portFlag(flags.port),
         open: flags.open === true,
+        provider: stringFlag(flags.provider, "--provider <id>"),
         overlayPath: fileURLToPath(new URL("./overlay.js", import.meta.url)),
         intakePromptPath: fileURLToPath(new URL("./intake.md", import.meta.url)),
       });
@@ -72,8 +76,11 @@ async function main(argv: string[]): Promise<number> {
       }
       const statusW = Math.max(...tasks.map((t) => t.status.length));
       const priorityW = Math.max(...tasks.map((t) => t.priority.length));
+      const providerW = Math.max(...tasks.map((t) => (t.provider ?? "").length));
       for (const t of tasks) {
-        console.log(`${t.id}  ${t.status.padEnd(statusW)}  ${t.priority.padEnd(priorityW)}  ${t.title}  (${t.updated.slice(0, 10)})`);
+        // F-48: the provider as one word after the status (blank for v0.1 files, column omitted when none has one).
+        const provider = providerW ? `${(t.provider ?? "").padEnd(providerW)}  ` : "";
+        console.log(`${t.id}  ${t.status.padEnd(statusW)}  ${provider}${t.priority.padEnd(priorityW)}  ${t.title}  (${t.updated.slice(0, 10)})`);
       }
       const backlog = tasks.filter((t) => t.status === "backlog").length;
       console.log(`${tasks.length} task${tasks.length === 1 ? "" : "s"}, ${backlog} in backlog`);
@@ -96,6 +103,19 @@ async function main(argv: string[]): Promise<number> {
         return 0;
       }
       process.stdout.write(text);
+      return 0;
+    }
+    case "providers": {
+      // F-45: one row per built-in profile and the F-44 decision. A CLI run is always fresh, so
+      // --refresh (which bypasses a running server's cache) is accepted and changes nothing here.
+      const root = findProjectRoot();
+      const providers = new ProviderRegistry({ root, config: readConfig(root) });
+      await providers.refresh();
+      if (flags.json === true) {
+        console.log(JSON.stringify(providers.payload(), null, 2));
+        return 0;
+      }
+      console.log(renderProviders(providers.status(), providers.detection()));
       return 0;
     }
     case undefined:

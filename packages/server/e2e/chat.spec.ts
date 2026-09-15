@@ -1,13 +1,15 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
+import { stubProfile } from "../src/providers/stub.js";
 import type { SessionEvent } from "../src/session-events.js";
-import { validateTaskText, writeIndex } from "../src/tasks.js";
+import { parseTask, validateTaskText, writeIndex } from "../src/tasks.js";
 
 // M3 (task CRT-0003 Ask 7): Send opens the chat panel on an intake session. The server runs
-// with CRT_SESSION_STUB=1 (e2e/fixture/crt.mjs), so the events come from the scripted driver in
-// src/session-stub.ts rather than the Agent SDK, but the transport (SSE), the permission policy
-// (F-26), the task writer (F-23, F-32, F-34) and the panel (F-25, F-28, F-29) are the real ones.
+// with CRT_SESSION_STUB=1 (e2e/fixture/crt.mjs), so the `stub` provider is resolved (F-43 step 0)
+// and the events come from the scripted driver in src/providers/stub.ts rather than the Agent
+// SDK, but the transport (SSE), the permission policy (F-26), the task writer (F-23, F-32, F-34)
+// and the panel (F-25, F-28, F-29) are the real ones.
 
 type Snapshot = { sessionId: string | null; state: string | null; taskId: string | null; events: SessionEvent[] };
 type Hooks = {
@@ -64,10 +66,10 @@ test.describe("chat panel (F-24, F-25, F-26, F-28, F-29)", () => {
     await expect(shadow(page, ".perm .t")).toHaveText("Bash npm test");
     await expect(shadow(page, ".perm pre")).toHaveText("npm test");
     await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "waiting");
-    // F-28: session id + resume hint.
+    // F-28/F-47: session id + the resume hint, which comes from the session's own init event (F-63: read from the profile).
     const snap = await page.evaluate(() => window.__crt.chat.snapshot());
     expect(snap.sessionId).toMatch(/^[0-9a-f-]{36}$/);
-    await expect(shadow(page, ".chat-foot")).toContainText(`claude --resume ${snap.sessionId}`);
+    await expect(shadow(page, ".chat-foot")).toContainText(stubProfile.resumeCommand(snap.sessionId!)!);
     await expect(shadow(page, ".chat-foot")).toContainText("stub-model");
 
     await shadow(page, ".perm button.deny").click();
@@ -111,7 +113,8 @@ test.describe("chat panel (F-24, F-25, F-26, F-28, F-29)", () => {
     try {
       const text = readFileSync(file, "utf8");
       expect(validateTaskText(text, `${written.id}-cart-total-excludes-applied-discount.md`)).toEqual([]);
-      expect(text).toContain(`session: ${snap.sessionId}`);
+      // F-48: session is the native id (the stub's equals CRT's) and provider names the stub.
+      expect(parseTask(text).frontmatter).toMatchObject({ session: snap.sessionId, provider: stubProfile.id });
       expect(text).toContain(`![viewport (annotated)](assets/${written.id}/viewport-annotated.png)`);
       expect(existsSync(join(tasksDir, "assets", written.id, "viewport.png"))).toBe(true);
       expect(readFileSync(join(tasksDir, "README.md"), "utf8")).toContain(`[${written.id}]`);
