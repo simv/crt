@@ -90,10 +90,36 @@ describe("codex fixtures (F-53, M6)", () => {
         expect(t, name).toContain("thread.started");
         expect(t, name).toContain("item.completed");
         expect(t, name).toContain("turn.completed");
+        expect(t.at(-1), `${name} ends with turn.completed`).toBe("turn.completed");
       }
       // resume runs continue the first turn's thread
       const first = threadId(parseFixture("first-turn.jsonl").events);
       expect(threadId(parseFixture("resume.jsonl").events)).toBe(first);
+      expect(threadId(parseFixture("resume-after-kill.jsonl").events)).toBe(
+        threadId(parseFixture("first-turn-killed-live.jsonl").events),
+      );
     },
   );
+
+  type Item = { type: string; status?: string; tool?: string; server?: string; text?: string };
+  const items = (events: CodexEvent[], type: string) =>
+    events.filter((e) => e.type === type).map((e) => e.item as Item);
+
+  it.skipIf(!happyPathRecorded)("write_task-shaped MCP calls complete under approval_policy=never only with default_tools_approval_mode=approve (F-53)", () => {
+    const ok = items(parseFixture("first-turn.jsonl").events, "item.completed").find((i) => i.type === "mcp_tool_call");
+    expect(ok).toMatchObject({ server: "crt", tool: "crt_ping", status: "completed" });
+    const denied = items(parseFixture("first-turn-mcp-approval-denied.jsonl").events, "item.completed").find((i) => i.type === "mcp_tool_call");
+    expect(denied).toMatchObject({ status: "failed" });
+    expect(JSON.stringify(denied)).toMatch(/requires approval, but approval policy is never/);
+  });
+
+  it.skipIf(!happyPathRecorded)("agent text arrives whole in item.completed agent_message — no delta events (F-53)", () => {
+    const events = parseFixture("first-turn.jsonl").events;
+    const messages = items(events, "item.completed").filter((i) => i.type === "agent_message");
+    expect(messages.length).toBeGreaterThan(0);
+    expect(typeof messages[0].text).toBe("string");
+    expect(types(events).filter((t) => /delta|item\.updated/.test(t))).toEqual([]);
+    // command_execution and mcp_tool_call get item.started first; agent_message does not
+    expect(items(events, "item.started").map((i) => i.type)).toEqual(["mcp_tool_call", "command_execution"]);
+  });
 });

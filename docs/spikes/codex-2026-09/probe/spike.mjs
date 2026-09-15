@@ -7,12 +7,11 @@
 //      RUN_CWD (set automatically to the scratch repo for resume), OUT_DIR (default ./out)
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const repo = process.env.SPIKE_REPO || join(tmpdir(), "crt-codex-spike-repo");
+const repo = process.env.SPIKE_REPO || join(here, "..", "..", "..", "..", "..", "crt-codex-spike-repo");
 const NODE = process.execPath;
 const PORT = process.env.PROBE_PORT || "47123";
 
@@ -43,6 +42,9 @@ const mcpFlags = [
 const common = [
   "--json",
   "-c", `approval_policy="never"`, // `codex exec --ask-for-approval` is rejected (exit 2) on 0.154.0
+  // Without this, every MCP tool call fails under approval_policy=never:
+  // "MCP tool call requires approval, but approval policy is never" (observed 0.154.0).
+  "-c", `mcp_servers.crt.default_tools_approval_mode="approve"`,
   "-c", `model_reasoning_effort="low"`, // spike only: Simon's config.toml says xhigh
   ...mcpFlags,
   "--image", join(here, "red.png"),
