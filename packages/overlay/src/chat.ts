@@ -1,11 +1,13 @@
 /**
- * Chat panel (PRD F-25, F-26, F-28, F-29): streams an intake session's events over SSE, renders
- * assistant text as it arrives (markdown-ish), shows tool calls as collapsed lines, permission
- * requests as Allow / Deny cards, and takes multi-turn input. The current session id is kept in
- * sessionStorage so a reload re-opens the panel and replays the transcript from the server.
- * Framework-free; renders inside the overlay's Shadow DOM.
+ * Chat panel (PRD F-14, F-25, F-26, F-28, F-29, F-30): streams an intake session's events over
+ * SSE, renders assistant text as it arrives (markdown-ish), shows tool calls as collapsed lines,
+ * permission requests as Allow / Deny cards, and takes multi-turn input. The current session id
+ * is kept in sessionStorage so a reload re-opens the panel and replays the transcript from the
+ * server. A quick-note session (F-14) is followed with the panel hidden; it opens itself only
+ * when Claude needs the developer. Framework-free; renders inside the overlay's Shadow DOM.
  */
-import type { SessionEvent, SessionState } from "../../server/src/session-events.js";
+import type { SessionEvent, SessionInfo, SessionState } from "../../server/src/session-events.js";
+import { crtUrl } from "./base.js";
 import { ACCENT } from "./screenshot.js";
 
 export const SESSIONS_ENDPOINT = "/__crt/sessions";
@@ -80,7 +82,20 @@ export interface ChatSnapshot {
   sessionId: string | null;
   state: SessionState | null;
   taskId: string | null;
+  /** F-14: following a quick-note session with the panel hidden. */
+  quiet: boolean;
   events: SessionEvent[];
+}
+
+/** F-14: what a quietly followed session did. */
+export type QuietOutcome =
+  | { kind: "task"; id: string; path: string }
+  /** The panel opened itself: Claude asked a question, needs a permission, or failed. */
+  | { kind: "attention"; reason: string };
+
+export interface ChatCallbacks {
+  onVisibility(open: boolean): void;
+  onQuiet(outcome: QuietOutcome): void;
 }
 
 export class ChatPanel {
@@ -101,10 +116,11 @@ export class ChatPanel {
   /** Placeholder shown between assistant_start and the first visible output (model thinking). */
   private thinking: HTMLElement | null = null;
   private lastSeq = 0;
-  private onVisibility: (open: boolean) => void;
+  private quiet = false;
+  private readonly callbacks: ChatCallbacks;
 
-  constructor(parent: HTMLElement, onVisibility: (open: boolean) => void) {
-    this.onVisibility = onVisibility;
+  constructor(parent: HTMLElement, callbacks: ChatCallbacks) {
+    this.callbacks = callbacks;
     this.el = document.createElement("div");
     this.el.className = "chat";
     this.el.hidden = true;
@@ -140,17 +156,18 @@ export class ChatPanel {
   // ---- public ---------------------------------------------------------------------------------
 
   snapshot(): ChatSnapshot {
-    return { sessionId: this.sessionId, state: this.state, taskId: this.taskId, events: this.events.slice() };
+    return { sessionId: this.sessionId, state: this.state, taskId: this.taskId, quiet: this.quiet, events: this.events.slice() };
   }
 
   isOpen(): boolean {
     return !this.el.hidden;
   }
 
-  /** F-13/F-24: start an intake session for a saved capture and open the panel on it. */
-  async startFromCapture(captureId: string): Promise<string> {
-    const id = await this.createSession(captureId);
-    this.open(id);
+  /** F-13/F-24: start an intake session for a saved capture and open the panel on it (or follow it quietly, F-14). */
+  async startFromCapture(captureId: string, opts: { quick?: boolean } = {}): Promise<string> {
+    const id = await this.createSession(captureId, opts.quick === true);
+    if (opts.quick) this.follow(id);
+    else this.open(id);
     return id;
   }
 
@@ -158,30 +175,39 @@ export class ChatPanel {
    * N-2 warm start: boot the session while the capture is still being rasterised, then
    * `attachCapture` once it is saved (or `abandon` if the capture failed).
    */
-  warmStart(): Promise<string> {
-    return this.createSession(null);
+  warmStart(opts: { quick?: boolean } = {}): Promise<string> {
+    return this.createSession(null, opts.quick === true);
   }
 
-  async attachCapture(sessionId: string, captureId: string): Promise<void> {
-    const res = await fetch(`${SESSIONS_ENDPOINT}/${sessionId}/capture`, {
+  async attachCapture(sessionId: string, captureId: string, opts: { quick?: boolean } = {}): Promise<void> {
+    const res = await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${sessionId}/capture`), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ captureId }),
     });
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
     if (!res.ok || !data.ok) throw new Error(data.error ?? `CRT server answered ${res.status}`);
-    this.open(sessionId);
+    if (opts.quick) this.follow(sessionId);
+    else this.open(sessionId);
   }
 
   async abandon(sessionId: string): Promise<void> {
-    await fetch(`${SESSIONS_ENDPOINT}/${sessionId}`, { method: "DELETE" }).catch(() => undefined);
+    await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${sessionId}`), { method: "DELETE" }).catch(() => undefined);
   }
 
-  private async createSession(captureId: string | null): Promise<string> {
-    const res = await fetch(SESSIONS_ENDPOINT, {
+  /** F-30: the server's recent intake sessions, newest first. */
+  async listSessions(): Promise<SessionInfo[]> {
+    const res = await fetch(crtUrl(SESSIONS_ENDPOINT));
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; sessions?: SessionInfo[]; error?: string };
+    if (!res.ok || !data.ok || !data.sessions) throw new Error(data.error ?? `CRT server answered ${res.status}`);
+    return data.sessions;
+  }
+
+  private async createSession(captureId: string | null, quick: boolean): Promise<string> {
+    const res = await fetch(crtUrl(SESSIONS_ENDPOINT), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(captureId ? { captureId } : {}),
+      body: JSON.stringify({ ...(captureId ? { captureId } : {}), ...(quick ? { quick } : {}) }),
     });
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean; id?: string; error?: string };
     if (!res.ok || !data.ok || !data.id) throw new Error(data.error ?? `CRT server answered ${res.status}`);
@@ -190,6 +216,22 @@ export class ChatPanel {
 
   /** Attach to an existing session (replays its transcript) and show the panel. */
   open(sessionId: string): void {
+    this.attach(sessionId);
+    this.quiet = false;
+    this.show(true);
+  }
+
+  /**
+   * F-14: attach to a quick-note session without showing the panel. It stays hidden until the
+   * task is written (`onQuiet` reports it) or Claude needs the developer, when it opens itself.
+   */
+  follow(sessionId: string): void {
+    this.attach(sessionId);
+    this.quiet = true;
+    this.show(false);
+  }
+
+  private attach(sessionId: string): void {
     if (this.sessionId !== sessionId) {
       this.detach();
       this.sessionId = sessionId;
@@ -210,7 +252,6 @@ export class ChatPanel {
         // ignore
       }
     }
-    this.show(true);
   }
 
   /** Re-open the session a previous page load was chatting with, if the server still has it. */
@@ -222,7 +263,7 @@ export class ChatPanel {
       return false;
     }
     if (!id) return false;
-    const alive = await fetch(`${SESSIONS_ENDPOINT}/${id}`)
+    const alive = await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${id}`))
       .then((r) => r.ok)
       .catch(() => false);
     if (!alive) {
@@ -239,7 +280,7 @@ export class ChatPanel {
 
   show(open: boolean): void {
     this.el.hidden = !open;
-    this.onVisibility(open);
+    this.callbacks.onVisibility(open);
     if (open) {
       this.scrollToEnd();
       if (this.state === "idle") this.input.focus();
@@ -248,7 +289,7 @@ export class ChatPanel {
 
   async send(text: string): Promise<void> {
     if (!this.sessionId || !text.trim()) return;
-    const res = await fetch(`${SESSIONS_ENDPOINT}/${this.sessionId}/messages`, {
+    const res = await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${this.sessionId}/messages`), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text }),
@@ -258,12 +299,12 @@ export class ChatPanel {
 
   async interrupt(): Promise<void> {
     if (!this.sessionId) return;
-    await fetch(`${SESSIONS_ENDPOINT}/${this.sessionId}/interrupt`, { method: "POST" });
+    await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${this.sessionId}/interrupt`), { method: "POST" });
   }
 
   async respond(permissionId: string, behavior: "allow" | "deny"): Promise<void> {
     if (!this.sessionId) return;
-    await fetch(`${SESSIONS_ENDPOINT}/${this.sessionId}/permission`, {
+    await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${this.sessionId}/permission`), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ id: permissionId, behavior }),
@@ -277,6 +318,7 @@ export class ChatPanel {
     this.sessionId = null;
     this.state = null;
     this.taskId = null;
+    this.quiet = false;
     this.events = [];
     this.texts.clear();
     this.log.replaceChildren();
@@ -287,14 +329,14 @@ export class ChatPanel {
       // ignore
     }
     this.show(false);
-    if (id) await fetch(`${SESSIONS_ENDPOINT}/${id}`, { method: "DELETE" }).catch(() => undefined);
+    if (id) await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${id}`), { method: "DELETE" }).catch(() => undefined);
   }
 
   // ---- transport --------------------------------------------------------------------------------
 
   private connect(): void {
     if (!this.sessionId) return;
-    const source = new EventSource(`${SESSIONS_ENDPOINT}/${this.sessionId}/events?after=${this.lastSeq}`);
+    const source = new EventSource(crtUrl(`${SESSIONS_ENDPOINT}/${this.sessionId}/events?after=${this.lastSeq}`));
     this.source = source;
     source.onmessage = (e: MessageEvent<string>) => {
       const seq = Number(e.lastEventId);
@@ -332,6 +374,10 @@ export class ChatPanel {
         if (event.state === "ended" || event.state === "error") this.detach();
         if (event.state === "ended") this.system("Session ended");
         if (event.state === "idle" && this.isOpen()) this.input.focus();
+        // F-14: a quiet session that stops without a task has a question; one that fails needs eyes.
+        if (this.quiet && event.state === "idle" && !this.taskId) this.attention("Claude has a question");
+        else if (this.quiet && event.state === "error") this.attention(event.detail ?? "the session failed");
+        else if (this.quiet && event.state === "ended" && !this.taskId) this.attention("the session ended without writing a task");
         break;
       case "init":
         this.renderFoot(event.model, event.claudeCodeVersion);
@@ -372,7 +418,8 @@ export class ChatPanel {
       }
       case "permission":
         this.append(permissionCard(event.id, event.title, event.detail));
-        this.show(true);
+        if (this.quiet) this.attention("Claude needs a permission");
+        else this.show(true);
         break;
       case "permission_resolved": {
         const el = this.log.querySelector<HTMLElement>(`.perm[data-pid="${cssEscape(event.id)}"]`);
@@ -392,11 +439,22 @@ export class ChatPanel {
         this.taskId = event.id;
         this.taskEl.innerHTML = `Task <b>${escapeHtml(event.id)}</b> written to <code>${escapeHtml(event.path)}</code>`;
         this.taskEl.hidden = false;
+        if (this.quiet) {
+          this.quiet = false;
+          this.callbacks.onQuiet({ kind: "task", id: event.id, path: event.path });
+        }
         break;
       case "error":
         this.system(event.message, true);
         break;
     }
+  }
+
+  /** F-14: stop following quietly and bring the developer in. */
+  private attention(reason: string): void {
+    this.quiet = false;
+    this.show(true);
+    this.callbacks.onQuiet({ kind: "attention", reason });
   }
 
   private showThinking(): void {

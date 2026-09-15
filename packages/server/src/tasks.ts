@@ -582,6 +582,10 @@ function renderEvidence(id: string, capture: CaptureBundle | null, assetFiles: s
       const errs = capture.console.filter((c) => c.level !== "warn").length;
       lines.push(`Console at send time: ${capture.console.length} entries (${errs} errors) — see capture.json.`);
     }
+    if (capture.network.length) {
+      const first = capture.network[0]!;
+      lines.push(`Failed requests at send time: ${capture.network.length} (first: ${first.method} ${first.url} → ${first.status ?? first.error ?? "failed"}) — see capture.json.`);
+    }
   }
   if (extra?.trim()) lines.push("", extra.trim());
   return lines.join("\n").trim() || "None.";

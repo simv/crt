@@ -227,6 +227,38 @@ describe("session routes (F-24, F-25, F-29)", () => {
     expect((await api("POST", `/__crt/sessions/${id}/messages`, { text: "hi" })).status).toBe(409);
   });
 
+  it("quick note: the first message carries the F-14 instructions, the stub writes without asking, and the list shows it (F-14, F-30)", async () => {
+    const cap = writeCapture(root, samplePost());
+    expect((await api("POST", "/__crt/sessions", { captureId: cap.id, quick: "yes" })).status).toBe(400);
+    const r = await api("POST", "/__crt/sessions", { captureId: cap.id, quick: true });
+    expect(r.status).toBe(201);
+    const id = r.json.id as string;
+    expect(r.json.session).toMatchObject({ quick: true, summary: "total excludes discount", url: "http://localhost:4400/cart?promo=SAVE10#top" });
+    expect(logs.at(-1)).toContain(`quick-note session ${id}`);
+    const got = await collect(`/__crt/sessions/${id}/events`, isState("idle"));
+    expect(got.events[0]).toMatchObject({ type: "user", text: expect.stringContaining("Quick note (F-14)") });
+    expect(got.events.some((e) => e.type === "permission")).toBe(false);
+    expect(got.events.find((e) => e.type === "task_written")).toMatchObject({ id: "CRT-0001" });
+    expect(registry.get(id)).toMatchObject({ quick: true, taskId: "CRT-0001", state: "idle" });
+
+    const list = (await api("GET", "/__crt/sessions")).json.sessions as Array<{ id: string; quick: boolean; summary: string | null; startedAt: string }>;
+    expect(list[0]).toMatchObject({ id, quick: true, summary: "total excludes discount" });
+    expect([...list].sort((a, b) => b.startedAt.localeCompare(a.startedAt)).map((s) => s.id)).toEqual(list.map((s) => s.id));
+    registry.close(id);
+  });
+
+  it("warm-started sessions have no summary until the capture arrives, and a plain session is not quick (F-30)", async () => {
+    const r = await api("POST", "/__crt/sessions", {});
+    const id = r.json.id as string;
+    expect(r.json.session).toMatchObject({ quick: false, summary: null, url: null });
+    const cap = writeCapture(root, samplePost());
+    await api("POST", `/__crt/sessions/${id}/capture`, { captureId: cap.id });
+    expect(registry.get(id)).toMatchObject({ summary: "total excludes discount", url: "http://localhost:4400/cart?promo=SAVE10#top" });
+    const got = await collect(`/__crt/sessions/${id}/events`, (e) => e.type === "user");
+    expect((got.events[0] as { text: string }).text).not.toContain("Quick note");
+    registry.close(id);
+  });
+
   it("answers 503 when the server has no session registry", async () => {
     const bare = createProxyServer({ target: fixture.url, projectRoot: root, overlayPath: join(root, "overlay.js") });
     await new Promise<void>((r) => bare.listen(0, "127.0.0.1", r));

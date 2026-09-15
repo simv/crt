@@ -65,6 +65,9 @@ export function sampleBundle(): CaptureBundle {
     console: [
       { level: "error", message: "boom", stack: null, timestamp: "2026-09-15T00:00:00.000Z", url: "http://localhost:4400/cart" },
     ],
+    network: [
+      { method: "GET", url: "/api/cart/promo", status: 500, error: null, via: "fetch", durationMs: 12, timestamp: "2026-09-15T00:00:00.000Z" },
+    ],
     screenshots: { viewport: "viewport.png", annotated: "viewport-annotated.png", error: null },
   };
 }

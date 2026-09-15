@@ -5,7 +5,7 @@
 | **Status** | Draft v1.0 — approved for build |
 | **Owner** | Simon (simv) |
 | **Repo** | https://github.com/simv/crt |
-| **Last updated** | 2026-09-14 |
+| **Last updated** | 2026-09-15 |
 
 This document is the reference for every CRT build session. A build session should read this file, `CLAUDE.md`, and the task it is working on, and nothing else, to know what "correct" means. Changes to scope go through this document first.
 
@@ -270,20 +270,20 @@ Each milestone is shippable and verifiable on its own. Numbers are references, n
 
 ## 11. Definition of done (project)
 
-CRT v0.1 is done when every item below is true and demonstrated on the trial Next.js project:
+CRT v0.1 is done when every item below is true and demonstrated on the trial Next.js project. Each tick names its evidence; the full table is in the Log of `.crt/tasks/CRT-0005-m5-hardening-docs-release.md`.
 
-- [ ] `claude plugin marketplace add simv/crt` + `claude plugin install crt@crt` on a clean machine yields working `/crt:*` skills.
-- [ ] `/crt:serve` with no arguments finds the running dev server, proxies it with HMR intact, and opens the browser on `localhost:4400`.
-- [ ] Select, Box and Pin annotations with notes can be placed, numbered, deleted and sent.
-- [ ] A capture contains screenshots (viewport + per-annotation), element details, React component chain with source file when available, console errors, and page metadata (all Must items in 6.3).
-- [ ] Sending opens an in-page chat backed by a Claude Code session whose `cwd` is the project and which has loaded the project's `CLAUDE.md`; text streams; tool use is visible; non-pre-allowed tools prompt in the panel.
-- [ ] The intake session reads the source, asks ≤ 3 questions only when needed, proposes a DoD, and writes a task file that conforms to F-32 with assets under `.crt/tasks/assets/<ID>/`.
-- [ ] `crt tasks`, `crt task <ID>`, `/crt:tasks`, `/crt:task` work and the index README is regenerated on change.
-- [ ] `/crt:next` picks the lowest-ID backlog task, implements it, verifies every DoD item, appends a log, sets status `review`, and opens a PR — with no interactive questions.
-- [ ] Every Claude session started by CRT is resumable from the terminal with `claude --resume <id>`.
-- [ ] CI (typecheck, lint, unit, build, e2e) is green on `main`; branch protection is on; `v0.1.0` is tagged and published to npm.
-- [ ] `README.md` documents install, the loop, the task format, script-tag fallback, and troubleshooting for the N-6 failure cases.
-- [ ] All Must requirements in section 6 are implemented and referenced by at least one test or a manual verification note in the relevant task's Log.
+- [x] `claude plugin marketplace add simv/crt` + `claude plugin install crt@crt` on a clean machine yields working `/crt:*` skills. — CRT-0004 DoD 1 (fresh `CLAUDE_CONFIG_DIR` profile, repo not cloned); CI step `claude plugin validate`.
+- [x] `/crt:serve` with no arguments finds the running dev server, proxies it with HMR intact, and opens the browser on `localhost:4400`. — `test/target.test.ts` (probe order), `e2e/proxy.spec.ts` (F-3 WebSocket echo), CRT-0001 Log 2026-09-15T08:25 (Next 15.5 HMR through :4400 on the trial app), `openBrowser` in `serve.ts`.
+- [x] Select, Box and Pin annotations with notes can be placed, numbered, deleted and sent. — `e2e/capture.spec.ts` "launcher and tools (F-7…F-12)" and "capture and send".
+- [x] A capture contains screenshots (viewport + per-annotation), element details, React component chain with source file when available, console errors, and page metadata (all Must items in 6.3). — `test/capture-schema.test.ts`, `e2e/capture.spec.ts` (F-15…F-20, F-22, F-23; React 18 fiber walk), `test/owner-stack.test.ts` (React 19), CRT-0002 Log (trial app, React 19.2 owner stacks).
+- [x] Sending opens an in-page chat backed by a Claude Code session whose `cwd` is the project and which has loaded the project's `CLAUDE.md`; text streams; tool use is visible; non-pre-allowed tools prompt in the panel. — `test/session.test.ts` (real SDK: `init` carries our id and cwd), `e2e/chat.spec.ts` (streaming, tool lines, Allow/Deny), CRT-0003 Log manual (1)–(2) on the trial app (`settingSources` user+project+local).
+- [x] The intake session reads the source, asks ≤ 3 questions only when needed, proposes a DoD, and writes a task file that conforms to F-32 with assets under `.crt/tasks/assets/<ID>/`. — CRT-0003 Log manual (1) (`SiteHeader.tsx:103-106` read, 6-item DoD, `write_task`, `crt task --validate` clean); `test/tasks.test.ts` `createTask`; `e2e/chat.spec.ts` "write".
+- [x] `crt tasks`, `crt task <ID>`, `/crt:tasks`, `/crt:task` work and the index README is regenerated on change. — `test/tasks.test.ts` (`listTasks`, `writeIndex`, `validateTaskText`), CRT-0003 DoD 5, CRT-0004 Log (skills reconciled with the CLI).
+- [x] `/crt:next` picks the lowest-ID backlog task, implements it, verifies every DoD item, appends a log, sets status `review`, and opens a PR — with no interactive questions. — CRT-0004 Log: simv/crt#7 (CRT-0006, 32 turns, no questions) and simv/apex#257 (trial app, 80 turns, no questions).
+- [x] Every Claude session started by CRT is resumable from the terminal with `claude --resume <id>`. — `test/session.test.ts` (the SDK `init` reports the id CRT chose), CRT-0003 DoD 4 (`claude -p --resume ae269fe2-…` continued the in-page conversation).
+- [ ] CI (typecheck, lint, unit, build, e2e) is green on `main`; branch protection is on; `v0.1.0` is tagged and published to npm. — CI green on `main` (run 34928301606); ruleset `main-protection` (PR + `check (ubuntu-latest)`, `check (windows-latest)`, `e2e (ubuntu)`, squash only, no force-push). Tag and publish: pending `NPM_TOKEN`.
+- [x] `README.md` documents install, the loop, the task format, script-tag fallback, and troubleshooting for the N-6 failure cases. — README sections Install, The loop, Task format, Script-tag fallback, How it works, Troubleshooting (CRT-0006 + CRT-0005).
+- [x] All Must requirements in section 6 are implemented and referenced by at least one test or a manual verification note in the relevant task's Log. — table in CRT-0005 Log (F-27, F-36…F-39 by manual notes in CRT-0003/CRT-0004; every other Must by a named test).
 
 ## 12. Risks and mitigations
 

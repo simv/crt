@@ -1,22 +1,28 @@
 /**
- * CRT overlay entry point. Injected by the CRT proxy as <script src="/__crt/overlay.js" defer>.
- * Everything renders inside a Shadow DOM host so host-page CSS cannot leak in or out (PRD §5.1).
+ * CRT overlay entry point. Injected by the CRT proxy as <script src="/__crt/overlay.js" defer>,
+ * or loaded by the app itself from `http://localhost:4400/__crt/overlay.js` (script-tag mode,
+ * F-6; see base.ts). Everything renders inside a Shadow DOM host so host-page CSS cannot leak in
+ * or out (PRD §5.1).
  *
- * Boot order matters: console/error hooks first (F-20; normally already installed by early.js),
- * then the UI. `window.__crt` is the only global (CLAUDE.md): a debugging/test surface used by the
- * Playwright specs to drive the tools without a real pointer.
+ * Boot order matters: console/error and failed-request hooks first (F-20, F-21; normally already
+ * installed by early.js), then the UI. `window.__crt` is the only global (CLAUDE.md): a
+ * debugging/test surface used by the Playwright specs to drive the tools without a real pointer.
  */
 import type { CaptureBundle } from "../../server/src/capture-schema.js";
+import type { SessionInfo } from "../../server/src/session-events.js";
 import { type Annotation, AnnotationStore } from "./annotations.js";
+import { CRT_ORIGIN, SCRIPT_TAG_MODE } from "./base.js";
 import { capture, type SendResult } from "./capture.js";
 import type { ChatSnapshot } from "./chat.js";
 import { detectComponents, detectFramework } from "./component.js";
 import { clearConsoleEntries, consoleEntries, installConsoleHooks } from "./console-hook.js";
 import { describeElement } from "./element.js";
+import { clearNetworkEntries, installNetworkHooks, networkEntries } from "./network-hook.js";
 import { selectorFor, xpathFor } from "./selector.js";
 import { OverlayUI, type Tool } from "./ui.js";
 
 installConsoleHooks();
+installNetworkHooks();
 
 export interface CrtTestHooks {
   version: 1;
@@ -33,7 +39,9 @@ export interface CrtTestHooks {
   remove(n: number): void;
   clear(): void;
   capture(): Promise<{ bundle: CaptureBundle; imageNames: string[] }>;
-  send(): Promise<SendResult>;
+  /** F-13 Send to Claude, or the F-14 quick note with `{ quick: true }`. */
+  send(opts?: { quick?: boolean }): Promise<SendResult>;
+  canQuickNote(): boolean;
   selectorFor(target: Element | string): string;
   xpathFor(target: Element | string): string;
   describe(target: Element | string): ReturnType<typeof describeElement>;
@@ -41,6 +49,16 @@ export interface CrtTestHooks {
   framework(): ReturnType<typeof detectFramework>;
   consoleEntries(): ReturnType<typeof consoleEntries>;
   clearConsole(): void;
+  networkEntries(): ReturnType<typeof networkEntries>;
+  clearNetwork(): void;
+  /** F-6: "" behind the proxy, the CRT origin in script-tag mode. */
+  crtOrigin(): string;
+  scriptTagMode(): boolean;
+  /** F-30: the session list in the toolbar. */
+  sessions: {
+    toggle(force?: boolean): Promise<void>;
+    list(): Promise<SessionInfo[]>;
+  };
   /** Chat panel (M3): drive and observe the intake session. */
   chat: {
     snapshot(): ChatSnapshot;
@@ -92,7 +110,8 @@ function mount(): void {
       const r = await capture(store);
       return { bundle: r.bundle, imageNames: Object.keys(r.images) };
     },
-    send: () => ui.sendToClaude(),
+    send: (opts) => ui.sendToClaude(opts),
+    canQuickNote: () => ui.canQuickNote(),
     selectorFor: (t) => selectorFor(resolve(t)),
     xpathFor: (t) => xpathFor(resolve(t)),
     describe: (t) => describeElement(resolve(t)),
@@ -100,6 +119,14 @@ function mount(): void {
     framework: () => detectFramework(),
     consoleEntries: () => consoleEntries(),
     clearConsole: () => clearConsoleEntries(),
+    networkEntries: () => networkEntries(),
+    clearNetwork: () => clearNetworkEntries(),
+    crtOrigin: () => CRT_ORIGIN,
+    scriptTagMode: () => SCRIPT_TAG_MODE,
+    sessions: {
+      toggle: (force) => ui.toggleSessions(force),
+      list: () => ui.chat.listSessions(),
+    },
     chat: {
       snapshot: () => ui.chat.snapshot(),
       isOpen: () => ui.chat.isOpen(),

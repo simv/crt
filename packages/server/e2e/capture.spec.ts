@@ -18,6 +18,8 @@ type Hooks = {
   };
   framework(): { name: string; bundler: string; route: string | null; hints: string[] };
   consoleEntries(): Array<{ level: string; message: string; stack: string | null }>;
+  networkEntries(): Array<{ method: string; url: string; status: number | null; error: string | null; via: string }>;
+  scriptTagMode(): boolean;
   isOpen(): boolean;
   toggle(force?: boolean): void;
   setTool(t: "select" | "box" | "pin" | null): void;
@@ -111,6 +113,27 @@ test.describe("console hooks (F-20)", () => {
     expect(entries.find((e) => e.level === "uncaught")?.message).toContain("fixture: uncaught boom");
     expect(entries.find((e) => e.level === "uncaught")?.stack).toContain("Error");
     expect(entries.find((e) => e.level === "unhandledrejection")?.message).toContain("fixture: rejected");
+  });
+});
+
+test.describe("failed network requests (F-21)", () => {
+  test("record fetch, XHR and sub-resource failures fired before Send, and the capture carries them", async ({ page }) => {
+    await page.goto("/app");
+    await expect
+      .poll(() => page.evaluate(() => window.__crt.networkEntries().map((e) => `${e.via} ${e.method} ${e.status}`)))
+      .toEqual(expect.arrayContaining(["fetch GET 404", "xhr POST 404", "resource GET 404"]));
+    const entries = await page.evaluate(() => window.__crt.networkEntries());
+    expect(entries.find((e) => e.via === "fetch")).toMatchObject({ url: "/api/missing", status: 404, error: null });
+    expect(entries.find((e) => e.via === "xhr")).toMatchObject({ url: "/api/save", method: "POST", status: 404 });
+    expect(entries.find((e) => e.via === "resource")?.url).toMatch(/\/missing\.png$/);
+    expect(entries.every((e) => !e.url.includes("/__crt/"))).toBe(true);
+
+    await page.evaluate(() => window.__crt.addSelect("#heading"));
+    const { bundle } = await page.evaluate(() => window.__crt.capture());
+    expect(validateCaptureBundle(bundle)).toEqual([]);
+    expect(bundle.network.map((e) => e.via)).toEqual(expect.arrayContaining(["fetch", "xhr", "resource"]));
+    expect(bundle.network.length).toBeLessThanOrEqual(50);
+    expect(await page.evaluate(() => window.__crt.scriptTagMode())).toBe(false);
   });
 });
 

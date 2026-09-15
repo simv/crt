@@ -1,13 +1,14 @@
 /**
- * Overlay UI (PRD F-7…F-13): launcher, toolbar, Select / Box / Pin tools, numbered markers,
- * the notes panel, the Send flow and the chat panel it opens (chat.ts). Everything renders inside
- * the Shadow DOM host; the host itself is a fixed, pointer-transparent full-viewport layer, and
- * only the widgets opt back in to pointer events, so the page underneath keeps working while CRT
- * is idle.
+ * Overlay UI (PRD F-7…F-14, F-30): launcher, toolbar, Select / Box / Pin tools, numbered markers,
+ * the notes panel, the Send / Quick note flows, the session list, and the chat panel (chat.ts).
+ * Everything renders inside the Shadow DOM host; the host itself is a fixed, pointer-transparent
+ * full-viewport layer, and only the widgets opt back in to pointer events, so the page underneath
+ * keeps working while CRT is idle.
  */
+import type { SessionInfo } from "../../server/src/session-events.js";
 import { type Annotation, AnnotationStore, toViewportRect } from "./annotations.js";
 import { capture, send, type SendResult } from "./capture.js";
-import { CHAT_CSS, ChatPanel } from "./chat.js";
+import { CHAT_CSS, ChatPanel, type QuietOutcome } from "./chat.js";
 import { nearestComponentName } from "./component.js";
 import { labelOf } from "./element.js";
 import { ACCENT } from "./screenshot.js";
@@ -65,6 +66,26 @@ const CSS = `
   .status[hidden] { display: none; }
   .status.error { background: #b00020; }
   .status code { font-family: ui-monospace, Menlo, Consolas, monospace; user-select: all; }
+  .status button { color: #ffd166; text-decoration: underline; margin-left: 6px; }
+  .sessions { width: 100%; max-height: 40vh; overflow: auto; border-radius: 12px; background: #fff;
+              box-shadow: 0 8px 28px rgba(0,0,0,.22); border: 1px solid rgba(0,0,0,.08); padding: 6px; }
+  .sessions[hidden] { display: none; }
+  .sessions .head { display: flex; align-items: center; gap: 8px; padding: 4px 6px 6px; font-weight: 600; }
+  .sessions .head .spacer { flex: 1; }
+  .sessions .head button { padding: 2px 8px; border-radius: 6px; font-size: 12px; color: #555; }
+  .sessions .head button:hover { background: #f0f0f0; }
+  .session { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; width: 100%; text-align: left; padding: 6px 8px;
+             border-radius: 8px; }
+  .session:hover { background: #f3f3f5; }
+  .session.current { background: #fff5f8; }
+  .session .sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session .meta { grid-column: 1 / 3; font-size: 11px; color: #777; font-family: ui-monospace, Menlo, Consolas, monospace;
+                   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session .pill { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: #eee; color: #555; white-space: nowrap; }
+  .session .pill[data-state="running"], .session .pill[data-state="starting"] { background: #fff3cd; color: #7a5a00; }
+  .session .pill[data-state="waiting"] { background: ${ACCENT}; color: #fff; }
+  .session .pill[data-state="idle"] { background: #d9f5e3; color: #0a5b2b; }
+  .session .pill[data-state="error"] { background: #fde2e2; color: #8b0000; }
   .layer { position: fixed; inset: 0; pointer-events: auto; cursor: crosshair; touch-action: none; }
   .layer[hidden] { display: none; }
   .hover { position: fixed; pointer-events: none; border: 2px solid ${ACCENT}; background: rgba(255,61,113,.08);
@@ -113,6 +134,7 @@ export class OverlayUI {
   private readonly dock: HTMLElement;
   private readonly toolbar: HTMLElement;
   private readonly panel: HTMLElement;
+  private readonly sessions: HTMLElement;
   private readonly status: HTMLElement;
   private readonly layer: HTMLElement;
   private readonly hover: HTMLElement;
@@ -137,6 +159,7 @@ export class OverlayUI {
       <div class="hint" hidden></div>
       <div class="dock" hidden>
         <div class="status" hidden></div>
+        <div class="sessions" hidden></div>
         <div class="panel" hidden></div>
         <div class="toolbar" role="toolbar" aria-label="CRT tools">
           <button type="button" data-tool="select" title="Select an element (F-8)">Select</button>
@@ -145,6 +168,9 @@ export class OverlayUI {
           <span class="sep"></span>
           <span class="badge" data-count>0</span>
           <button type="button" data-action="clear" title="Remove all annotations">Clear</button>
+          <button type="button" data-action="sessions" title="Recent intake sessions (F-30)">Sessions</button>
+          <span class="sep"></span>
+          <button type="button" data-action="quick" title="Quick note: Claude writes the task from your notes without a chat (F-14). Needs a note on every annotation.">Quick note</button>
           <button type="button" class="primary" data-action="send" title="Capture and send to Claude (F-13)">Send to Claude</button>
         </div>
       </div>
@@ -158,6 +184,7 @@ export class OverlayUI {
     this.dock = q(".dock");
     this.toolbar = q(".toolbar");
     this.panel = q(".panel");
+    this.sessions = q(".sessions");
     this.status = q(".status");
     this.layer = q(".layer");
     this.hover = q(".hover");
@@ -165,10 +192,16 @@ export class OverlayUI {
     this.drag = q(".drag");
     this.markers = q(".markers");
     this.hint = q(".hint");
-    this.chat = new ChatPanel(this.dock, (open) => {
-      this.dock.classList.toggle("chat-open", open);
-      if (open && !this.open) this.toggle(true);
-      this.render();
+    this.chat = new ChatPanel(this.dock, {
+      onVisibility: (open) => {
+        this.dock.classList.toggle("chat-open", open);
+        if (open) {
+          this.sessions.hidden = true;
+          if (!this.open) this.toggle(true);
+        }
+        this.render();
+      },
+      onQuiet: (outcome) => this.onQuiet(outcome),
     });
 
     this.restoreLauncher();
@@ -233,25 +266,32 @@ export class OverlayUI {
    * Code process boots while the page is being rasterised (N-2). A capture that saved but
    * whose session failed to start is still reported as sent — the files are on disk and the
    * status line says what went wrong.
+   *
+   * F-14 `quick`: every annotation must carry a note; the chat stays hidden and the status line
+   * reports the task id when Claude writes it (or the panel opens itself if Claude needs you).
    */
-  async sendToClaude(): Promise<SendResult> {
+  async sendToClaude(opts: { quick?: boolean } = {}): Promise<SendResult> {
+    const quick = opts.quick === true;
     if (this.busy) throw new Error("already sending");
     if (!this.store.count()) throw new Error("nothing to send: add an annotation first");
+    if (quick && !this.canQuickNote()) throw new Error("quick note needs a note on every annotation");
     this.busy = true;
     this.setTool(null);
+    this.sessions.hidden = true;
     this.showStatus("Capturing page…");
     this.render();
-    const warm = this.chat.warmStart().catch(() => null);
+    const warm = this.chat.warmStart({ quick }).catch(() => null);
     try {
       const result = await capture(this.store);
       this.showStatus("Sending to Claude…");
       const sent = await send(result);
       this.store.clear();
-      this.showStatus(`Capture saved: <code>${escapeHtml(sent.dir)}</code>`, false, true);
+      this.showStatus(`Capture saved: <code>${escapeHtml(sent.dir)}</code>`, false, !quick);
       try {
         const sessionId = await warm;
-        if (sessionId) await this.chat.attachCapture(sessionId, sent.id);
-        else await this.chat.startFromCapture(sent.id);
+        if (sessionId) await this.chat.attachCapture(sessionId, sent.id, { quick });
+        else await this.chat.startFromCapture(sent.id, { quick });
+        if (quick) this.showStatus(`Quick note sent — Claude is writing the task…${openChatLink()}`);
       } catch (err) {
         this.showStatus(
           `Capture saved: <code>${escapeHtml(sent.dir)}</code> — but Claude did not start: ${escapeHtml(err instanceof Error ? err.message : String(err))}`,
@@ -266,6 +306,70 @@ export class OverlayUI {
     } finally {
       this.busy = false;
       this.render();
+    }
+  }
+
+  /** F-14: quick notes need words on every annotation, since there is no conversation to add them. */
+  canQuickNote(): boolean {
+    const items = this.store.all();
+    return items.length > 0 && items.every((a) => a.note.trim() !== "");
+  }
+
+  private onQuiet(outcome: QuietOutcome): void {
+    if (outcome.kind === "task") {
+      this.showStatus(`Task <b>${escapeHtml(outcome.id)}</b> written to <code>${escapeHtml(outcome.path)}</code>${openChatLink()}`);
+    } else {
+      this.showStatus(`Claude needs you: ${escapeHtml(outcome.reason)}`, false, true);
+    }
+  }
+
+  // ---- session list (F-30) ---------------------------------------------------------------------
+
+  /** Toggle the list of recent intake sessions; each row re-opens its session in the chat. */
+  async toggleSessions(force?: boolean): Promise<void> {
+    const show = force ?? this.sessions.hidden;
+    if (!show) {
+      this.sessions.hidden = true;
+      return;
+    }
+    this.sessions.innerHTML = `<div class="head"><span>Sessions</span><span class="spacer"></span><button type="button" data-sessions="close">×</button></div><div class="empty">Loading…</div>`;
+    this.sessions.hidden = false;
+    if (this.chat.isOpen()) this.chat.show(false);
+    this.render();
+    let list: SessionInfo[];
+    try {
+      list = await this.chat.listSessions();
+    } catch (err) {
+      this.sessions.querySelector(".empty")!.textContent = `Could not list sessions: ${err instanceof Error ? err.message : String(err)}`;
+      return;
+    }
+    this.renderSessions(list);
+  }
+
+  private renderSessions(list: SessionInfo[]): void {
+    const current = this.chat.snapshot().sessionId;
+    const rows = list.map((s) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `session${s.id === current ? " current" : ""}`;
+      btn.dataset.session = s.id;
+      const when = new Date(s.startedAt);
+      const time = Number.isNaN(when.getTime()) ? s.startedAt : when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      btn.innerHTML = `<span class="sum"></span><span class="pill"></span><span class="meta"></span>`;
+      (btn.querySelector(".sum") as HTMLElement).textContent = s.summary ?? (s.captureId ? `capture ${s.captureId}` : "warming up");
+      const pill = btn.querySelector(".pill") as HTMLElement;
+      pill.dataset.state = s.state;
+      pill.textContent = s.taskId ?? STATE_LABEL[s.state];
+      (btn.querySelector(".meta") as HTMLElement).textContent = `${time}${s.quick ? " · quick note" : ""}${s.url ? ` · ${pathOf(s.url)}` : ""} · ${s.id.slice(0, 8)}`;
+      return btn;
+    });
+    const head = this.sessions.querySelector(".head")!;
+    this.sessions.replaceChildren(head, ...rows);
+    if (!rows.length) {
+      const empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "No sessions yet — annotate something and Send to Claude.";
+      this.sessions.appendChild(empty);
     }
   }
 
@@ -354,7 +458,21 @@ export class OverlayUI {
         this.status.hidden = true;
       } else if (btn.dataset.action === "send") {
         void this.sendToClaude().catch(() => undefined);
+      } else if (btn.dataset.action === "quick") {
+        void this.sendToClaude({ quick: true }).catch(() => undefined);
+      } else if (btn.dataset.action === "sessions") {
+        void this.toggleSessions();
       }
+    });
+    this.sessions.addEventListener("click", (e) => {
+      const btn = (e.target as Element).closest<HTMLButtonElement>("button");
+      if (!btn) return;
+      if (btn.dataset.sessions === "close") this.sessions.hidden = true;
+      else if (btn.dataset.session) this.chat.open(btn.dataset.session);
+    });
+    this.status.addEventListener("click", (e) => {
+      const btn = (e.target as Element).closest<HTMLButtonElement>("button");
+      if (btn?.dataset.status === "chat") this.chat.show(true);
     });
     this.panel.addEventListener("input", (e) => {
       const ta = e.target as HTMLTextAreaElement;
@@ -381,7 +499,9 @@ export class OverlayUI {
     (this.toolbar.querySelector("[data-count]") as HTMLElement).textContent = String(n);
     for (const b of Array.from(this.toolbar.querySelectorAll("button"))) b.disabled = this.busy;
     (this.toolbar.querySelector("[data-action=send]") as HTMLButtonElement).disabled = this.busy || n === 0;
+    (this.toolbar.querySelector("[data-action=quick]") as HTMLButtonElement).disabled = this.busy || !this.canQuickNote();
     (this.toolbar.querySelector("[data-action=clear]") as HTMLButtonElement).disabled = this.busy || n === 0;
+    (this.toolbar.querySelector("[data-action=sessions]") as HTMLButtonElement).classList.toggle("active", !this.sessions.hidden);
 
     this.renderPanel(items);
     this.renderMarkers(items);
@@ -393,7 +513,7 @@ export class OverlayUI {
   }
 
   private renderPanel(items: Annotation[]): void {
-    this.panel.hidden = !this.open || items.length === 0 || this.chat.isOpen();
+    this.panel.hidden = !this.open || items.length === 0 || this.chat.isOpen() || !this.sessions.hidden;
     const active = this.root.activeElement as HTMLTextAreaElement | null;
     const activeN = active?.closest<HTMLElement>(".item")?.dataset.n;
     const existing = new Map<string, HTMLElement>();
@@ -629,6 +749,28 @@ export class OverlayUI {
     const a = this.store.addPin(x, y);
     this.setTool(null);
     this.focusNote(a.n);
+  }
+}
+
+const STATE_LABEL: Record<SessionInfo["state"], string> = {
+  starting: "starting",
+  running: "thinking…",
+  waiting: "needs permission",
+  idle: "your turn",
+  ended: "ended",
+  error: "error",
+};
+
+function openChatLink(): string {
+  return `<button type="button" data-status="chat">open chat</button>`;
+}
+
+function pathOf(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.pathname + u.search;
+  } catch {
+    return url;
   }
 }
 

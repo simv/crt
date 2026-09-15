@@ -10,7 +10,10 @@
 //   GET  /csp           HTML with a Content-Security-Policy that forbids scripts
 //   GET  /redirect      302 → http://localhost:<port>/ (absolute, points at the fixture itself)
 //   GET  /app           annotation playground: ids, classes, data-*, ARIA, a fixed header, long
-//                       scroll, and a console.error + uncaught error fired at load (M2 capture spec)
+//                       scroll, a console.error + uncaught error, a failing fetch/XHR and a missing
+//                       image fired at load (M2 capture spec, F-21)
+//   GET  /script-tag    the page from / but loading the overlay from ?crt=<origin> with a script
+//                       tag instead of through the proxy (F-6)
 //   GET  /react         React 18 dev build (UMD from node_modules) rendering a small component tree
 //                       with __source set, for the fiber-walk spec (F-18)
 //   GET  /vendor/*.js   react.development.js / react-dom.development.js
@@ -79,12 +82,17 @@ const APP_PAGE = `<!doctype html>
     <div class="spacer"></div>
     <p id="footer-note">Bottom of the page.</p>
   </main>
+  <img id="missing-img" src="/missing.png" alt="" width="1" height="1">
   <script>
     window.__fixture = "app";
     console.error("fixture: something went wrong %s", "at load");
     console.warn("fixture: a warning");
     setTimeout(() => { throw new Error("fixture: uncaught boom"); }, 0);
     Promise.reject(new Error("fixture: rejected"));
+    fetch("/api/missing").catch(() => {});
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/save");
+    xhr.send("{}");
   </script>
 </body>
 </html>
@@ -201,6 +209,11 @@ export function startFixture(opts = {}) {
       }
       case "/nohead":
         return html("<p>no head, no body</p>");
+      case "/script-tag": {
+        const crt = new URL(req.url ?? "/", "http://x").searchParams.get("crt") ?? "";
+        const tag = `<script src="${crt}/__crt/overlay.js" defer></script>`;
+        return html(PAGE.replace("</head>", `${tag}</head>`));
+      }
       case "/csp":
         return html(PAGE, { "content-security-policy": "default-src 'none'; script-src 'nonce-abc'" });
       case "/redirect":

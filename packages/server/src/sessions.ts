@@ -1,7 +1,7 @@
 /**
- * Session registry and its HTTP routes (PRD F-24, F-25, F-28, F-29, F-30).
+ * Session registry and its HTTP routes (PRD F-14, F-24, F-25, F-28, F-29, F-30).
  *
- *   POST   /__crt/sessions                  { captureId? }       → 201 { id }   start intake
+ *   POST   /__crt/sessions                  { captureId?, quick? } → 201 { id } start intake
  *   POST   /__crt/sessions/<id>/capture     { captureId }        → 200          first message (warm start)
  *   GET    /__crt/sessions                                        → { sessions: SessionInfo[] }
  *   GET    /__crt/sessions/<id>/events      SSE; `Last-Event-ID` or `?after=<seq>` replays
@@ -24,9 +24,9 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
 import { capturesDir } from "./captures.js";
 import { json, readJson } from "./http.js";
-import { buildIntakeMessage } from "./intake-message.js";
+import { buildIntakeMessage, readCaptureBundle, summarizeCapture } from "./intake-message.js";
 import { decidePermission } from "./permissions.js";
-import type { SessionDriver, SessionEvent, SessionInfo, SessionStarter, SessionState, WriteTaskRequest } from "./session-events.js";
+import type { SessionDriver, SessionEvent, SessionInfo, SessionStarter, SessionState, UserInput, WriteTaskRequest } from "./session-events.js";
 import { createTask, displayPath } from "./tasks.js";
 
 export const SESSIONS_PATH = "/__crt/sessions";
@@ -56,18 +56,20 @@ export class SessionRegistry {
 
   /**
    * F-24: start an intake session. With a capture id the first message is sent immediately;
-   * without one the process boots and waits for `attachCapture` (warm start, N-2).
+   * without one the process boots and waits for `attachCapture` (warm start, N-2). `quick`
+   * (F-14) makes the first message tell Claude to write the task without waiting for confirmation.
    * Throws when the capture is missing (nothing is started in that case).
    */
-  create(captureId: string | null): SessionInfo {
-    const first = captureId ? buildIntakeMessage(join(capturesDir(this.opts.projectRoot), captureId)) : undefined;
+  create(captureId: string | null, opts: { quick?: boolean } = {}): SessionInfo {
+    const quick = opts.quick === true;
     const id = randomUUID();
     const entry: Entry = {
-      info: { id, captureId, startedAt: new Date().toISOString(), state: "starting", taskId: null },
+      info: { id, captureId, startedAt: new Date().toISOString(), state: "starting", taskId: null, quick, summary: null, url: null },
       driver: undefined as unknown as SessionDriver,
       events: [],
       subscribers: new Set(),
     };
+    const first = captureId ? this.firstMessage(entry, captureId) : undefined;
     this.entries.set(id, entry);
     const driverOpts = {
       id,
@@ -85,7 +87,7 @@ export class SessionRegistry {
     };
     entry.driver = this.opts.start(driverOpts);
     entry.driver.onEvent((event) => this.record(entry, event));
-    this.opts.log?.(`crt: intake session ${id} started${captureId ? ` for capture ${captureId}` : ""} (claude --resume ${id})`);
+    this.opts.log?.(`crt: ${quick ? "quick-note" : "intake"} session ${id} started${captureId ? ` for capture ${captureId}` : ""} (claude --resume ${id})`);
     return { ...entry.info };
   }
 
@@ -94,11 +96,20 @@ export class SessionRegistry {
     const e = this.entries.get(id);
     if (!e || isOver(e.info.state)) return "no_session";
     if (e.info.captureId !== null) return "already_started";
-    const first = buildIntakeMessage(join(capturesDir(this.opts.projectRoot), captureId));
+    const first = this.firstMessage(e, captureId);
     e.info.captureId = captureId;
     e.driver.send(first);
     this.opts.log?.(`crt: intake session ${id} received capture ${captureId}`);
     return "ok";
+  }
+
+  /** Build the F-24 first message and fill the F-30 list fields from the same bundle. */
+  private firstMessage(entry: Entry, captureId: string): UserInput {
+    const dir = join(capturesDir(this.opts.projectRoot), captureId);
+    const bundle = readCaptureBundle(dir);
+    entry.info.summary = summarizeCapture(bundle);
+    entry.info.url = bundle.page.url;
+    return buildIntakeMessage(dir, bundle, { quick: entry.info.quick });
   }
 
   private record(entry: Entry, event: SessionEvent): void {
@@ -185,7 +196,7 @@ export async function handleSessionRoute(
       return true;
     }
     if (method !== "POST") {
-      json(res, 405, { ok: false, error: "GET lists sessions; POST { captureId } starts one" });
+      json(res, 405, { ok: false, error: "GET lists sessions; POST { captureId?, quick? } starts one" });
       return true;
     }
     const body = await readJson(req, MAX_BODY);
@@ -193,13 +204,17 @@ export async function handleSessionRoute(
       json(res, body.status, { ok: false, error: body.error });
       return true;
     }
-    const captureId = (body.value as { captureId?: unknown }).captureId;
+    const { captureId, quick } = body.value as { captureId?: unknown; quick?: unknown };
     if (captureId !== undefined && captureId !== null && !isCaptureId(captureId)) {
       json(res, 400, { ok: false, error: "captureId must be a capture id string (or omitted for a warm start)" });
       return true;
     }
+    if (quick !== undefined && typeof quick !== "boolean") {
+      json(res, 400, { ok: false, error: "quick must be a boolean" });
+      return true;
+    }
     try {
-      const info = registry.create(isCaptureId(captureId) ? captureId : null);
+      const info = registry.create(isCaptureId(captureId) ? captureId : null, { quick: quick === true });
       json(res, 201, { ok: true, id: info.id, session: info });
     } catch (err) {
       const message = (err as Error).message;
