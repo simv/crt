@@ -1,10 +1,10 @@
 ---
 id: CRT-0009
 title: M6 — Spike: Codex CLI feasibility on Windows (exec --json, MCP under sandbox, resume)
-status: review
+status: done
 priority: high
 created: 2026-09-15T17:30:00+08:00
-updated: 2026-09-15T19:39:06+08:00
+updated: 2026-09-15T19:42:41+08:00
 url: null
 route: null
 session: null
@@ -50,3 +50,4 @@ This task is mostly Manual: it needs a logged-in Codex CLI, which `/crt:next` do
 - 2026-09-15T19:23:58+08:00 — second round after Simon ran `codex login` and the manual commands. Simon's first turn exposed two things the auth-failed runs could not: (1) **MCP calls are denied under `approval_policy="never"`** (`MCP tool call requires approval, but approval policy is never`) — fixed with `-c mcp_servers.crt.default_tools_approval_mode="approve"` (values `auto|prompt|writes|approve`, validated with `--strict-config`; per-tool `mcp_servers.crt.tools.<tool>.approval_mode`); (2) **the sandboxed pwsh cannot read a workspace under the `%TEMP%` short path** (`Access to the path 'C:\Users\SIMONV~1\…' is denied`) — scratch repo moved to `..\crt-codex-spike-repo` next to this repo. Simon's `resume` step failed only because `<thread_id>` was pasted literally (PowerShell parser error); his kill probe succeeded. With the worker's session sharing the fresh login, the worker re-ran first turn, resume and kill→resume: tool call completed and reached the listener; text is whole `agent_message` items, no deltas; model shells get `CODEX_THREAD_ID`, `CODEX_SESSION_ID`, `CODEX_VERSION`, `CODEX_CI=1`, `CODEX_SANDBOX_NETWORK_DISABLED=1` → `launchEnv: ["CODEX_THREAD_ID","CODEX_SESSION_ID"]`; resume keeps the thread and the model remembers turn one; kill at 6 s then resume works. **Changed:** `probe/spike.mjs` (+approval key), `probe/setup.mjs` (repo location), spike doc (all rows observed, §2a with verbatim live output, M9 consequences 1–8), F-53 bullet, fixtures (+5 live files, Simon's denied run kept as `first-turn-mcp-approval-denied.jsonl`), `codex-fixtures.test.ts` (+2 tests: approval-mode contrast, whole-message/no-delta shape). All four DoD items ticked; status stays `review`.
 - 2026-09-15T19:38:17+08:00 — review round: /code-review found four robustness issues in the throwaway probe scripts (exit footer written on `exit` not `close`; `kill.mjs` timer not cancelled and `undefined` thread id on early exit; `listener.mjs` unguarded log path) — fixed; prd-reviewer: traceable, no invariant breach, PR-ready; three test titles now carry requirement IDs. Branch rebased onto `main` after PR #17 squash-merged (the stacked PRD commit dropped), so PR #18 targets `main` directly.
 - 2026-09-15T19:39:06+08:00 — PR #18 was auto-closed by GitHub when its base branch was deleted; replaced by PR #19 against `main` (same commits).
+- 2026-09-15T19:42:41+08:00 — done; merged in https://github.com/simv/crt/pull/19
