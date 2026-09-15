@@ -1,10 +1,10 @@
 ---
 id: CRT-0009
 title: M6 — Spike: Codex CLI feasibility on Windows (exec --json, MCP under sandbox, resume)
-status: backlog
+status: in_progress
 priority: high
 created: 2026-09-15T17:30:00+08:00
-updated: 2026-09-15T17:30:00+08:00
+updated: 2026-09-15T18:45:16+08:00
 url: null
 route: null
 session: null
@@ -40,3 +40,4 @@ This task is mostly Manual: it needs a logged-in Codex CLI, which `/crt:next` do
 
 ## Log
 - 2026-09-15T17:30+08:00 — created from PRD-providers milestone M6 by the planning session that wrote docs/PRD-providers.md.
+- 2026-09-15T18:45:16+08:00 — claimed by worker session 069dc8c8-12a5-4ea6-bc01-4eae478e3f7e. Branched from `docs/prd-providers` (PR #17, still open) because the task file does not exist on `main` yet; the PR for this task is stacked on that branch.
