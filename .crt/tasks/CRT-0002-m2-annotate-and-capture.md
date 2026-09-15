@@ -1,10 +1,10 @@
 ---
 id: CRT-0002
 title: M2 — Annotation tools and capture engine
-status: review
+status: done
 priority: high
 created: 2026-09-14T20:50:00+08:00
-updated: 2026-09-15T08:05:00+08:00
+updated: 2026-09-15T08:25:00+08:00
 url: null
 route: null
 session: null
@@ -55,3 +55,4 @@ Do not start the chat panel here; keep the M3 boundary clean so the SDK work is 
   - **Verification.** `npm run check` green on Windows (Node 24.18): typecheck both packages, 72 unit tests, build. `npm run e2e` green: 22 Playwright tests (6 M1 + 16 M2). Manual, trial Next.js app (`C:\Projects\Claude\Apex\apps\web`, Next 15.5.25 / React 19.2.8, `next dev` on :3000, `crt serve` run from a scratch dir so the Apex repo was not touched; driven by a Playwright script through `window.__crt`): (a) Select on the header logo link → `components: LinkComponent (function) → SiteHeader (server) → HomePage (server)`, `source: components/SiteHeader.tsx:93 (owner_stack)` — the JSX is actually at line 103, file correct; nav links likewise resolve to `SiteHeader.tsx`. (b) `console.error("trial: …")` fired before Send appears in `console` with level `error`. (c) `viewport.png`/`viewport-annotated.png` are pixel-faithful to a real Playwright screenshot of the same page (Archivo webfont embedded, layout identical, badge on the selected element). (d) `framework: { name: "next", version: "15.5.25", bundler: "webpack" }`; `route` is null on app-router pages (no `__NEXT_DATA__.page`). The fixture app additionally confirmed a scrolled page with a fixed header renders correctly. Simon can repeat (a)–(c) interactively: start the trial app, run `node C:\Projects\Claude\review-tool\packages\server\dist\cli.js serve --open` from its folder, click **CRT → Select**, pick an element, add a note, **Send to Claude**, then open the printed `.crt/captures/<id>/capture.json` and PNGs.
   - **CI.** DoD item 2 stays unticked until the PR's `check (ubuntu-latest)`, `check (windows-latest)` and `e2e (ubuntu)` jobs are green; status → `review` in the follow-up commit. PR targets `crt/CRT-0001-m1-skeleton-and-proxy` (stacked; #2 is still open) — retarget to `main` once #2 merges.
 - 2026-09-15T08:05+08:00 — worker session 2773e99b-bd95-408e-ae17-f7a88369c6cc: CI green on PR #3 (https://github.com/simv/crt/pull/3): check (ubuntu-latest), check (windows-latest), e2e (ubuntu). DoD item 2 ticked; all DoD items ticked. Status → review.
+- 2026-09-15T08:25+08:00 — session 2773e99b-bd95-408e-ae17-f7a88369c6cc: branch rebased onto `main` after #2 merged, PR #3 retargeted to `main`, CI green again, squash-merged as ab009ba (https://github.com/simv/crt/pull/3). Status → done.
