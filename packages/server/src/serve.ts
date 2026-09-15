@@ -1,16 +1,24 @@
 /**
- * `crt serve` (PRD F-1, F-4, F-5, F-23, N-6): run `init`, prune stale captures, resolve the
- * target, bind the proxy to 127.0.0.1, print the one-line status, and optionally open the browser.
- * Every failure surfaces as a CrtError with a single actionable line.
+ * `crt serve` (PRD F-1, F-4, F-5, F-23, F-24, N-6): run `init`, prune stale captures, resolve the
+ * target, wire the session registry, bind the proxy to 127.0.0.1, print the one-line status, and
+ * optionally open the browser. Every failure surfaces as a CrtError with a single actionable line.
+ *
+ * `CRT_SESSION_STUB=1` swaps the Agent SDK driver for the scripted stub (tests only).
  */
 import { spawn } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import type { Server } from "node:http";
+import { resolve } from "node:path";
 import { pruneCaptures } from "./captures.js";
 import { CrtError } from "./errors.js";
 import { initProject, readConfig } from "./init.js";
 import { findProjectRoot } from "./project.js";
 import { createProxyServer } from "./proxy.js";
+import { startSession } from "./session.js";
+import type { SessionStarter } from "./session-events.js";
+import { startStubSession } from "./session-stub.js";
+import { SessionRegistry } from "./sessions.js";
+import { parseFrontmatter } from "./tasks.js";
 import { resolveTarget } from "./target.js";
 
 export interface ServeOptions {
@@ -24,6 +32,10 @@ export interface ServeOptions {
   open?: boolean;
   /** Absolute path of dist/overlay.js. */
   overlayPath: string;
+  /** Absolute path of the intake instructions (a copy of plugin/skills/intake/SKILL.md). */
+  intakePromptPath: string;
+  /** Session driver; defaults to the Agent SDK, or the stub when CRT_SESSION_STUB is set. */
+  sessionStarter?: SessionStarter;
   /** Where status lines go (stdout by default). */
   log?: (line: string) => void;
 }
@@ -49,7 +61,15 @@ export async function serve(opts: ServeOptions): Promise<ServeHandle> {
   const port = opts.port ?? config.port;
   const target = await resolveTarget({ flag: opts.target, configTarget: config.target });
 
-  const server = createProxyServer({ target: target.origin, projectRoot, overlayPath: opts.overlayPath });
+  const tasksDir = resolve(projectRoot, config.tasksDir);
+  const sessions = new SessionRegistry({
+    projectRoot,
+    tasksDir,
+    intakePrompt: loadIntakePrompt(opts.intakePromptPath),
+    start: opts.sessionStarter ?? (process.env.CRT_SESSION_STUB ? startStubSession : startSession),
+    log,
+  });
+  const server = createProxyServer({ target: target.origin, projectRoot, overlayPath: opts.overlayPath, sessions });
   await listen(server, port);
 
   const url = `http://localhost:${port}`;
@@ -63,11 +83,27 @@ export async function serve(opts: ServeOptions): Promise<ServeHandle> {
     target: target.origin,
     projectRoot,
     close: () =>
-      new Promise<void>((resolve) => {
+      new Promise<void>((done) => {
+        sessions.closeAll();
         server.closeAllConnections();
-        server.close(() => resolve());
+        server.close(() => done());
       }),
   };
+}
+
+/**
+ * F-24/F-39: the intake instructions are the body of `plugin/skills/intake/SKILL.md` (below its
+ * frontmatter), copied into dist/ at build time so the published package carries them.
+ */
+export function loadIntakePrompt(path: string): string {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    throw new CrtError(`intake instructions missing at ${path} — run npm run build`);
+  }
+  const fm = parseFrontmatter(text);
+  return (fm ? fm.body : text).trim();
 }
 
 function listen(server: Server, port: number): Promise<void> {

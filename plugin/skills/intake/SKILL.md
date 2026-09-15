@@ -18,9 +18,15 @@ The capture lives at `$ARGUMENTS` (a directory containing `capture.json` and PNG
 
 4. **Propose the definition of done.** Reply with a one-paragraph restatement of the ask and a checklist of concrete, checkable DoD items (behavioural outcome, tests, no regressions). Wait for the developer to accept or edit. In quick-note mode (no chat), skip the wait.
 
-5. **Write the task.** Allocate the next ID by scanning `.crt/tasks/` for the highest `CRT-NNNN` and adding one. Create `.crt/tasks/CRT-NNNN-<slug>.md` in exactly the PRD F-32 format (frontmatter, then Summary, Context, Evidence, Ask, Definition of Done, Notes, Log). Move the capture's images to `.crt/tasks/assets/CRT-NNNN/` and reference them from **Evidence**. List every source file you identified in `files:`. Set `session:` to your session ID. Add the first Log entry.
+5. **Write the task.**
+   - **In-page intake** (a `write_task` tool from the `crt` MCP server is available): call it exactly once with `title`, `summary`, `context` (reproduction, component, file:line), `ask`, `definitionOfDone` (one checkable item per entry), `notes`, `priority`, `tags`, and `files` (every project-relative source file you identified). The CRT server allocates the `CRT-NNNN` id, renders the F-32 file, moves the capture's screenshots to `.crt/tasks/assets/CRT-NNNN/`, fills **Evidence** from the capture, sets `session:` to this session, and regenerates the index. Do not write the file yourself.
+   - **Terminal intake** (no `write_task` tool): allocate the next ID by scanning `.crt/tasks/` for the highest `CRT-NNNN` and adding one. Create `.crt/tasks/CRT-NNNN-<slug>.md` in exactly the PRD F-32 format (frontmatter, then Summary, Context, Evidence, Ask, Definition of Done, Notes, Log). Move the capture's files to `.crt/tasks/assets/CRT-NNNN/` and reference the images from **Evidence**. List every source file you identified in `files:`. Set `session:` to your session ID. Add the first Log entry. Then run `npx -y claude-review-tool@latest task CRT-NNNN --validate` and fix anything it reports; `npx -y claude-review-tool@latest tasks` regenerates the index.
 
 6. **Confirm.** Reply with the task ID, the file path, and the DoD. Nothing else.
+
+## Permissions during in-page intake
+
+Reads, searches and read-only `git` commands run without prompting; every other command prompts the developer in the page with Allow / Deny and defaults to Deny after five minutes. Prefer reading code over running it: do not run builds, tests or the dev server unless the definition of done cannot be written without the result.
 
 ## Quality bar
 
