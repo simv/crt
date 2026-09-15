@@ -1,10 +1,10 @@
 ---
 id: CRT-0004
 title: M4 — Plugin install path, /crt:next worker and SessionStart hook
-status: review
+status: done
 priority: normal
 created: 2026-09-14T20:50:00+08:00
-updated: 2026-09-15T11:15:00+08:00
+updated: 2026-09-15T12:25:00+08:00
 url: null
 route: null
 session: null
@@ -45,3 +45,4 @@ Open question 2 in the PRD (auto-merge) stays "no" for this milestone.
 - 2026-09-15T11:12+08:00 — DoD 2 on the trial app: Apex dev server on :3000, `crt serve --target http://localhost:3000 --port 4400` from `C:\Projects\Claude\Apex`, intake driven through `window.__crt` (select `a.site-mark`, note about the logo link's accessible name) → CRT-0001 written by `write_task` after one DoD confirmation ($1.00). `claude -p "/crt:next"` from the Apex root picked it (only backlog task), and — because the checkout was on another session's branch with its own uncommitted edits and Apex's `guard-bash.mjs` refused `git switch` — created branch `crt/CRT-0001-site-header-logo-link-announces-only` from `main` in a sibling worktree, implemented `aria-label="Apex — home"` plus a witnessed-failing source fence in `test/a11y-names.test.ts`, verified with `pnpm --filter @apex/web test` (786/786), typecheck, an a11y probe against a production build and a 1280×800 screenshot compared to the capture, and opened simv/apex#257 (4 files: task, index, component, test). 80 turns, $6.73, 10m53s, zero questions, developer's dirty files untouched. Cleanup as agreed: PR #257 closed with a comment, branch deleted, `.crt/` removed, `.gitignore` restored, servers stopped. Lesson folded into the skill: an explicit worktree escape when a project hook blocks switching.
 - 2026-09-15T11:15+08:00 — verified: DoD 1 fresh-profile installs (local and GitHub); DoD 2 Apex run above; DoD 3 `test/session-start-hook.test.ts`; DoD 4 CI step + local `npx -y @anthropic-ai/claude-code@latest plugin validate`. `npm run check` green.
 - 2026-09-15T11:15+08:00 — ready for review: changed `plugin/skills/{serve,next,tasks,task,done,intake}/SKILL.md`, `plugin/hooks/session-start.mjs`, `.claude-plugin/marketplace.json` (description), `.github/workflows/ci.yml`, `README.md`, new `packages/server/test/session-start-hook.test.ts`. Reviewer notes: the npm package is still unpublished, so the skills lean on `npx --no crt` (a global `npm i -g ./packages/server` was used for the Apex run; README documents it); PR #7 (CRT-0006) is open and should merge before this one — both touch README in different regions.
+- 2026-09-15T12:25+08:00 — done; merged in https://github.com/simv/crt/pull/8. /crt:done had its first live run on CRT-0006 (found merged #7, fell back to close PR #9 when the ruleset rejected the push to main); CRT-0004 closed on the same branch by hand.
