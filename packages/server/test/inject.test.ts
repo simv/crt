@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   decodeBody,
   filterAcceptEncoding,
+  EARLY_TAG,
+  INJECT_TAGS,
   injectOverlayTag,
   isHtml,
   OVERLAY_TAG,
@@ -10,23 +12,28 @@ import {
 } from "../src/inject.js";
 
 describe("injectOverlayTag (F-2)", () => {
+  it("injects the early console hook (F-20) immediately before the deferred overlay tag", () => {
+    expect(INJECT_TAGS).toBe(`${EARLY_TAG}${OVERLAY_TAG}`);
+    expect(EARLY_TAG).not.toContain("defer");
+  });
+
   it("inserts before </head> when present", () => {
     const out = injectOverlayTag("<html><head><title>x</title></head><body></body></html>");
-    expect(out).toBe(`<html><head><title>x</title>${OVERLAY_TAG}</head><body></body></html>`);
+    expect(out).toBe(`<html><head><title>x</title>${INJECT_TAGS}</head><body></body></html>`);
   });
 
   it("falls back to </body>", () => {
     const out = injectOverlayTag("<html><body><p>hi</p></body></html>");
-    expect(out).toBe(`<html><body><p>hi</p>${OVERLAY_TAG}</body></html>`);
+    expect(out).toBe(`<html><body><p>hi</p>${INJECT_TAGS}</body></html>`);
   });
 
   it("appends when neither tag exists", () => {
-    expect(injectOverlayTag("<p>fragment</p>")).toBe(`<p>fragment</p>${OVERLAY_TAG}`);
+    expect(injectOverlayTag("<p>fragment</p>")).toBe(`<p>fragment</p>${INJECT_TAGS}`);
   });
 
   it("is case-insensitive and tolerates whitespace in the closing tag", () => {
     const out = injectOverlayTag("<HTML><HEAD></HEAD ><BODY></BODY></HTML>");
-    expect(out).toBe(`<HTML><HEAD>${OVERLAY_TAG}</HEAD ><BODY></BODY></HTML>`);
+    expect(out).toBe(`<HTML><HEAD>${INJECT_TAGS}</HEAD ><BODY></BODY></HTML>`);
   });
 
   it("is idempotent", () => {

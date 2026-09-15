@@ -6,8 +6,8 @@
  *     and re-served uncompressed with a correct Content-Length (F-2).
  *   • WebSocket upgrades are replayed over a raw TCP/TLS socket and piped untouched,
  *     so Next.js / Vite HMR keep working (F-3).
- *   • /__crt/overlay.js and /__crt/health are served here; anything else under /__crt/
- *     is a 404 and never reaches the target (F-4).
+ *   • /__crt/overlay.js, /__crt/early.js, /__crt/health and POST /__crt/captures (F-13, F-23)
+ *     are served here; anything else under /__crt/ is a 404 and never reaches the target (F-4).
  * The caller binds the returned server to 127.0.0.1 (see serve.ts).
  */
 import { readFile } from "node:fs/promises";
@@ -23,9 +23,11 @@ import {
 } from "node:http";
 import { Agent as HttpsAgent, request as httpsRequest } from "node:https";
 import { connect as netConnect } from "node:net";
+import { dirname, join } from "node:path";
 import type { Duplex } from "node:stream";
 import { connect as tlsConnect } from "node:tls";
-import { decodeBody, filterAcceptEncoding, injectOverlayTag, isHtml, OVERLAY_PATH, relaxCsp } from "./inject.js";
+import { CaptureValidationError, writeCapture } from "./captures.js";
+import { decodeBody, EARLY_PATH, filterAcceptEncoding, injectOverlayTag, isHtml, OVERLAY_PATH, relaxCsp } from "./inject.js";
 
 export interface ProxyOptions {
   /** Target origin, e.g. `http://localhost:3000`. */
@@ -37,6 +39,9 @@ export interface ProxyOptions {
 }
 
 export const CRT_PREFIX = "/__crt";
+export const CAPTURES_PATH = `${CRT_PREFIX}/captures`;
+/** A capture is a JSON document with a few base64 PNGs; 64 MB is far beyond any real page. */
+const MAX_CAPTURE_BODY = 64 * 1024 * 1024;
 
 /** Headers that describe the current hop, not the message; never forwarded (RFC 7230 §6.1). */
 const HOP_BY_HOP = new Set([
@@ -201,9 +206,9 @@ async function handleCrtRoute(
   opts: ProxyOptions,
 ): Promise<void> {
   const path = url.split("?")[0];
-  if (path === OVERLAY_PATH) {
+  if (path === OVERLAY_PATH || path === EARLY_PATH) {
     try {
-      const js = await readFile(opts.overlayPath);
+      const js = await readFile(path === OVERLAY_PATH ? opts.overlayPath : earlyPath(opts.overlayPath));
       res.writeHead(200, {
         "content-type": "text/javascript; charset=utf-8",
         "content-length": String(js.length),
@@ -220,7 +225,60 @@ async function handleCrtRoute(
     json(res, 200, { ok: true, target: opts.target, projectRoot: opts.projectRoot });
     return;
   }
+  if (path === CAPTURES_PATH) {
+    if (req.method !== "POST") {
+      json(res, 405, { ok: false, error: "POST a capture bundle here" });
+      return;
+    }
+    let body: unknown;
+    try {
+      body = JSON.parse((await readBody(req, MAX_CAPTURE_BODY)).toString("utf8"));
+    } catch (err) {
+      json(res, err instanceof BodyTooLarge ? 413 : 400, { ok: false, error: `capture body: ${(err as Error).message}` });
+      return;
+    }
+    try {
+      const written = writeCapture(opts.projectRoot, body);
+      json(res, 201, { ok: true, id: written.id, dir: written.dir, files: written.files });
+    } catch (err) {
+      if (err instanceof CaptureValidationError) {
+        json(res, 400, { ok: false, error: err.message, errors: err.errors });
+      } else {
+        json(res, 500, { ok: false, error: `could not write capture: ${(err as Error).message}` });
+      }
+    }
+    return;
+  }
   json(res, 404, { ok: false, error: `no CRT route ${path}` });
+}
+
+class BodyTooLarge extends Error {
+  constructor(limit: number) {
+    super(`body exceeds ${limit} bytes`);
+  }
+}
+
+function readBody(req: IncomingMessage, limit: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    req.on("data", (c: Buffer) => {
+      size += c.length;
+      if (size > limit) {
+        reject(new BodyTooLarge(limit));
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
+}
+
+/** early.js sits next to overlay.js in dist/. */
+function earlyPath(overlayPath: string): string {
+  return join(dirname(overlayPath), "early.js");
 }
 
 function json(res: ServerResponse, status: number, body: unknown): void {

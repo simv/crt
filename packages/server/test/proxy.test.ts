@@ -1,23 +1,26 @@
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { request as httpRequest, type IncomingHttpHeaders, type Server } from "node:http";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { encodeFrame, readFrame, startFixture, type Fixture } from "../e2e/fixture/server.mjs";
-import { OVERLAY_TAG } from "../src/inject.js";
+import { INJECT_TAGS, OVERLAY_TAG } from "../src/inject.js";
 import { createProxyServer } from "../src/proxy.js";
+import { samplePost } from "./helpers/sample-capture.js";
 
 let fixture: Fixture;
 let proxy: Server;
 let crt: string; // CRT origin
 let tmp: string;
 const overlayJs = 'console.log("overlay stub")';
+const earlyJs = 'console.log("early stub")';
 
 beforeAll(async () => {
   tmp = mkdtempSync(join(tmpdir(), "crt-proxy-"));
   writeFileSync(join(tmp, "overlay.js"), overlayJs);
+  writeFileSync(join(tmp, "early.js"), earlyJs);
   fixture = await startFixture();
   proxy = createProxyServer({ target: fixture.url, projectRoot: tmp, overlayPath: join(tmp, "overlay.js") });
   await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
@@ -77,7 +80,7 @@ describe("HTML injection (F-2)", () => {
 
   it("appends the tag when the document has no <head> or <body>", async () => {
     const r = await raw("/nohead");
-    expect(r.body.toString()).toBe(`<p>no head, no body</p>${OVERLAY_TAG}`);
+    expect(r.body.toString()).toBe(`<p>no head, no body</p>${INJECT_TAGS}`);
   });
 
   it("never asks upstream for an encoding it cannot undo", async () => {
@@ -163,10 +166,53 @@ describe("CRT routes (F-4)", () => {
     expect(r.body.toString()).toBe(overlayJs);
   });
 
+  it("serves /__crt/early.js from next to the overlay bundle (F-20)", async () => {
+    const r = await raw("/__crt/early.js");
+    expect(r.status).toBe(200);
+    expect(r.headers["content-type"]).toMatch(/^text\/javascript/);
+    expect(r.body.toString()).toBe(earlyJs);
+  });
+
   it("returns 404 for unknown /__crt/ paths without touching the target", async () => {
     const r = await raw("/__crt/nope");
     expect(r.status).toBe(404);
     expect(JSON.parse(r.body.toString())).toEqual({ ok: false, error: "no CRT route /__crt/nope" });
+  });
+});
+
+describe("POST /__crt/captures (F-13, F-23)", () => {
+  const post = (body: unknown) =>
+    raw("/__crt/captures", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: Buffer.from(JSON.stringify(body)),
+    });
+
+  it("writes the capture under <projectRoot>/.crt/captures/<id>/ and answers 201 with the location", async () => {
+    const r = await post(samplePost());
+    expect(r.status).toBe(201);
+    const body = JSON.parse(r.body.toString()) as { ok: boolean; id: string; dir: string; files: string[] };
+    expect(body.ok).toBe(true);
+    expect(body.id).toMatch(/^\d{8}-\d{6}-[a-f0-9]{4}$/);
+    expect(body.dir).toBe(join(tmp, ".crt", "captures", body.id));
+    expect(existsSync(join(body.dir, "viewport.png"))).toBe(true);
+    const written = JSON.parse(readFileSync(join(body.dir, "capture.json"), "utf8")) as { id: string };
+    expect(written.id).toBe(body.id);
+  });
+
+  it("answers 400 with the validation errors for a malformed bundle", async () => {
+    const r = await post({ bundle: { version: 1 }, images: {} });
+    expect(r.status).toBe(400);
+    const body = JSON.parse(r.body.toString()) as { ok: boolean; errors: string[] };
+    expect(body.ok).toBe(false);
+    expect(body.errors).toContain("bundle.page: missing");
+  });
+
+  it("answers 400 for a body that is not JSON and 405 for GET", async () => {
+    const bad = await raw("/__crt/captures", { method: "POST", body: Buffer.from("not json") });
+    expect(bad.status).toBe(400);
+    const get = await raw("/__crt/captures");
+    expect(get.status).toBe(405);
   });
 });
 
