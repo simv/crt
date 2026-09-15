@@ -37,11 +37,13 @@ describe("PreToolUse convention guard (.claude/hooks/guard.mjs)", () => {
     expect(runHook({ file_path: join("packages", "server", "dist", "cli.js"), content: "x" }).status).toBe(2);
   });
 
-  it("blocks Agent SDK imports in product scripts outside session.ts (PRD §12)", () => {
-    for (const file of ["packages/server/src/proxy.ts", "packages/overlay/src/index.ts", "plugin/hooks/x.mjs"]) {
+  it("blocks Agent SDK imports in product scripts outside providers/claude.ts (PRD §12, F-63)", () => {
+    // session.ts is now the registry and providers/codex.ts drives a CLI: neither may touch the SDK.
+    const outside = ["packages/server/src/proxy.ts", "packages/server/src/session.ts", "packages/server/src/providers/codex.ts", "packages/overlay/src/index.ts", "plugin/hooks/x.mjs"];
+    for (const file of outside) {
       const r = runHook({ file_path: join(ROOT, file), new_string: SDK_IMPORT });
       expect(r.status, file).toBe(2);
-      expect(r.stderr).toMatch(/only in packages\/server\/src\/session\.ts/);
+      expect(r.stderr).toMatch(/only in packages\/server\/src\/providers\/claude\.ts/);
     }
     const dynamic = runHook({
       file_path: join(ROOT, "packages", "server", "src", "serve.ts"),
@@ -50,8 +52,8 @@ describe("PreToolUse convention guard (.claude/hooks/guard.mjs)", () => {
     expect(dynamic.status).toBe(2);
   });
 
-  it("allows the SDK import in session.ts, in tests, and bare mentions anywhere (PRD §12)", () => {
-    expect(runHook({ file_path: join(ROOT, "packages", "server", "src", "session.ts"), new_string: SDK_IMPORT }).status).toBe(0);
+  it("allows the SDK import in providers/claude.ts, in tests, and bare mentions anywhere (PRD §12, F-63)", () => {
+    expect(runHook({ file_path: join(ROOT, "packages", "server", "src", "providers", "claude.ts"), new_string: SDK_IMPORT }).status).toBe(0);
     // Tests and e2e fixtures are not product code: they may import, mock or quote the package.
     expect(runHook({ file_path: join(ROOT, "packages", "server", "test", "s.test.ts"), new_string: SDK_IMPORT }).status).toBe(0);
     expect(runHook({ file_path: join(ROOT, "packages", "server", "e2e", "fixture", "x.mjs"), new_string: SDK_IMPORT }).status).toBe(0);
