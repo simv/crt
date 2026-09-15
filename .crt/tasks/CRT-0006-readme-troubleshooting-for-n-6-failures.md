@@ -1,10 +1,10 @@
 ---
 id: CRT-0006
 title: README troubleshooting section for the N-6 failure cases
-status: review
+status: done
 priority: normal
 created: 2026-09-15T10:55:00+08:00
-updated: 2026-09-15T10:47+08:00
+updated: 2026-09-15T12:13+08:00
 url: null
 route: null
 session: null
@@ -43,3 +43,4 @@ This is a slice of CRT-0005 Ask item 2 pulled forward so M4 can verify the worke
 - 2026-09-15T10:47+08:00 — verified: `git status --porcelain` after the edit shows only ` M README.md`; no source file was touched.
 - 2026-09-15T10:47+08:00 — verified: `npm run check` exits 0 (typecheck, lint, 109 unit tests in 13 files, overlay + server build).
 - 2026-09-15T10:47+08:00 — ready for review: changed README.md only (new `## Troubleshooting` section; the sentence under Evidence replaced by "Every failure is a single `crt: …` line on stderr and a non-zero exit — see [Troubleshooting](#troubleshooting)"). Reviewer note: the two folded messages above are the only places the section departs from a strict one-entry-per-message reading of the Ask.
+- 2026-09-15T12:13+08:00 — done; merged in https://github.com/simv/crt/pull/7
