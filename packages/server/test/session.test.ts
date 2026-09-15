@@ -21,7 +21,9 @@ describe("tool labels and permission text (F-25, F-26)", () => {
 
   it("renders collapsed one-liners with project-relative paths", () => {
     expect(toolLabel("Read", { file_path: abs("src/a.ts") }, cwd)).toBe("Read src/a.ts");
-    expect(toolLabel("Edit", { file_path: "/elsewhere/b.ts" }, cwd)).toBe("Edit /elsewhere/b.ts");
+    // Outside the project (sibling of cwd, so the same drive on Windows): shown verbatim.
+    const outside = join(cwd, "..", "elsewhere", "b.ts");
+    expect(toolLabel("Edit", { file_path: outside }, cwd)).toBe(`Edit ${outside}`);
     expect(toolLabel("Glob", { pattern: "**/*.tsx", path: abs("src") }, cwd)).toBe("Glob **/*.tsx in src");
     expect(toolLabel("Grep", { pattern: "cart-total" }, cwd)).toBe('Grep "cart-total"');
     expect(toolLabel("Bash", { command: "git status" }, cwd)).toBe("Bash git status");
