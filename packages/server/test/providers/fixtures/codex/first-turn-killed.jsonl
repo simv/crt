@@ -1,0 +1,5 @@
+# codex-cli 0.154.0 — recorded 2026-09-15 on Windows 11 (CRT-0009 spike)
+# command: codex.exe exec --json -c approval_policy="never" … --sandbox read-only -C <repo> -   then taskkill /T /F /PID <codex pid> as soon as thread.started arrived
+# exit code 1 (signal null) after 2088 ms; taskkill also terminated the MCP child (node mcp-probe.mjs) and codex-code-mode-host.exe
+{"type":"thread.started","thread_id":"01a0a4b3-436c-7b93-9148-d8187e8d4a37"}
+{"type":"turn.started"}
