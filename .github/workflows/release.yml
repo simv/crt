@@ -1,7 +1,9 @@
 name: release
 
 # Tag v* on main → build → publish claude-review-tool to npm → GitHub Release.
-# Requires repo secret NPM_TOKEN (automation token with publish rights).
+# Requires repo secret NPM_TOKEN (granular token with publish rights, 2FA bypass).
+# No --provenance: npm only attests builds from public repositories, and this one is private.
+# If the repo goes public, add `--provenance` back to the publish step and `id-token: write`.
 
 on:
   push:
@@ -9,7 +11,6 @@ on:
 
 permissions:
   contents: write
-  id-token: write
 
 jobs:
   publish:
@@ -28,7 +29,7 @@ jobs:
           TAG="${GITHUB_REF_NAME#v}"
           PKG=$(node -p "require('./packages/server/package.json').version")
           test "$TAG" = "$PKG" || { echo "tag $TAG != package version $PKG"; exit 1; }
-      - run: npm publish --workspace packages/server --access public --provenance
+      - run: npm publish --workspace packages/server --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - uses: softprops/action-gh-release@v2

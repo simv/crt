@@ -10,10 +10,18 @@
     "directory": "packages/server"
   },
   "bugs": "https://github.com/simv/crt/issues",
-  "keywords": ["claude", "claude-code", "review", "annotate", "feedback", "proxy", "overlay"],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "review",
+    "annotate",
+    "feedback",
+    "proxy",
+    "overlay"
+  ],
   "type": "module",
   "bin": {
-    "crt": "./dist/cli.js"
+    "crt": "dist/cli.js"
   },
   "files": [
     "dist"
