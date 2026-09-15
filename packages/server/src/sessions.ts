@@ -1,7 +1,8 @@
 /**
  * Session registry and its HTTP routes (PRD F-24, F-25, F-28, F-29, F-30).
  *
- *   POST   /__crt/sessions                  { captureId }        → 201 { id }   start intake
+ *   POST   /__crt/sessions                  { captureId? }       → 201 { id }   start intake
+ *   POST   /__crt/sessions/<id>/capture     { captureId }        → 200          first message (warm start)
  *   GET    /__crt/sessions                                        → { sessions: SessionInfo[] }
  *   GET    /__crt/sessions/<id>/events      SSE; `Last-Event-ID` or `?after=<seq>` replays
  *   POST   /__crt/sessions/<id>/messages    { text }             → 202
@@ -13,6 +14,10 @@
  * panel that reloads the page (or the developer opening the session list) can rebuild the
  * transcript by replaying from 0. The driver behind each session is whatever `SessionStarter`
  * the server was created with: the SDK one (session.ts) or the stub (session-stub.ts).
+ *
+ * Warm start (N-2): the overlay may POST /__crt/sessions with no capture as soon as Send is
+ * clicked, so the Claude Code process boots while the page is still being rasterised; the
+ * capture is attached with POST …/capture once it is saved, which sends the first message.
  */
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -31,7 +36,7 @@ const KEEPALIVE_MS = 15_000;
 export interface RegistryOptions {
   projectRoot: string;
   tasksDir: string;
-  /** Body of plugin/skills/intake/SKILL.md; `$ARGUMENTS` is replaced with the capture path. */
+  /** Body of plugin/skills/intake/SKILL.md; `$ARGUMENTS` is replaced with a pointer to the first message. */
   intakePrompt: string;
   start: SessionStarter;
   permissionTimeoutMs?: number;
@@ -49,10 +54,13 @@ export class SessionRegistry {
   private readonly entries = new Map<string, Entry>();
   constructor(private readonly opts: RegistryOptions) {}
 
-  /** F-24: start an intake session for a stored capture. Throws when the capture is missing. */
-  create(captureId: string): SessionInfo {
-    const captureDir = join(capturesDir(this.opts.projectRoot), captureId);
-    const first = buildIntakeMessage(captureDir);
+  /**
+   * F-24: start an intake session. With a capture id the first message is sent immediately;
+   * without one the process boots and waits for `attachCapture` (warm start, N-2).
+   * Throws when the capture is missing (nothing is started in that case).
+   */
+  create(captureId: string | null): SessionInfo {
+    const first = captureId ? buildIntakeMessage(join(capturesDir(this.opts.projectRoot), captureId)) : undefined;
     const id = randomUUID();
     const entry: Entry = {
       info: { id, captureId, startedAt: new Date().toISOString(), state: "starting", taskId: null },
@@ -64,11 +72,11 @@ export class SessionRegistry {
     const driverOpts = {
       id,
       cwd: this.opts.projectRoot,
-      systemPromptAppend: this.opts.intakePrompt.split("$ARGUMENTS").join(captureDir),
-      first,
+      systemPromptAppend: this.opts.intakePrompt.split("$ARGUMENTS").join("the capture directory named in the first message"),
+      ...(first ? { first } : {}),
       decide: (toolName: string, input: Record<string, unknown>) => decidePermission(toolName, input, this.opts.projectRoot),
       writeTask: async (request: WriteTaskRequest) => {
-        const created = createTask(this.opts.projectRoot, this.opts.tasksDir, { ...request, session: id, captureId });
+        const created = createTask(this.opts.projectRoot, this.opts.tasksDir, { ...request, session: id, captureId: entry.info.captureId });
         entry.info.taskId = created.id;
         return { id: created.id, path: displayPath(this.opts.projectRoot, created.path) };
       },
@@ -77,8 +85,20 @@ export class SessionRegistry {
     };
     entry.driver = this.opts.start(driverOpts);
     entry.driver.onEvent((event) => this.record(entry, event));
-    this.opts.log?.(`crt: intake session ${id} started for capture ${captureId} (claude --resume ${id})`);
+    this.opts.log?.(`crt: intake session ${id} started${captureId ? ` for capture ${captureId}` : ""} (claude --resume ${id})`);
     return { ...entry.info };
+  }
+
+  /** Warm start, step 2: send the capture as the first message. Throws when the capture is missing. */
+  attachCapture(id: string, captureId: string): "ok" | "no_session" | "already_started" {
+    const e = this.entries.get(id);
+    if (!e || isOver(e.info.state)) return "no_session";
+    if (e.info.captureId !== null) return "already_started";
+    const first = buildIntakeMessage(join(capturesDir(this.opts.projectRoot), captureId));
+    e.info.captureId = captureId;
+    e.driver.send(first);
+    this.opts.log?.(`crt: intake session ${id} received capture ${captureId}`);
+    return "ok";
   }
 
   private record(entry: Entry, event: SessionEvent): void {
@@ -144,6 +164,10 @@ function isOver(state: SessionState): boolean {
   return state === "ended" || state === "error";
 }
 
+function isCaptureId(v: unknown): v is string {
+  return typeof v === "string" && /^[A-Za-z0-9_-]+$/.test(v);
+}
+
 /** Route a request under /__crt/sessions. Returns false when the path is not a session route. */
 export async function handleSessionRoute(
   path: string,
@@ -170,12 +194,12 @@ export async function handleSessionRoute(
       return true;
     }
     const captureId = (body.value as { captureId?: unknown }).captureId;
-    if (typeof captureId !== "string" || !/^[\w-]+$/.test(captureId)) {
-      json(res, 400, { ok: false, error: "captureId (string) is required" });
+    if (captureId !== undefined && captureId !== null && !isCaptureId(captureId)) {
+      json(res, 400, { ok: false, error: "captureId must be a capture id string (or omitted for a warm start)" });
       return true;
     }
     try {
-      const info = registry.create(captureId);
+      const info = registry.create(isCaptureId(captureId) ? captureId : null);
       json(res, 201, { ok: true, id: info.id, session: info });
     } catch (err) {
       const message = (err as Error).message;
@@ -211,6 +235,20 @@ export async function handleSessionRoute(
   }
   const b = body.value as Record<string, unknown>;
   switch (action) {
+    case "capture": {
+      if (!isCaptureId(b.captureId)) {
+        json(res, 400, { ok: false, error: "captureId (string) is required" });
+        return true;
+      }
+      try {
+        const r = registry.attachCapture(id, b.captureId);
+        json(res, r === "ok" ? 200 : 409, { ok: r === "ok", error: r === "ok" ? undefined : r });
+      } catch (err) {
+        const message = (err as Error).message;
+        json(res, /not found/.test(message) ? 404 : 500, { ok: false, error: message });
+      }
+      return true;
+    }
     case "messages": {
       const text = typeof b.text === "string" ? b.text.trim() : "";
       if (!text) {

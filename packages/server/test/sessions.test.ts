@@ -113,7 +113,7 @@ describe("session routes (F-24, F-25, F-29)", () => {
     expect(logs.at(-1)).toContain(`claude --resume ${r.json.id as string}`);
 
     expect((await api("POST", "/__crt/sessions", { captureId: "20200101-000000-dead" })).status).toBe(404);
-    expect((await api("POST", "/__crt/sessions", {})).status).toBe(400);
+    expect((await api("POST", "/__crt/sessions", { captureId: 42 })).status).toBe(400);
     expect((await api("POST", "/__crt/sessions", { captureId: "../x" })).status).toBe(400);
     expect((await api("GET", "/__crt/sessions/nope")).status).toBe(404);
 
@@ -180,6 +180,28 @@ describe("session routes (F-24, F-25, F-29)", () => {
     expect(readFileSync(join(root, ".crt", "tasks", "README.md"), "utf8")).toContain("[CRT-0001]");
 
     expect((await api("POST", `/__crt/sessions/${id}/messages`, { text: "" })).status).toBe(400);
+    registry.close(id);
+  });
+
+  it("warm start: POST with no capture boots the session; POST …/capture sends the first message (N-2)", async () => {
+    const r = await api("POST", "/__crt/sessions", {});
+    expect(r.status).toBe(201);
+    const id = r.json.id as string;
+    expect(r.json.session).toMatchObject({ captureId: null, state: "starting" });
+    // Nothing has been said yet: no user echo, no init.
+    await new Promise((res) => setTimeout(res, 60));
+    expect(registry.get(id)?.state).toBe("starting");
+
+    expect((await api("POST", `/__crt/sessions/${id}/capture`, { captureId: "20200101-000000-dead" })).status).toBe(404);
+    expect((await api("POST", `/__crt/sessions/${id}/capture`, {})).status).toBe(400);
+    const cap = writeCapture(root, samplePost());
+    expect((await api("POST", `/__crt/sessions/${id}/capture`, { captureId: cap.id })).status).toBe(200);
+    expect(registry.get(id)?.captureId).toBe(cap.id);
+    expect((await api("POST", `/__crt/sessions/${id}/capture`, { captureId: cap.id })).status).toBe(409);
+
+    const got = await collect(`/__crt/sessions/${id}/events`, (e) => e.type === "permission");
+    expect(got.events[0]).toMatchObject({ type: "user", text: expect.stringContaining(`CRT intake for capture ${cap.id}`) });
+    expect(got.events.map((e) => e.type)).toContain("init");
     registry.close(id);
   });
 

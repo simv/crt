@@ -82,9 +82,9 @@ export function startStubSession(opts: StartSessionOptions): SessionDriver {
     setState("idle");
   };
 
-  const firstTurn = async () => {
+  const firstTurn = async (first: { text: string; images?: Array<{ label: string }> }) => {
     const t = turn;
-    emit({ type: "user", text: opts.first.text, images: (opts.first.images ?? []).map((i) => i.label) });
+    emit({ type: "user", text: first.text, images: (first.images ?? []).map((i) => i.label) });
     await sleep(TICK_MS);
     if (cancelled(t)) return;
     emit({ type: "init", sessionId: opts.id, model: "stub-model", cwd: opts.cwd, claudeCodeVersion: "stub" });
@@ -110,7 +110,7 @@ export function startStubSession(opts: StartSessionOptions): SessionDriver {
     if (cancelled(t)) return;
     if (/\bwrite\b/i.test(text)) {
       const id = `stub-tool-${++n}`;
-      emit({ type: "tool_use", id, name: "mcp__crt__write_task", label: 'Write task "Cart total excludes applied discount"' });
+      emit({ type: "tool_use", id, name: "mcp__crt__write_task", label: "Write task: Cart total excludes applied discount" });
       try {
         const written = await opts.writeTask({
           title: "Cart total excludes applied discount",
@@ -145,18 +145,28 @@ export function startStubSession(opts: StartSessionOptions): SessionDriver {
     }
   };
 
-  busy = true;
-  queueMicrotask(() => {
-    void firstTurn().finally(() => {
+  let started = false;
+  const begin = (first: { text: string; images?: Array<{ label: string }> }) => {
+    started = true;
+    busy = true;
+    void firstTurn(first).finally(() => {
       busy = false;
       void pump();
     });
-  });
+  };
+  if (opts.first) {
+    const first = opts.first;
+    queueMicrotask(() => begin(first));
+  }
 
   return {
     id: opts.id,
     send(u) {
       if (closed) return;
+      if (!started) {
+        begin(u); // warm start: this is the capture message
+        return;
+      }
       emit({ type: "user", text: u.text, images: (u.images ?? []).map((i) => i.label) });
       queue.push(u.text);
       void pump();

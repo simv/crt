@@ -229,8 +229,10 @@ export class OverlayUI {
 
   /**
    * F-13: freeze, capture, POST, clear the annotations, then open the chat on a new intake
-   * session (F-24). A capture that saved but whose session failed to start is still reported
-   * as sent — the files are on disk and the status line says what went wrong.
+   * session (F-24). The session is warm-started in parallel with the capture so the Claude
+   * Code process boots while the page is being rasterised (N-2). A capture that saved but
+   * whose session failed to start is still reported as sent — the files are on disk and the
+   * status line says what went wrong.
    */
   async sendToClaude(): Promise<SendResult> {
     if (this.busy) throw new Error("already sending");
@@ -239,6 +241,7 @@ export class OverlayUI {
     this.setTool(null);
     this.showStatus("Capturing page…");
     this.render();
+    const warm = this.chat.warmStart().catch(() => null);
     try {
       const result = await capture(this.store);
       this.showStatus("Sending to Claude…");
@@ -246,7 +249,9 @@ export class OverlayUI {
       this.store.clear();
       this.showStatus(`Capture saved: <code>${escapeHtml(sent.dir)}</code>`, false, true);
       try {
-        await this.chat.startFromCapture(sent.id);
+        const sessionId = await warm;
+        if (sessionId) await this.chat.attachCapture(sessionId, sent.id);
+        else await this.chat.startFromCapture(sent.id);
       } catch (err) {
         this.showStatus(
           `Capture saved: <code>${escapeHtml(sent.dir)}</code> — but Claude did not start: ${escapeHtml(err instanceof Error ? err.message : String(err))}`,
@@ -255,6 +260,7 @@ export class OverlayUI {
       }
       return sent;
     } catch (err) {
+      void warm.then((id) => (id ? this.chat.abandon(id) : undefined));
       this.showStatus(`Send failed: ${escapeHtml(err instanceof Error ? err.message : String(err))}`, true);
       throw err;
     } finally {

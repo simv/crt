@@ -25,7 +25,7 @@ describe("tool labels and permission text (F-25, F-26)", () => {
     expect(toolLabel("Glob", { pattern: "**/*.tsx", path: abs("src") }, cwd)).toBe("Glob **/*.tsx in src");
     expect(toolLabel("Grep", { pattern: "cart-total" }, cwd)).toBe('Grep "cart-total"');
     expect(toolLabel("Bash", { command: "git status" }, cwd)).toBe("Bash git status");
-    expect(toolLabel("mcp__crt__write_task", { title: "Fix it" }, cwd)).toBe('Write task "Fix it"');
+    expect(toolLabel("mcp__crt__write_task", { title: "Fix it" }, cwd)).toBe("Write task: Fix it");
     expect(toolLabel("Weird", {}, cwd)).toBe("Weird");
   });
 

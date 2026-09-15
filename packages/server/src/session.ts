@@ -297,8 +297,10 @@ export function startSession(opts: StartSessionOptions): SessionDriver {
 
   const run = async () => {
     try {
-      input.push(toSdkMessage(opts.first));
-      emit({ type: "user", text: opts.first.text, images: (opts.first.images ?? []).map((i) => i.label) });
+      if (opts.first) {
+        input.push(toSdkMessage(opts.first));
+        emit({ type: "user", text: opts.first.text, images: (opts.first.images ?? []).map((i) => i.label) });
+      }
       q = query({ prompt: input, options });
       for await (const msg of q) handle(msg);
       setState("ended");
@@ -318,7 +320,7 @@ export function startSession(opts: StartSessionOptions): SessionDriver {
       if (state === "ended" || state === "error") return;
       emit({ type: "user", text: u.text, images: (u.images ?? []).map((i) => i.label) });
       input.push(toSdkMessage(u));
-      setState("running");
+      if (state !== "starting") setState("running");
     },
     async interrupt() {
       try {
@@ -380,7 +382,7 @@ export function toolLabel(name: string, input: Record<string, unknown>, cwd: str
     case "Bash":
       return `Bash ${summarize(String(input.command ?? ""))}`;
     case WRITE_TASK_TOOL_FULL:
-      return `Write task ${JSON.stringify(String(input.title ?? ""))}`;
+      return `Write task: ${String(input.title ?? "")}`;
     default:
       return name;
   }

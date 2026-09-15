@@ -59,6 +59,8 @@ export const CHAT_CSS = `
   .perm .done { font-size: 12px; color: #555; }
   .perm.resolved { border-color: rgba(0,0,0,.12); background: #fafafa; }
   .sys { align-self: center; font-size: 11px; color: #888; text-align: center; }
+  .thinking { align-self: flex-start; font-size: 12px; color: #888; padding: 2px 10px; }
+  .thinking::after { content: "…"; animation: crt-blink 1s steps(2) infinite; }
   .sys.error { color: #b00020; font-weight: 600; align-self: stretch; text-align: left; padding: 6px 10px; background: #fde2e2; border-radius: 8px; }
   .chat-task { padding: 8px 10px; background: #d9f5e3; color: #0a5b2b; font-size: 12px; border-top: 1px solid rgba(0,0,0,.06); }
   .chat-task[hidden] { display: none; }
@@ -96,6 +98,8 @@ export class ChatPanel {
   private taskId: string | null = null;
   private events: SessionEvent[] = [];
   private texts = new Map<string, string>();
+  /** Placeholder shown between assistant_start and the first visible output (model thinking). */
+  private thinking: HTMLElement | null = null;
   private lastSeq = 0;
   private onVisibility: (open: boolean) => void;
 
@@ -145,14 +149,42 @@ export class ChatPanel {
 
   /** F-13/F-24: start an intake session for a saved capture and open the panel on it. */
   async startFromCapture(captureId: string): Promise<string> {
-    const res = await fetch(SESSIONS_ENDPOINT, {
+    const id = await this.createSession(captureId);
+    this.open(id);
+    return id;
+  }
+
+  /**
+   * N-2 warm start: boot the session while the capture is still being rasterised, then
+   * `attachCapture` once it is saved (or `abandon` if the capture failed).
+   */
+  warmStart(): Promise<string> {
+    return this.createSession(null);
+  }
+
+  async attachCapture(sessionId: string, captureId: string): Promise<void> {
+    const res = await fetch(`${SESSIONS_ENDPOINT}/${sessionId}/capture`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ captureId }),
     });
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    if (!res.ok || !data.ok) throw new Error(data.error ?? `CRT server answered ${res.status}`);
+    this.open(sessionId);
+  }
+
+  async abandon(sessionId: string): Promise<void> {
+    await fetch(`${SESSIONS_ENDPOINT}/${sessionId}`, { method: "DELETE" }).catch(() => undefined);
+  }
+
+  private async createSession(captureId: string | null): Promise<string> {
+    const res = await fetch(SESSIONS_ENDPOINT, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(captureId ? { captureId } : {}),
+    });
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean; id?: string; error?: string };
     if (!res.ok || !data.ok || !data.id) throw new Error(data.error ?? `CRT server answered ${res.status}`);
-    this.open(data.id);
     return data.id;
   }
 
@@ -167,6 +199,7 @@ export class ChatPanel {
       this.texts.clear();
       this.lastSeq = 0;
       this.log.replaceChildren();
+      this.thinking = null;
       this.taskEl.hidden = true;
       this.renderFoot();
       this.renderState();
@@ -247,6 +280,7 @@ export class ChatPanel {
     this.events = [];
     this.texts.clear();
     this.log.replaceChildren();
+    this.thinking = null;
     try {
       sessionStorage.removeItem(STORAGE_KEY);
     } catch {
@@ -306,10 +340,13 @@ export class ChatPanel {
         this.append(userBubble(event.text, event.images));
         break;
       case "assistant_start":
+        // The bubble is created on the first text delta: a message that only carries tool_use
+        // blocks would otherwise leave an empty bubble above its tool lines.
         this.texts.set(event.messageId, "");
-        this.append(assistantBubble(event.messageId));
+        this.showThinking();
         break;
       case "text": {
+        this.hideThinking();
         const text = (this.texts.get(event.messageId) ?? "") + event.text;
         this.texts.set(event.messageId, text);
         let el = this.log.querySelector<HTMLElement>(`.msg.assistant[data-mid="${cssEscape(event.messageId)}"]`);
@@ -322,6 +359,7 @@ export class ChatPanel {
         this.log.querySelector(`.msg.assistant[data-mid="${cssEscape(event.messageId)}"]`)?.classList.remove("streaming");
         break;
       case "tool_use":
+        this.hideThinking();
         this.append(toolLine(event.id, event.label));
         break;
       case "tool_result": {
@@ -346,6 +384,7 @@ export class ChatPanel {
         break;
       }
       case "result":
+        this.hideThinking();
         if (!event.ok) this.system(event.errors.join("; ") || "The turn failed", !/interrupt/i.test(event.errors.join(" ")));
         for (const el of Array.from(this.log.querySelectorAll(".msg.assistant.streaming"))) el.classList.remove("streaming");
         break;
@@ -358,6 +397,19 @@ export class ChatPanel {
         this.system(event.message, true);
         break;
     }
+  }
+
+  private showThinking(): void {
+    if (this.thinking) return;
+    const el = document.createElement("div");
+    el.className = "thinking";
+    el.textContent = "thinking";
+    this.thinking = this.append(el);
+  }
+
+  private hideThinking(): void {
+    this.thinking?.remove();
+    this.thinking = null;
   }
 
   private append<T extends HTMLElement>(el: T): T {

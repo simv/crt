@@ -104,8 +104,11 @@ export interface StartSessionOptions {
   cwd: string;
   /** Intake instructions appended to the Claude Code preset system prompt (F-24). */
   systemPromptAppend: string;
-  /** The capture summary + notes + images (F-24). */
-  first: UserInput;
+  /**
+   * The capture summary + notes + images (F-24). Absent for a warm start: the process boots
+   * while the overlay is still rasterising, and the first message arrives via `send()` (N-2).
+   */
+  first?: UserInput;
   /** Called for every tool call Claude Code would prompt for (F-26). */
   decide: (toolName: string, input: Record<string, unknown>) => PermissionDecision;
   /** Persist a task from the session's `write_task` call; returns id + path shown in the panel. */
