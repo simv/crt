@@ -1,10 +1,10 @@
 ---
 id: CRT-0003
 title: M3 — In-page intake session on the Agent SDK and task writer
-status: review
+status: done
 priority: high
 created: 2026-09-14T20:50:00+08:00
-updated: 2026-09-15T09:15:00+08:00
+updated: 2026-09-15T09:25:00+08:00
 url: null
 route: null
 session: null
@@ -56,3 +56,4 @@ Keep the SDK surface tiny; the API is pre-1.0 and tracks Claude Code releases (P
   - **Other decisions.** The `init` system message is re-emitted by the SDK on every turn (harmless; the footer re-renders). A message that carries only `tool_use` blocks no longer leaves an empty assistant bubble. `POST /__crt/captures` still just stores the capture (M2 behaviour and tests unchanged); the session is a separate `POST /__crt/sessions`. `createTask` runs the F-32 validator on its own output before writing. This repo's five task files pass `validateTaskText` (a unit test asserts it). F-30 (session list) has the server route (`GET /__crt/sessions`) but no panel UI yet — Should, not in this Ask. F-14 (quick note) not done — Should.
   - **Verification.** `npm run check` green on Windows (Node 24.18): typecheck both packages, 109 unit tests (incl. the SDK smoke test locally), build. `npm run e2e` green: 25 Playwright tests. DoD item 6 stays unticked until the PR's `check (ubuntu-latest)`, `check (windows-latest)` and `e2e (ubuntu)` jobs are green.
 - 2026-09-15T09:15+08:00 — build session fe8bbb8a-cd99-405e-9e5d-1f501de4b34e: CI green on PR #5 (https://github.com/simv/crt/pull/5) after one test fix (f046dd6: the outside-project `toolLabel` case used a POSIX path that landed on a different drive on the D:-rooted Windows runner). All DoD items ticked. Status → review.
+- 2026-09-15T09:25+08:00 — final verification before merge: `npm run check` (109 unit incl. the SDK smoke test, build) and `npm run e2e` (25 Playwright) green on Windows; PR #5 CI green and mergeable. Status → done; squash-merged into `main`.
