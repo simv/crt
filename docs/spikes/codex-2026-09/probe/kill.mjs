@@ -14,13 +14,14 @@ if (!name) throw new Error("usage: node kill.mjs <run-name> [delay-ms]");
 const child = spawn(process.execPath, [join(here, "spike.mjs"), `${name}-killed`, "turn1"], { stdio: ["ignore", "pipe", "inherit"], env: { ...process.env, OUT_DIR: outDir } });
 let out = "";
 let threadId;
+let killTimer;
 child.stdout.on("data", (c) => {
   out += c;
   process.stdout.write(c);
   const m = /"thread\.started","thread_id":"([^"]+)"/.exec(out);
   if (m && !threadId) {
     threadId = m[1];
-    setTimeout(() => {
+    killTimer = setTimeout(() => {
       const pid = readFileSync(join(outDir, `${name}-killed.pid`), "utf8").trim();
       console.error(`\n[kill] thread ${threadId}; killing codex pid ${pid}`);
       const k = process.platform === "win32"
@@ -31,6 +32,11 @@ child.stdout.on("data", (c) => {
   }
 });
 child.on("exit", (code) => {
+  clearTimeout(killTimer); // the turn may have finished before the delay elapsed
+  if (!threadId) {
+    console.error(`[kill] first turn exited code=${code} before thread.started — nothing to resume`);
+    process.exit(1);
+  }
   console.error(`[kill] first turn exited code=${code}; resuming ${threadId}`);
   const r = spawnSync(process.execPath, [join(here, "spike.mjs"), `${name}-resumed`, "resume", threadId, "Short reply please: what did I ask you to do before?"], {
     stdio: "inherit",

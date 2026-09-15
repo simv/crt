@@ -16,7 +16,9 @@ mkdirSync(outDir, { recursive: true });
 const jsonl = join(outDir, outName + ".jsonl");
 const errf = join(outDir, outName + ".stderr.txt");
 
-const version = spawnSync(CODEX, ["--version"], { encoding: "utf8", shell: false }).stdout.trim();
+const probe = spawnSync(CODEX, ["--version"], { encoding: "utf8", shell: false });
+if (probe.error) throw new Error(`cannot run ${CODEX}: ${probe.error.message}`);
+const version = probe.stdout.trim();
 const cmdLine = ["codex.exe", ...args].join(" ");
 writeFileSync(jsonl, `# ${version} — recorded ${new Date().toISOString().slice(0, 10)} on ${process.platform} (CRT-0009 spike, docs/spikes/codex-2026-09.md)\n# command: ${cmdLine}   (prompt on stdin${process.env.RUN_CWD ? `; cwd = ${process.env.RUN_CWD}` : ""})\n`);
 writeFileSync(errf, "");
@@ -27,7 +29,7 @@ const child = spawn(CODEX, args, { stdio: ["pipe", "pipe", "pipe"], shell: false
 writeFileSync(join(outDir, outName + ".pid"), String(child.pid));
 child.stdout.on("data", (c) => { appendFileSync(jsonl, c); process.stdout.write(c); });
 child.stderr.on("data", (c) => { appendFileSync(errf, c); process.stderr.write(c); });
-child.on("exit", (code, signal) => {
+child.on("close", (code, signal) => { // close, not exit: stdout is fully drained by then
   const ms = Date.now() - started;
   console.error(`< exit code=${code} signal=${signal} after ${ms}ms`);
   // The exit line goes at the end so the header stays "version, command" first; the

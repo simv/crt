@@ -43,7 +43,7 @@ const threadId = (events: CodexEvent[]) => events.find((e) => e.type === "thread
 describe("codex fixtures (F-53, M6)", () => {
   const all = readdirSync(FIXTURES).filter((f) => f.endsWith(".jsonl"));
 
-  it("every fixture has a header naming the tested version and command", () => {
+  it("every fixture has a header naming the tested version and command (F-59)", () => {
     expect(all.length).toBeGreaterThan(0);
     for (const name of all) {
       const { header, events } = parseFixture(name);
@@ -54,7 +54,7 @@ describe("codex fixtures (F-53, M6)", () => {
     }
   });
 
-  it("every run starts with thread.started carrying a UUID thread_id, then turn.started", () => {
+  it("every run starts with thread.started carrying a UUID thread_id, then turn.started (F-53)", () => {
     for (const name of all) {
       const { events } = parseFixture(name);
       expect(types(events).slice(0, 2), name).toEqual(["thread.started", "turn.started"]);
@@ -78,7 +78,7 @@ describe("codex fixtures (F-53, M6)", () => {
     );
   });
 
-  it("a turn killed with taskkill /T /F leaves only thread.started + turn.started", () => {
+  it("a turn killed with taskkill /T /F leaves only thread.started + turn.started (F-53 interrupt)", () => {
     expect(types(parseFixture("first-turn-killed.jsonl").events)).toEqual(["thread.started", "turn.started"]);
   });
 

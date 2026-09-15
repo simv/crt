@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 
 const PORT = Number(process.argv[2] || 47123);
 const LOG = process.argv[3];
+if (!LOG) { console.error("usage: node listener.mjs <port> <log-file>"); process.exit(2); }
 let n = 0;
 const server = createServer((req, res) => {
   let body = "";
