@@ -6,6 +6,9 @@
  *   through the real F-26 policy) → text depending on Allow/Deny → result.
  *   Next developer message containing "write" → `writeTask` → task_written → result.
  *   Any other message → echoed back → result. `interrupt()` cuts the current turn short.
+ *   A first message carrying the F-14 quick-note instructions skips the permission prompt and the
+ *   DoD wait: Read, then `writeTask` straight away (unless the note says "ask me", which makes
+ *   the stub ask a question instead, so the panel-opens-itself path can be tested too).
  */
 import { randomUUID } from "node:crypto";
 import type { SessionDriver, SessionEvent, SessionState, StartSessionOptions } from "./session-events.js";
@@ -103,32 +106,53 @@ export function startStubSession(opts: StartSessionOptions): SessionDriver {
     finish(t, true);
   };
 
+  /** F-14: the quick-note script. Note text decides whether the stub writes or asks. */
+  const quickTurn = async (t: number, first: { text: string; images?: Array<{ label: string }> }) => {
+    emit({ type: "user", text: first.text, images: (first.images ?? []).map((i) => i.label) });
+    await sleep(TICK_MS);
+    if (cancelled(t)) return;
+    emit({ type: "init", sessionId: opts.id, model: "stub-model", cwd: opts.cwd, claudeCodeVersion: "stub" });
+    setState("running");
+    if (!(await useTool(t, "Read", { file_path: "src/components/Cart.tsx" }, "Read src/components/Cart.tsx", "88 lines"))) return;
+    if (/ask me/i.test(first.text)) {
+      await say(t, "Quick question before I write this: should the discount apply before or after tax?");
+      finish(t, true);
+      return;
+    }
+    await writeStubTask(t);
+    finish(t, true);
+  };
+
+  const writeStubTask = async (t: number) => {
+    const id = `stub-tool-${++n}`;
+    emit({ type: "tool_use", id, name: "mcp__crt__write_task", label: "Write task: Cart total excludes applied discount" });
+    try {
+      const written = await opts.writeTask({
+        title: "Cart total excludes applied discount",
+        summary: "The cart total ignores the SAVE10 promo that the page shows as applied.",
+        context: "Reproduce: open /cart?promo=SAVE10. `CartSummary` (src/components/Cart.tsx:88) renders `subtotal` instead of `total`.",
+        ask: "Render the discounted total and cover it with a unit test.",
+        definitionOfDone: ["Cart total applies the promo discount", "Unit test covers the discounted total"],
+        notes: "Stub intake; nothing was read from disk.",
+        tags: ["cart", "pricing"],
+        files: ["src/components/Cart.tsx"],
+      });
+      emit({ type: "tool_result", id, isError: false, summary: `Task ${written.id} written to ${written.path}` });
+      emit({ type: "task_written", id: written.id, path: written.path });
+      await say(t, `Written **${written.id}** at \`${written.path}\`.`);
+    } catch (err) {
+      emit({ type: "tool_result", id, isError: true, summary: (err as Error).message });
+      await say(t, `Could not write the task: ${(err as Error).message}`);
+    }
+  };
+
   const laterTurn = async (text: string) => {
     const t = turn;
     setState("running");
     await sleep(TICK_MS);
     if (cancelled(t)) return;
     if (/\bwrite\b/i.test(text)) {
-      const id = `stub-tool-${++n}`;
-      emit({ type: "tool_use", id, name: "mcp__crt__write_task", label: "Write task: Cart total excludes applied discount" });
-      try {
-        const written = await opts.writeTask({
-          title: "Cart total excludes applied discount",
-          summary: "The cart total ignores the SAVE10 promo that the page shows as applied.",
-          context: "Reproduce: open /cart?promo=SAVE10. `CartSummary` (src/components/Cart.tsx:88) renders `subtotal` instead of `total`.",
-          ask: "Render the discounted total and cover it with a unit test.",
-          definitionOfDone: ["Cart total applies the promo discount", "Unit test covers the discounted total"],
-          notes: "Stub intake; nothing was read from disk.",
-          tags: ["cart", "pricing"],
-          files: ["src/components/Cart.tsx"],
-        });
-        emit({ type: "tool_result", id, isError: false, summary: `Task ${written.id} written to ${written.path}` });
-        emit({ type: "task_written", id: written.id, path: written.path });
-        await say(t, `Written **${written.id}** at \`${written.path}\`.`);
-      } catch (err) {
-        emit({ type: "tool_result", id, isError: true, summary: (err as Error).message });
-        await say(t, `Could not write the task: ${(err as Error).message}`);
-      }
+      await writeStubTask(t);
     } else {
       await say(t, `You said: ${text}`);
     }
@@ -149,7 +173,8 @@ export function startStubSession(opts: StartSessionOptions): SessionDriver {
   const begin = (first: { text: string; images?: Array<{ label: string }> }) => {
     started = true;
     busy = true;
-    void firstTurn(first).finally(() => {
+    const script = /Quick note \(F-14\)/.test(first.text) ? quickTurn(turn, first) : firstTurn(first);
+    void script.finally(() => {
       busy = false;
       void pump();
     });

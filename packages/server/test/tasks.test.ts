@@ -299,6 +299,7 @@ describe("createTask (F-23, F-31, F-32, F-34)", () => {
     expect(task.sections.Evidence).toContain("![annotation 1](assets/CRT-0001/ann-1.png)");
     expect(task.sections.Evidence).toContain('Annotation 1 — `<span id="total" class="cart-total">` in `CartSummary` (src/components/Cart.tsx:88), selector `#total`: "total excludes discount"');
     expect(task.sections.Evidence).toContain('Annotation 2 — pin at (300, 400): "missing a coupon field here"');
+    expect(task.sections.Evidence).toContain("Failed requests at send time: 1 (first: GET /api/cart/promo → 500) — see capture.json.");
     expect(task.sections.Log).toBe(`- ${logStamp(NOW)} — created by intake session ${input.session} from capture ${capture.id}.`);
 
     // F-23: assets moved, capture dir gone

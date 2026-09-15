@@ -1,5 +1,5 @@
 /**
- * Reverse proxy (PRD F-2, F-3, F-4).
+ * Reverse proxy (PRD F-2, F-3, F-4, F-6).
  *   • Everything not under /__crt/ is forwarded to the target with Host rewritten and
  *     X-Forwarded-* added; bodies stream both ways.
  *   • text/html responses are buffered, decompressed, injected with the overlay tag,
@@ -9,6 +9,8 @@
  *   • /__crt/overlay.js, /__crt/early.js, /__crt/health, POST /__crt/captures (F-13, F-23) and
  *     the /__crt/sessions routes (sessions.ts, F-24…F-30) are served here; anything else under
  *     /__crt/ is a 404 and never reaches the target (F-4).
+ *   • Every /__crt/ response carries CORS headers when the request's Origin is a localhost
+ *     origin, so an app can load the overlay with a script tag instead of the proxy (F-6).
  * The caller binds the returned server to 127.0.0.1 (see serve.ts).
  */
 import { readFile } from "node:fs/promises";
@@ -28,7 +30,7 @@ import { dirname, join } from "node:path";
 import type { Duplex } from "node:stream";
 import { connect as tlsConnect } from "node:tls";
 import { CaptureValidationError, writeCapture } from "./captures.js";
-import { json, readJson } from "./http.js";
+import { applyCors, json, readJson } from "./http.js";
 import { decodeBody, EARLY_PATH, filterAcceptEncoding, injectOverlayTag, isHtml, OVERLAY_PATH, relaxCsp } from "./inject.js";
 import { handleSessionRoute, SESSIONS_PATH, type SessionRegistry } from "./sessions.js";
 
@@ -213,6 +215,13 @@ async function handleCrtRoute(
   const qs = url.indexOf("?");
   const path = qs === -1 ? url : url.slice(0, qs);
   const query = new URLSearchParams(qs === -1 ? "" : url.slice(qs + 1));
+  const cors = applyCors(req, res);
+  if (req.method === "OPTIONS") {
+    // F-6 preflight for the JSON POSTs from script-tag mode; non-local origins get nothing.
+    res.writeHead(cors ? 204 : 403);
+    res.end();
+    return;
+  }
   if (path === OVERLAY_PATH || path === EARLY_PATH) {
     try {
       const js = await readFile(path === OVERLAY_PATH ? opts.overlayPath : earlyPath(opts.overlayPath));

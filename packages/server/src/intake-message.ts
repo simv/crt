@@ -33,7 +33,19 @@ export function readCaptureBundle(captureDir: string): CaptureBundle {
   return raw as CaptureBundle;
 }
 
-export function buildIntakeMessage(captureDir: string, bundle: CaptureBundle = readCaptureBundle(captureDir)): UserInput {
+export interface IntakeMessageOptions {
+  /** F-14 quick note: tell Claude to write the task without waiting for DoD confirmation. */
+  quick?: boolean;
+}
+
+/** F-14: appended to the first message of a quick-note session. */
+export const QUICK_NOTE_INSTRUCTIONS = [
+  "Quick note (F-14): the developer sent this without opening a chat and is not watching the panel.",
+  "Do not propose the definition of done for confirmation — locate the code, decide the DoD yourself, and call write_task directly.",
+  "Ask a question only if the note plus the code genuinely cannot tell you what is wanted; asking opens the chat panel for the developer.",
+].join(" ");
+
+export function buildIntakeMessage(captureDir: string, bundle: CaptureBundle = readCaptureBundle(captureDir), opts: IntakeMessageOptions = {}): UserInput {
   const images: UserImage[] = [];
   const attach = (name: string | null, label: string) => {
     if (!name || images.length > MAX_ANNOTATION_IMAGES) return;
@@ -48,7 +60,15 @@ export function buildIntakeMessage(captureDir: string, bundle: CaptureBundle = r
   attach(bundle.screenshots.annotated ?? bundle.screenshots.viewport, bundle.screenshots.annotated ? "viewport (annotated)" : "viewport");
   for (const a of bundle.annotations) attach(a.image, `annotation ${a.n}`);
 
-  return { text: renderIntakeText(captureDir, bundle, images.map((i) => i.label)), images };
+  const text = renderIntakeText(captureDir, bundle, images.map((i) => i.label));
+  return { text: opts.quick ? `${text}\n\n${QUICK_NOTE_INSTRUCTIONS}` : text, images };
+}
+
+/** F-30: the one-line description of a capture shown in the session list. */
+export function summarizeCapture(bundle: CaptureBundle): string {
+  const note = bundle.annotations.map((a) => a.note.trim()).find(Boolean);
+  const where = bundle.page.pathname + bundle.page.query;
+  return note ? truncate(note, 80) : `${bundle.annotations.length} annotation${bundle.annotations.length === 1 ? "" : "s"} on ${where}`;
 }
 
 export function renderIntakeText(captureDir: string, b: CaptureBundle, attached: string[]): string {
@@ -64,6 +84,11 @@ export function renderIntakeText(captureDir: string, b: CaptureBundle, attached:
     lines.push(`Console since load: ${b.console.length} entries, ${errors.length} errors${errors[0] ? ` — first: ${truncate(errors[0].message, 160)}` : ""}`);
   } else {
     lines.push("Console since load: clean");
+  }
+  if (b.network.length) {
+    const first = b.network[0]!;
+    const what = first.status !== null ? `${first.status}` : (first.error ?? "failed");
+    lines.push(`Failed network requests since load: ${b.network.length} — first: ${first.method} ${truncate(first.url, 120)} → ${what}`);
   }
   lines.push("", `Annotations (${b.annotations.length}):`);
   for (const a of b.annotations) lines.push(...describeAnnotation(a));

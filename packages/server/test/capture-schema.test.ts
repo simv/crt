@@ -3,13 +3,14 @@ import {
   CaptureBundleSchema,
   MAX_CONSOLE_ENTRIES,
   MAX_HTML_CHARS,
+  MAX_NETWORK_ENTRIES,
   type Schema,
   validateCaptureBundle,
   validateCapturePost,
 } from "../src/capture-schema.js";
 import { PNG_B64, sampleBundle, samplePost } from "./helpers/sample-capture.js";
 
-describe("capture bundle schema (F-15…F-20, F-22)", () => {
+describe("capture bundle schema (F-15…F-22)", () => {
   it("accepts a well-formed bundle", () => {
     expect(validateCaptureBundle(sampleBundle())).toEqual([]);
   });
@@ -29,13 +30,26 @@ describe("capture bundle schema (F-15…F-20, F-22)", () => {
     expect(validateCaptureBundle({ ...sampleBundle(), version: 2 })[0]).toBe("version: expected 1, got number");
   });
 
-  it("enforces the PRD caps (F-19 4 KB HTML, F-20 50 console entries)", () => {
+  it("enforces the PRD caps (F-19 4 KB HTML, F-20 50 console entries, F-21 50 failed requests)", () => {
     const b = sampleBundle();
     b.annotations[0]!.element!.outerHtml = "x".repeat(MAX_HTML_CHARS + 1);
     b.console = Array.from({ length: MAX_CONSOLE_ENTRIES + 1 }, () => b.console[0]!);
+    b.network = Array.from({ length: MAX_NETWORK_ENTRIES + 1 }, () => b.network[0]!);
     const errors = validateCaptureBundle(b);
     expect(errors).toContain(`annotations[0].element.outerHtml: string longer than ${MAX_HTML_CHARS} chars`);
     expect(errors).toContain(`console: more than ${MAX_CONSOLE_ENTRIES} items`);
+    expect(errors).toContain(`network: more than ${MAX_NETWORK_ENTRIES} items`);
+  });
+
+  it("requires the failed-request list and checks each entry (F-21)", () => {
+    const b = sampleBundle() as unknown as Record<string, unknown>;
+    delete b.network;
+    expect(validateCaptureBundle(b)).toContain("network: missing");
+    const bad = sampleBundle();
+    bad.network = [{ method: "GET", url: "/x", status: null, error: "TypeError: Failed to fetch", via: "fetch", durationMs: null, timestamp: "2026-09-15T00:00:00Z" }];
+    expect(validateCaptureBundle(bad)).toEqual([]);
+    (bad.network[0] as unknown as { via: string }).via = "beacon";
+    expect(validateCaptureBundle(bad)[0]).toMatch(/^network\[0\]\.via: expected one of fetch\|xhr\|resource/);
   });
 
   it("allows null screenshots and null crops when rasterisation failed (F-16 best-effort)", () => {

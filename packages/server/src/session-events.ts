@@ -67,6 +67,12 @@ export interface SessionInfo {
   startedAt: string;
   state: SessionState;
   taskId: string | null;
+  /** F-14: started as a quick note — Claude writes the task without waiting for confirmation. */
+  quick: boolean;
+  /** One line for the session list: the first note, else the page path. Null until a capture is attached. */
+  summary: string | null;
+  /** Page URL of the capture. Null until a capture is attached. */
+  url: string | null;
 }
 
 /** Fields the intake session passes to CRT's `write_task` tool; mirrors tasks.ts NewTaskInput. */

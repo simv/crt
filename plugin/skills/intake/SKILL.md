@@ -16,7 +16,9 @@ The capture lives at `$ARGUMENTS` (a directory containing `capture.json` and PNG
 
 3. **Clarify only if necessary.** If the developer's ask or the definition of done cannot be pinned down from the notes plus the code, ask at most three short questions in one message and wait. Otherwise do not ask.
 
-4. **Propose the definition of done.** Reply with a one-paragraph restatement of the ask and a checklist of concrete, checkable DoD items (behavioural outcome, tests, no regressions). Wait for the developer to accept or edit. In quick-note mode (no chat), skip the wait.
+4. **Propose the definition of done.** Reply with a one-paragraph restatement of the ask and a checklist of concrete, checkable DoD items (behavioural outcome, tests, no regressions). Wait for the developer to accept or edit.
+
+   **Quick-note mode (PRD F-14).** When the first message ends with a paragraph starting `Quick note (F-14)`, the developer sent their notes without opening the chat and is not watching. Skip the wait in step 4 and go straight to step 5 with the DoD you decided. Only fall back to step 3 if the notes plus the code genuinely do not say what is wanted; a question opens the panel for the developer, and the task is written once they answer.
 
 5. **Write the task.**
    - **In-page intake** (a `write_task` tool from the `crt` MCP server is available): call it exactly once with `title`, `summary`, `context` (reproduction, component, file:line), `ask`, `definitionOfDone` (one checkable item per entry), `notes`, `priority`, `tags`, and `files` (every project-relative source file you identified). The CRT server allocates the `CRT-NNNN` id, renders the F-32 file, moves the capture's screenshots to `.crt/tasks/assets/CRT-NNNN/`, fills **Evidence** from the capture, sets `session:` to this session, and regenerates the index. Do not write the file yourself.

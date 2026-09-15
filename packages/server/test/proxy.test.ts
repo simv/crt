@@ -180,6 +180,39 @@ describe("CRT routes (F-4)", () => {
   });
 });
 
+describe("script-tag mode CORS (F-6)", () => {
+  it("allows localhost origins on every /__crt/ route, with a preflight", async () => {
+    for (const origin of ["http://localhost:3000", "http://127.0.0.1:5173", "https://app.localhost", "http://[::1]:8080"]) {
+      const r = await raw("/__crt/health", { headers: { origin } });
+      expect(r.status).toBe(200);
+      expect(r.headers["access-control-allow-origin"]).toBe(origin);
+      expect(r.headers.vary).toBe("origin");
+    }
+    const pre = await raw("/__crt/sessions", {
+      method: "OPTIONS",
+      headers: { origin: "http://localhost:3000", "access-control-request-method": "POST", "access-control-request-headers": "content-type" },
+    });
+    expect(pre.status).toBe(204);
+    expect(pre.headers["access-control-allow-origin"]).toBe("http://localhost:3000");
+    expect(pre.headers["access-control-allow-methods"]).toContain("POST");
+    expect(pre.headers["access-control-allow-headers"]).toContain("content-type");
+    const js = await raw("/__crt/overlay.js", { headers: { origin: "http://localhost:3000" } });
+    expect(js.headers["access-control-allow-origin"]).toBe("http://localhost:3000");
+  });
+
+  it("gives non-local origins nothing (no header, preflight 403); same-origin requests are unaffected", async () => {
+    for (const origin of ["http://evil.example", "http://localhost.evil.example", "http://localhost:3000/", "null", "file://"]) {
+      const r = await raw("/__crt/health", { headers: { origin } });
+      expect(r.status).toBe(200);
+      expect(r.headers["access-control-allow-origin"]).toBeUndefined();
+    }
+    const pre = await raw("/__crt/sessions", { method: "OPTIONS", headers: { origin: "http://evil.example" } });
+    expect(pre.status).toBe(403);
+    const plain = await raw("/__crt/health");
+    expect(plain.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+});
+
 describe("POST /__crt/captures (F-13, F-23)", () => {
   const post = (body: unknown) =>
     raw("/__crt/captures", {

@@ -9,4 +9,5 @@ playwright-report/
 .env
 .env.*
 packages/server/e2e/.project/
+packages/server/LICENSE
 .claude/settings.local.json

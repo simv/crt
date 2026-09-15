@@ -145,6 +145,7 @@ export const CAPTURE_VERSION = 1;
 export const MAX_TEXT_CHARS = 500; // F-17
 export const MAX_HTML_CHARS = 4096; // F-19
 export const MAX_CONSOLE_ENTRIES = 50; // F-20
+export const MAX_NETWORK_ENTRIES = 50; // F-21
 export const MAX_BOX_ELEMENTS = 10; // F-9 (task Ask 3)
 export const MAX_COMPONENTS = 5; // F-18
 
@@ -276,6 +277,23 @@ export const ConsoleEntrySchema = obj(
 );
 export type ConsoleEntry = Infer<typeof ConsoleEntrySchema>;
 
+export const NetworkEntrySchema = obj(
+  {
+    method: str("F-21 HTTP method, upper-case (GET for resources seen only through PerformanceObserver)"),
+    url: str("F-21 request URL as issued, truncated to 2000 chars", { max: 2000 }),
+    status: nullable(num("F-21 HTTP status (>= 400); null when no response arrived")),
+    error: nullable(str("F-21 error message when the request threw (network failure, CORS, abort); null for a status failure", { max: 500 })),
+    via: oneOf(
+      ["fetch", "xhr", "resource"] as const,
+      "F-21 how the failure was observed: the fetch hook, the XMLHttpRequest hook, or a PerformanceObserver resource entry with responseStatus (img, script, css, …)",
+    ),
+    durationMs: nullable(num("F-21 wall time from request start to failure, when known")),
+    timestamp: str("F-21 ISO-8601 time the failure was recorded"),
+  },
+  "F-21 one failed network request (status >= 400 or errored) since page load",
+);
+export type NetworkEntry = Infer<typeof NetworkEntrySchema>;
+
 export const ScreenshotsSchema = obj(
   {
     viewport: nullable(str("F-16 clean viewport screenshot file name (viewport.png), null when rasterisation failed")),
@@ -295,6 +313,9 @@ export const CaptureBundleSchema = obj(
     annotations: arr(AnnotationSchema, "F-11 the frozen annotation set, in badge order"),
     console: arr(ConsoleEntrySchema, "F-20 console.error/warn + uncaught errors since overlay load, oldest first", {
       max: MAX_CONSOLE_ENTRIES,
+    }),
+    network: arr(NetworkEntrySchema, "F-21 failed network requests since overlay load, oldest first", {
+      max: MAX_NETWORK_ENTRIES,
     }),
     screenshots: ScreenshotsSchema,
   },
