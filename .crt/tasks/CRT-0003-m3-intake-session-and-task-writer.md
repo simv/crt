@@ -1,10 +1,10 @@
 ---
 id: CRT-0003
 title: M3 — In-page intake session on the Agent SDK and task writer
-status: backlog
+status: in_progress
 priority: high
 created: 2026-09-14T20:50:00+08:00
-updated: 2026-09-14T20:50:00+08:00
+updated: 2026-09-15T08:15:00+08:00
 url: null
 route: null
 session: null
@@ -43,3 +43,4 @@ Keep the SDK surface tiny; the API is pre-1.0 and tracks Claude Code releases (P
 
 ## Log
 - 2026-09-14T20:50+08:00 — created from PRD milestone M3 during project setup.
+- 2026-09-15T08:15+08:00 — claimed by build session fe8bbb8a-cd99-405e-9e5d-1f501de4b34e on branch `crt/CRT-0003-m3-intake-session-and-task-writer`. SDK pinned to `@anthropic-ai/claude-agent-sdk@0.3.270` (bundles Claude Code 2.1.270).
