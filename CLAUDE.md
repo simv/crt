@@ -16,7 +16,7 @@ Entry points: `packages/server/src/cli.ts` → `serve.ts` (wires `proxy.ts`, `in
 - `npm run e2e` — Playwright smoke (`packages/server/e2e`): fixture app on :3999 behind a real `crt serve` on :4499. Needs `npm run build` first and `npx playwright install chromium` once. Runs with `CRT_SESSION_STUB=1` from a scratch project, so no Claude login and nothing lands in this repo's `.crt/`.
 - `npm run build` — bundles overlay into `packages/server/dist/{overlay,early}.js`, then builds the server (which also copies `plugin/skills/intake/SKILL.md` → `dist/intake.md`)
 - `claude plugin validate ./plugin && claude plugin validate .` — CI runs both. Try a skill edit before merge with `claude --plugin-dir ./plugin` in a target project.
-- Release: bump `version` in `packages/server/package.json` and both plugin manifests, merge, `git tag v<version> && git push origin v<version>`. The release workflow fails if tag ≠ package version.
+- Release: bump `version` in `packages/server/package.json` and both plugin manifests, merge, `git tag v<version> && git push origin v<version>`. The release workflow fails if tag ≠ package version. It *stages* the version on npm via trusted publishing (no token); the release is live only after Simon promotes the staged version on npmjs.com (package → Versions), with 2FA.
 
 ## Conventions
 
