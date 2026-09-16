@@ -144,7 +144,8 @@ test("a second start on the same target and project exits 0 with the reuse line 
   const second = startCrt(root, ["--target", FIXTURE, "--yes"]);
   expect(await second.exited).toBe(0);
   const reuse = second.lines.find((l) => l.startsWith("CRT "));
-  expect(reuse).toMatch(new RegExp(`^CRT ${VERSION.replace(/\./g, "\\.")} is already serving http://localhost:3999 for this project at http://localhost:4489 \\(since \\d\\d:\\d\\d\\) — open it in your browser\\.$`));
+  expect(reuse).toContain(`CRT ${VERSION} is already serving http://localhost:3999 for this project at http://localhost:4489 (since `);
+  expect(reuse).toMatch(/ \(since \d\d:\d\d\) — open it in your browser\.$/);
   expect(second.lines.some((l) => l.startsWith("CRT ready"))).toBe(false);
 
   const after = await health(4489);

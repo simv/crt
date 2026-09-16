@@ -4,7 +4,7 @@ title: M12 — Guided start (crt [target]), busy-port diagnosis, login preflight
 status: review
 priority: high
 created: 2026-09-16T14:50:00+08:00
-updated: 2026-09-16T16:52:00+08:00
+updated: 2026-09-16T17:02:00+08:00
 url: null
 route: null
 session: null
@@ -36,7 +36,7 @@ No page capture: created from `docs/PRD-setup.md` milestone M12 by the planning 
 - [x] `npm run check` green; every PRD-setup §6.1 transcript is a passing unit row, interactive and `--yes`.
 - [x] Doctor unit rows: `FAIL` and exit 1 only for node too old, target down/unset, port held, resolved provider unusable; `warn` and exit 0 for another provider's problem and for the plugin row; the F-76 wordings verbatim.
 - [x] `crt 3999` against the e2e fixture starts with no prompt and writes `target: "http://localhost:3999"` into the scratch project's `.crt/config.local.json`; a second run prints no `Remembered` line and its ready line still names 3999.
-- [ ] Busy-port e2e: reuse (same target/project → exit 0, reuse line, first server still serving) and non-CRT listener (→ 4401 with its line) pass in the PR run (e2e runs on ubuntu only; the Windows unit job covers the shim path).
+- [x] Busy-port e2e: reuse (same target/project → exit 0, reuse line, first server still serving) and non-CRT listener (→ 4401 with its line) pass in the PR run (e2e runs on ubuntu only; the Windows unit job covers the shim path).
 - [ ] Manual (Simon): `crt doctor` on this repo exits 0, prints `ok` for node, project, `.crt` and claude (logged in), `warn` for codex if it is logged out, and ends with `→ claude — …`.
 - [x] `claudePreflight` fixtures: `loggedIn` true/false/garbage/non-zero exit/timeout map to `true`/`false`/`"unknown"`/`"unknown"`/`"unknown"`; the false case carries the N-6 line; the payload's other fields never reach a log (test greps the fake log).
 - [x] Ready line carries `login:`; `/__crt/health` matches the F-78 shape; existing health assertions still pass.
@@ -61,3 +61,4 @@ No unit test calls `serve()` directly and the e2e fixture drives `dist/cli.js` w
 - 2026-09-16T16:50+08:00 — `crt doctor` on this repo (Manual row, for the record): exit 1 — `FAIL port 4400 held by CRT (unknown version) → http://localhost:3100 (project C:\Projects\Claude\tool-validation) — crt starts on 4401, or crt --replace` (a parallel session's server, PRD-setup A.2); every other row `ok` (node v24.18.0, project, `.crt` with "no .gitignore entries" — this repo's .gitignore lacks the config.local.json line, target found on 8080, claude logged in, codex logged in, plugin crt@crt 0.1.0), ending `→ claude — started inside Claude (CLAUDECODE)`. Left unticked: it is Simon's row, and exit 0 needs 4400 free.
 - 2026-09-16T16:52+08:00 — prd-reviewer: no M12 requirement gap, no CLAUDE.md invariant miss, no bug; it asked for requirement IDs on a few test titles (added) and noted the narrow race between the "Start this one on 4401" text and the later bind (accepted for a local tool; the ready line names the port actually bound, F-73).
 - 2026-09-16T16:52+08:00 — ready for review: changed packages/server/src/{cli,args,serve,init,target,tasks,proxy,session}.ts, providers/{claude,detect}.ts; new src/{start,prompt,doctor,probes,version}.ts; tests test/{start,doctor,prompt}.test.ts, test/providers/claude-preflight.test.ts (+fixtures/claude), e2e/start.spec.ts, updated test/{project-init,proxy,session,target}.test.ts, test/providers/detect.test.ts, e2e/proxy.spec.ts; docs CLAUDE.md (entry points), README.md (flags table, ready line, troubleshooting lines), plugin/skills/serve/SKILL.md (`--yes`, new ready line). Reviewer: the two Manual (Simon) rows stay unticked; the interactive path (prompts, wait loop, Ctrl+C in raw mode) has unit rows but no TTY run from this session.
+- 2026-09-16T17:02+08:00 — verified: busy-port e2e in the PR run — https://github.com/simv/crt/actions/runs/35076281203/job/104729722406 (`e2e (ubuntu)` pass, 1m10s; `check (ubuntu-latest)` and `check (windows-latest)` pass). CodeQL flagged the hand-rolled regex escape of the version string in `e2e/start.spec.ts` ("Incomplete string escaping"); replaced by a plain `toContain` plus a regex for the time part.
