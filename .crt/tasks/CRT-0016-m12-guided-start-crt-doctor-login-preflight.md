@@ -1,10 +1,10 @@
 ---
 id: CRT-0016
 title: M12 — Guided start (crt [target]), busy-port diagnosis, login preflight, crt doctor
-status: backlog
+status: in_progress
 priority: high
 created: 2026-09-16T14:50:00+08:00
-updated: 2026-09-16T14:50:00+08:00
+updated: 2026-09-16T16:11:00+08:00
 url: null
 route: null
 session: null
@@ -47,3 +47,4 @@ No unit test calls `serve()` directly and the e2e fixture drives `dist/cli.js` w
 
 ## Log
 - 2026-09-16T14:50+08:00 — created from docs/PRD-setup.md milestone M12 by the planning session that wrote it.
+- 2026-09-16T16:11+08:00 — claimed by /crt:next, session cc0e6376-b64f-423c-8926-f474af05ea03, branch crt/CRT-0016-m12-guided-start-crt-doctor-login-preflight
