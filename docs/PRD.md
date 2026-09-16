@@ -6,7 +6,7 @@
 | **Owner** | Simon (simv) |
 | **Repo** | https://github.com/simv/crt |
 | **Last updated** | 2026-09-16 |
-| **Amended by** | [`docs/PRD-providers.md`](PRD-providers.md) — v0.2, provider-agnostic intake sessions (F-42…F-64, N-7…N-13, milestones M6–M11). Its §9 lists every statement below that it changes. §6.2a — v0.3, anchored threads (F-65…F-68), amends F-11, F-13, F-14 in place. |
+| **Amended by** | [`docs/PRD-providers.md`](PRD-providers.md) — v0.2, provider-agnostic intake sessions (F-42…F-64, N-7…N-13, milestones M6–M11). Its §9 lists every statement below that it changes. §6.2a — v0.3, anchored threads (F-65…F-68), amends F-11, F-13, F-14 in place. [`docs/PRD-setup.md`](PRD-setup.md) — v0.3, setup and first run (F-69…F-90, N-14…N-17, milestones M12–M14); its §9 lists every statement below that it changes. |
 
 This document is the reference for every CRT build session. A build session should read this file, `CLAUDE.md`, and the task it is working on, and nothing else, to know what "correct" means. Changes to scope go through this document first.
 
