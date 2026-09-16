@@ -60,6 +60,7 @@ export function makeStubProfile(variant: StubVariant = "default"): ProviderProfi
     hints: { install: "set CRT_SESSION_STUB=1", login: "nothing to do — the stub never logs in" },
     capabilities: stubCapabilities(variant),
     telemetryOptOut: [],
+    skillsDirs: () => ({ project: null, user: null }),
     preflight: async () => ({ installed: true, loggedIn: "unknown", version: variant === "default" ? "stub" : `stub-${variant}`, problem: null }),
     // Mirrors Claude so the footer and the e2e resume assertion read the same string (F-63).
     resumeCommand: (id) => `claude --resume ${id}`,

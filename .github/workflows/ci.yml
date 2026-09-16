@@ -41,9 +41,14 @@ jobs:
           npx -y @anthropic-ai/claude-code@latest plugin validate .
 
   e2e:
-    name: e2e (ubuntu)
-    runs-on: ubuntu-latest
+    # Both runners: the fake-codex axis (PRD-providers F-61, N-10) exercises the npm .cmd shim on Windows.
+    name: e2e (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

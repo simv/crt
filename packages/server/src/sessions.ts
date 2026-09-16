@@ -16,7 +16,7 @@
  * panel that reloads the page (or the developer opening the session list) can rebuild the
  * transcript by replaying from 0. The driver behind each session comes from the provider the
  * `ProviderRegistry` resolves for it (session.ts, F-43): Claude on the Agent SDK by default,
- * the scripted stub under `CRT_SESSION_STUB=1`, Codex from CRT-0012.
+ * the scripted stub under `CRT_SESSION_STUB=1`, Codex on the developer's own CLI.
  *
  * The provider's capabilities (F-46) shape the first message: images by path or inline (F-50)
  * and the intake instructions in the system prompt or prepended to the message (F-51).
@@ -148,6 +148,9 @@ export class SessionRegistry {
       writeTask: entry.writeTask,
       mcp: mcpLaunch(entry.token, this.mcpPort),
       model: this.opts.providers.modelFor(profile.id),
+      // F-53: the configured executable and the version preflight found, for CLI-driven providers.
+      command: this.opts.providers.config.providers[profile.id]?.command ?? null,
+      agentVersion: this.opts.providers.preflight(profile.id).version,
       log: this.opts.log,
       ...(this.opts.permissionTimeoutMs !== undefined ? { permissionTimeoutMs: this.opts.permissionTimeoutMs } : {}),
     };

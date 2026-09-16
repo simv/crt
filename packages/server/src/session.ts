@@ -2,7 +2,7 @@
  * Provider registry (PRD-providers §5, F-42…F-45): which coding agent an intake session runs on.
  *
  * The drivers live under `providers/` (`claude.ts` on the Agent SDK, `stub.ts` scripted,
- * `codex.ts` profile-only until CRT-0012); this module knows them only as `ProviderProfile`s:
+ * `codex.ts` over `codex exec --json`); this module knows them only as `ProviderProfile`s:
  *
  *   • `listProviders()` — the built-in profiles; `stub` only with `CRT_SESSION_STUB=1` (F-42).
  *   • `ProviderRegistry.resolve()` — the F-43 order: stub env → request body → the server's

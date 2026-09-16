@@ -50,7 +50,7 @@ claude                       # your normal Claude Code session in the project
 ### `crt serve` flags
 
 ```
-crt serve [--target <url>] [--port <n>] [--open]
+crt serve [--target <url>] [--port <n>] [--open] [--provider <id>]
 ```
 
 | Flag | Default | Meaning |
@@ -58,6 +58,7 @@ crt serve [--target <url>] [--port <n>] [--open]
 | `--target <url>` | auto | Dev server to proxy. Accepts `3000`, `localhost:3000` or a full URL. Without it, CRT reads `target` from `.crt/config.json`, then probes ports 3000, 5173, 8080, 4200, 8000, 3001 and takes the first that answers. |
 | `--port <n>` | `4400` (or `port` in `.crt/config.json`) | Port CRT listens on. Always bound to `127.0.0.1`. |
 | `--open` | off | Open the CRT URL in your default browser once ready. |
+| `--provider <id>` | auto | The agent behind the chat: `claude` (default) or `codex`. See [Providers](#providers). |
 
 On success it prints one line — `CRT ready at http://localhost:4400 → http://localhost:3000 (project: C:\my-app, 3 tasks)` — and keeps running until Ctrl+C. `crt serve` first runs `crt init`, which creates `.crt/tasks/`, `.crt/config.json` and adds `.crt/captures/` to `.gitignore` (idempotent). Every failure is a single `crt: …` line on stderr and a non-zero exit — see [Troubleshooting](#troubleshooting) for what each one means.
 
@@ -73,6 +74,58 @@ Everything is gathered at Send time from the live page, because the session cann
 - your notes.
 
 It is written to `.crt/captures/<id>/capture.json` (+ PNGs) and moves to `.crt/tasks/assets/<ID>/` when the task is written. Captures older than 7 days that never became tasks are pruned on the next `crt serve`.
+
+## Providers
+
+The agent behind the in-page chat is a *provider*. Claude Code is the default and needs nothing; `crt serve --provider codex` (or `provider: "codex"` in `.crt/config.json`, or the caret next to **Send**) runs the intake on the developer's own Codex CLI instead. `crt providers` prints every provider's state and which one a new session would use, with the reason. The full resolution order and the auto-detection rules are in [docs/PRD-providers.md](docs/PRD-providers.md) F-43/F-44; this section covers what you need per provider.
+
+### Codex
+
+Tested with `codex-cli 0.154.0` (`npm i -g @openai/codex`, then `codex login` — a ChatGPT account). CRT never bundles Codex: it runs the `codex` on your PATH (Windows: the npm `codex.cmd` shim is parsed and its JS entry run with CRT's own Node, so no shell is involved), or the executable you name in `.crt/config.json`:
+
+```json
+{ "providers": { "codex": { "command": ["C:\\tools\\codex\\codex.exe"] } } }
+```
+
+What a Codex session looks like: **Send to Codex** starts `codex exec --json` in your project root under Codex's **read-only sandbox** — no Allow/Deny cards; the footer shows a `read-only sandbox` badge — with the intake instructions at the top of the first message and the screenshots passed as files. `write_task` reaches Codex through `crt mcp`, a tiny stdio MCP server in the same package that the session's Codex process spawns and that hands the call to the running `crt serve`; the file is written by the server exactly as it is for Claude, with `provider: codex` and Codex's thread id in `session:`. The footer's `codex resume <thread id>` continues the same conversation in a terminal.
+
+**Every later message is a new `codex exec resume` process.** Codex re-reads the whole thread on each resume, so a second or third turn costs about as much as the first and takes a few seconds before the first token; the panel shows the running state while it waits. This is Codex's behaviour, not something CRT can shorten (PRD-providers N-13).
+
+**Telemetry.** Codex has its own analytics; CRT passes `-c analytics.enabled=false` on every invocation it starts, so nothing beyond the model calls Codex itself makes leaves the machine (PRD-providers N-12). CRT has no telemetry of its own.
+
+**Skills for Codex.** `crt skills install --provider codex` writes the six CRT skills (`next`, `tasks`, `task`, `done`, `intake`, `serve`) as Agent Skills into `.agents/skills/` in the project (`--global` puts them in `~/.codex/skills`, or `$CODEX_HOME/skills`; `--dir <path>` anywhere else). The text is the plugin's with the Claude-only tokens rewritten; the no-questions guarantee of `/crt:next` is tested on Claude Code only. Running it again changes nothing. `--provider claude` is refused — Claude Code gets the skills from the plugin.
+
+**Codex problems** show up as one line in the panel (or on the `CRT ready` line and in `crt providers`):
+
+```
+codex not found on PATH — npm i -g @openai/codex, or set providers.codex.command in .crt/config.json
+```
+
+Codex is not installed where CRT can see it — the desktop app and IDE extensions do not put `codex` on PATH. Install the CLI, or point `providers.codex.command` at the executable.
+
+```
+not logged in to Codex — run `codex login` in a terminal, then send again
+```
+
+`codex login status` said so, **or** a turn failed with Codex's "log out and sign in again" (a stale login that `login status` still reports as logged in). Run `codex login`, then send again; no need to restart `crt serve`.
+
+```
+codex <version> is too old — CRT needs 0.154.0 or newer (npm i -g @openai/codex@latest)
+```
+
+The `codex exec --json` event names and flags CRT relies on were recorded on 0.154.0; older releases differ. Update the CLI.
+
+```
+Codex could not resume thread <id> — start a new session
+```
+
+`codex exec resume <id>` came back with a different thread id, which means Codex silently started a new conversation instead of continuing yours (it does that for an unknown non-UUID id, or when its session store lost the thread). Press **New session**; the task file, if one was written, is already on disk.
+
+```
+Codex finished the turn without replying or calling write_task — check that Codex lists the crt MCP server (node <cli.js> mcp) and that nothing on stderr says it failed to start
+```
+
+The turn completed with no text and no tool call, which almost always means Codex could not start `crt mcp` (a missing `node`, a broken install) and so never saw the `write_task` tool. Run `crt serve` from a terminal and look at what Codex prints, or run `codex mcp list` inside the project.
 
 ## Task format
 
