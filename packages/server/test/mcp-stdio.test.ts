@@ -9,7 +9,7 @@ import { build } from "esbuild";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startFixture, type Fixture } from "../e2e/fixture/server.mjs";
 import { writeCapture } from "../src/captures.js";
-import { INTERNAL_WRITE_TASK_PATH, MCP_ENV_MISSING, MCP_PROTOCOL_VERSIONS, McpStdioServer, mcpLaunch, STALE_TOKEN_LINE } from "../src/mcp-stdio.js";
+import { INTERNAL_WRITE_TASK_PATH, MCP_ENV_MISSING, MCP_PROTOCOL_VERSIONS, McpStdioServer, mcpLaunch, runMcpStdio, STALE_TOKEN_LINE } from "../src/mcp-stdio.js";
 import { createProxyServer } from "../src/proxy.js";
 import { ProviderRegistry } from "../src/session.js";
 import type { SessionEvent } from "../src/session-events.js";
@@ -238,6 +238,37 @@ describe("JSON-RPC framing (F-49)", () => {
     expect(await stale.handle(JSON.stringify({ jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "write_task", arguments: request } }))).toMatchObject({
       result: { isError: true, content: [{ type: "text", text: STALE_TOKEN_LINE }] },
     });
+  });
+
+  it("reassembles frames split across chunks, even inside a multi-byte character, and exits 0 when stdin ends (F-49)", async () => {
+    const { PassThrough } = await import("node:stream");
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const seen: string[] = [];
+    output.on("data", (c: Buffer) => seen.push(...c.toString("utf8").split("\n").filter(Boolean)));
+    const titles: string[] = [];
+    const done = runMcpStdio({
+      input,
+      output,
+      env: { CRT_MCP_TOKEN: "t", CRT_MCP_PORT: "1" },
+      forward: async (req) => {
+        titles.push(req.title);
+        return { ok: true, id: "CRT-0007", path: ".crt/tasks/CRT-0007-x.md" };
+      },
+    });
+    const frame = Buffer.from(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "write_task", arguments: { ...request, title: "Café total excludes discount" } } })}\n${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "ping" })}\n`);
+    const cut = frame.indexOf(Buffer.from("é")) + 1; // between the two bytes of "é"
+    input.write(frame.subarray(0, cut));
+    await new Promise((r) => setTimeout(r, 20));
+    input.write(frame.subarray(cut));
+    input.end();
+    expect(await done).toBe(0);
+    expect(titles).toEqual(["Café total excludes discount"]);
+    // Responses may come back in any order (the tool call is async, ping is not); match by id.
+    expect(seen.map((l) => JSON.parse(l) as { id: number }).sort((a, b) => a.id - b.id)).toEqual([
+      { jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: "Task CRT-0007 written to .crt/tasks/CRT-0007-x.md" }] } },
+      { jsonrpc: "2.0", id: 2, result: {} },
+    ]);
   });
 
   it("the shim bundle exists only for this test and the real command is `node <cli.js> mcp` (F-49, N-10)", () => {

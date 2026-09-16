@@ -12,8 +12,9 @@
  * diagnostic goes to stderr. The official MCP TypeScript client drives it in
  * test/mcp-stdio.test.ts (the F-49 contract test).
  */
-import { request as httpRequest } from "node:http";
 import { readFileSync } from "node:fs";
+import { request as httpRequest } from "node:http";
+import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import type { WriteTaskRequest } from "./session-events.js";
 import { CRT_MCP_SERVER, parseWriteTaskRequest, WRITE_TASK_DESCRIPTION, WRITE_TASK_TOOL, writeTaskJsonSchema } from "./write-task.js";
@@ -93,6 +94,8 @@ export function runMcpStdio(opts: McpStdioOptions): Promise<number> {
     opts.output.write(`${JSON.stringify(response)}\n`);
   };
   return new Promise((resolve) => {
+    // Frames are UTF-8 lines; the decoder keeps a multi-byte character split across chunks intact.
+    const decoder = new StringDecoder("utf8");
     let buffer = "";
     const handleLine = (line: string) => {
       const p = server.handle(line).then((response) => {
@@ -102,7 +105,7 @@ export function runMcpStdio(opts: McpStdioOptions): Promise<number> {
       void p.finally(() => inflight.delete(p));
     };
     opts.input.on("data", (chunk: Buffer | string) => {
-      buffer += chunk.toString();
+      buffer += typeof chunk === "string" ? chunk : decoder.write(chunk);
       let idx: number;
       while ((idx = buffer.indexOf("\n")) !== -1) {
         const line = buffer.slice(0, idx).replace(/\r$/, "");
@@ -111,6 +114,7 @@ export function runMcpStdio(opts: McpStdioOptions): Promise<number> {
       }
     });
     opts.input.on("end", () => {
+      buffer += decoder.end();
       if (buffer.trim()) handleLine(buffer);
       buffer = "";
       void Promise.allSettled([...inflight]).then(() => resolve(0));
