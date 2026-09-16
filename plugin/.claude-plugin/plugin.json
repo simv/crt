@@ -1,7 +1,7 @@
 {
   "name": "crt",
   "displayName": "Claude Review Tool",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "In-page feedback for your local site that becomes Claude Code tasks. /crt:serve to start, /crt:next to work the next task.",
   "author": { "name": "Simon (simv)", "url": "https://github.com/simv" },
   "repository": "https://github.com/simv/crt",

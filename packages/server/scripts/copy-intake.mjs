@@ -1,10 +1,13 @@
 // Build step: the intake instructions are plugin/skills/intake/SKILL.md (PRD F-24, F-39 — one
 // source). The published npm package only ships dist/, so copy the file next to cli.js, and
-// (PRD-providers F-58) every plugin skill to dist/skills/<name>/SKILL.md for `crt skills install`.
-// The repo LICENSE is copied into the package dir too (gitignored there) so npm bundles it.
+// (PRD-providers F-58) every plugin skill to dist/skills/<name>/SKILL.md for `crt skills install`,
+// and (PRD-setup F-85) the whole plugin plus a generated marketplace manifest to
+// dist/plugin-marketplace/ for `crt setup`. The repo LICENSE is copied into the package dir too
+// (gitignored there) so npm bundles it.
 import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildPluginMarketplace } from "./plugin-marketplace.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "..", "..", "..");
@@ -19,3 +22,6 @@ for (const [from, to] of copies) {
   copyFileSync(from, to);
   console.log(`copied ${from} -> ${to}`);
 }
+const marketplace = join(here, "..", "dist", "plugin-marketplace");
+const manifest = buildPluginMarketplace({ repo, pkg: join(here, "..", "package.json"), out: marketplace });
+console.log(`built marketplace ${manifest.name} ${manifest.metadata.version} -> ${marketplace}`);

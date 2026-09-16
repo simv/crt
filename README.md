@@ -1,29 +1,41 @@
 # Claude Review Tool (CRT)
 
-Annotate your local site in the browser, talk to Claude in the page, and get a self-contained task file in your repo that any Claude Code session can pick up later with `/crt:next`.
+Annotate your local site in the browser, talk to Claude in the page, and get a self-contained task file in your repo that any Claude Code session can pick up later with `/crt:next`. CRT started as Claude-only; since v0.2 it also works with Codex, and Claude Code remains the default. The name is historical.
 
-> v0.1.0. [docs/PRD.md](docs/PRD.md) defines the scope, requirement IDs (F-n, N-n) and the definition of done; this README is the user manual.
+> v0.3.0. [docs/PRD.md](docs/PRD.md) defines the scope, requirement IDs (F-n, N-n) and the definition of done; [docs/PRD-providers.md](docs/PRD-providers.md) (v0.2, providers) and [docs/PRD-setup.md](docs/PRD-setup.md) (v0.3, setup and first run) amend it. This README is the user manual.
 
 ## Install
 
 ```bash
-claude plugin marketplace add simv/crt
-claude plugin install crt@crt
+# one-time, per machine
+npm i -g claude-review-tool
+crt setup                         # registers the bundled plugin with Claude Code: /crt:serve, /crt:next, …
+
+# per project
+cd my-app && npm run dev          # your normal dev server
+crt                               # finds it (or asks for its URL once) → http://localhost:4400 opens; browse, annotate, send
 ```
 
-That gives every Claude Code session `/crt:serve`, `/crt:next`, `/crt:tasks`, `/crt:task`, `/crt:done` and `/crt:intake`, plus a SessionStart hook that says `CRT: N of M tasks in backlog …` whenever the project has backlog tasks (and stays silent otherwise). Restart Claude Code after installing; `claude plugin update crt@crt` picks up new versions (the plugin tracks `main`).
+`crt setup` gives every Claude Code session `/crt:serve`, `/crt:next`, `/crt:tasks`, `/crt:task`, `/crt:done` and `/crt:intake`, plus a SessionStart hook that says `CRT: N of M tasks in backlog …` whenever the project has backlog tasks (and stays silent otherwise). The plugin ships inside the npm package — `crt setup` runs `claude plugin marketplace add <the package's dist/plugin-marketplace>` and `claude plugin install crt@crt` for you, so nothing is fetched from GitHub and the plugin version always equals the `crt` version. Restart Claude Code after installing. After `npm update -g claude-review-tool`, run `crt setup` again (it says `already installed` when there is nothing to do). Node ≥ 20 on Windows, macOS or Linux; Claude Code installed and logged in (`claude` → `/login`). No API key: CRT reuses the machine's Claude Code login.
 
-The skills run the `crt` CLI as `npx --no crt` when the project has it installed (`npm i -D claude-review-tool`, a global install, or this repo's workspace), otherwise as `npx -y claude-review-tool@latest`, so nothing else needs installing. Node ≥ 20 on Windows, macOS or Linux; Claude Code logged in (`claude` → `/login`). No API key: CRT reuses the machine's Claude Code login.
+Other ways to install:
 
-Without the plugin, `npx claude-review-tool serve --open` in the project folder does what `/crt:serve` does, and `npx claude-review-tool tasks` / `task <ID>` list what `/crt:tasks` / `/crt:task` show.
+- **Teams that want the version in the lockfile:** `npm i -D claude-review-tool` in the project, then `npx crt` (or `crt` from an npm script). The skills always prefer a project install (`npx --no crt`) over anything global.
+- **Zero-install:** `npx claude-review-tool` in the project folder does what `crt` does, and `npx claude-review-tool tasks` / `task <ID>` list what `/crt:tasks` / `/crt:task` show. The first run downloads the package and the Claude Code binary it bundles (~220 MB); npm caches it after that. The skills fall back to `npx -y claude-review-tool@0.3` the same way when no local install exists — the one lookup outside CRT's control.
+- **From GitHub, without the npm package:** `claude plugin marketplace add simv/crt && claude plugin install crt@crt`. This needs read access to the repository (it is private at the time of writing — making it public is an open question), and the skills then run `crt` through `npx` as above.
+
+**Windows:** `npm i -g` puts `crt.cmd`, `crt.ps1` and a `crt` shell script on PATH. PowerShell prefers `crt.ps1`, which its execution policy may refuse (`running scripts is disabled on this system`) — run `crt.cmd` instead, or `npx.cmd claude-review-tool`, both of which work regardless of the policy; CMD and Git Bash are unaffected. The skills use `npx --no crt`, which resolves the bin without the shell shim.
+
+**Older task files:** v0.2 added `provider:` to the task frontmatter and made the validator ignore unknown keys. A project pinned to `claude-review-tool@0.1.x` fails `crt task --validate` on files written by 0.2 or later — update to `0.2.0` or newer.
 
 ## The loop
 
 ```bash
 cd my-app && npm run dev     # your dev server, e.g. http://localhost:3000
-claude                       # your normal Claude Code session in the project
-/crt:serve                   # proxies your app at http://localhost:4400 and opens it
+crt                          # proxies your app at http://localhost:4400 and opens it
 ```
+
+Inside Claude Code, `/crt:serve` does what `crt` does — it reuses a CRT that is already serving the project, asks in the chat which URL or port your dev server is on when it cannot find one, and replies with four lines saying where CRT is, where tasks go, which agent answers and what to click next.
 
 1. **Browse as usual** on `localhost:4400`. Hot reload keeps working. A **CRT** button sits in the bottom-right corner (drag it anywhere; `Ctrl/Cmd+Shift+.` toggles it). Its dot says how things stand — hover it: green is connected (which project, which agent, whether it is logged in), amber means the agent is not ready (the fix is in the tooltip), red means the CRT server stopped answering. On a project’s first visit a small card above the button says what is proxied, where tasks go and which agent will answer; **Got it** dismisses it for that project, **Show me** opens the toolbar with Select armed.
 2. **Point at the problem.** Open the toolbar and pick a tool:
@@ -55,6 +67,7 @@ claude                       # your normal Claude Code session in the project
 crt [target] [--port <n>] [--open | --no-open] [--yes] [--replace] [--provider <id>]
 crt serve [target] [--target <url>] …          # the same command under its explicit name
 crt doctor                                     # checklist: node, project, .crt, target, port, providers, plugin
+crt setup [--claude <path>]                    # register the bundled Claude Code plugin (idempotent)
 crt --version                                  # crt <version> (agent sdk <version>)
 ```
 
@@ -65,10 +78,13 @@ crt --version                                  # crt <version> (agent sdk <versi
 | `--port <n>` | `4400` (or `port` in `.crt/config.local.json` / `.crt/config.json`) | Port CRT listens on. Always bound to `127.0.0.1`. Never stepped around; without it a held port falls back to 4401…4409. |
 | `--open` / `--no-open` | on for a terminal, off otherwise | Open the CRT URL in your default browser once ready. |
 | `--yes` | off | Never prompt: every question takes its default or fails with one `crt:` line (also the behaviour off a terminal or with `CI` set). |
-| `--replace` | off | Stop a CRT already holding the port (through its `POST /__crt/internal/shutdown`, which any local process may call) and take it over. |
+| `--replace` | off | Stop a CRT already holding the port (through its `POST /__crt/internal/shutdown`, which any local process may call — page scripts cannot, and it is no more than a signal could do) and take it over. |
 | `--provider <id>` | auto | The agent behind the chat: `claude` (default) or `codex`. See [Providers](#providers). |
+| `crt doctor` | | Read-only checklist, one row per check; exit 1 on any `FAIL`. First step in [Troubleshooting](#troubleshooting). |
+| `crt setup [--claude <path>]` | `claude` on PATH | Registers the plugin bundled in the package with Claude Code and installs (or updates) `crt@crt`; says `already installed` when it is. `--claude` names the Claude Code executable when it is not on PATH. |
+| `crt --version` | | `crt 0.3.0 (agent sdk 0.3.270)`, read from local files — CRT never checks a registry. |
 
-On success it prints one line — `CRT ready at http://localhost:4400 → http://localhost:3000 (project: C:\my-app, 3 tasks in .crt\tasks, provider: claude (default), login: ok)` — and keeps running until Ctrl+C (`Stopping CRT … 1 session ended; written task files are kept.`). When a CRT from an earlier session already serves the same project and target on the port, `crt` says `CRT <version> is already serving … — opened it.` and exits 0; when it serves something else, or the port is held by something that is not CRT, `crt` takes the next free port and says so (`crt: port 4400 is held by another CRT (→ <target>, project <root>); using 4401` / `crt: port 4400 is in use by a process that is not CRT; using 4401`). `crt` first runs `crt init`, which creates `.crt/tasks/`, `.crt/config.json` and adds `.crt/captures/` and `.crt/config.local.json` to `.gitignore` (idempotent; the first run prints `crt init: created … — commit .crt/`). Every failure is a single `crt: …` line on stderr and a non-zero exit — run `crt doctor` first, then see [Troubleshooting](#troubleshooting) for what each one means.
+On success it prints one line — `CRT ready at http://localhost:4400 → http://localhost:3000 (project: C:\my-app, 3 tasks in .crt\tasks, provider: claude (default), login: ok)` — and, on a terminal, `Open http://localhost:4400 → CRT button bottom-right (Ctrl/Cmd+Shift+.) → Select · note · Send. Ctrl+C stops CRT; your dev server keeps running.`, then keeps running until Ctrl+C (`Stopping CRT … 1 session ended; written task files are kept.`). When a CRT from an earlier session already serves the same project and target on the port, `crt` says `CRT <version> is already serving … — opened it.` and exits 0; when it serves something else, or the port is held by something that is not CRT, `crt` takes the next free port and says so (`crt: port 4400 is held by another CRT (→ <target>, project <root>); using 4401` / `crt: port 4400 is in use by a process that is not CRT; using 4401`). `crt` first runs `crt init`, which creates `.crt/tasks/`, `.crt/config.json` and adds `.crt/captures/` and `.crt/config.local.json` to `.gitignore` (idempotent; the first run prints `crt init: created … — commit .crt/`). Every failure is a single `crt: …` line on stderr and a non-zero exit — run `crt doctor` first, then see [Troubleshooting](#troubleshooting) for what each one means.
 
 ### What Claude gets
 
@@ -85,7 +101,40 @@ It is written to `.crt/captures/<id>/capture.json` (+ PNGs) and moves to `.crt/t
 
 ## Providers
 
-The agent behind the in-page chat is a *provider*. Claude Code is the default and needs nothing; `crt serve --provider codex` (or `provider: "codex"` in `.crt/config.json`, or the caret next to **Send**) runs the intake on the developer's own Codex CLI instead. `crt providers` prints every provider's state and which one a new session would use, with the reason. The full resolution order and the auto-detection rules are in [docs/PRD-providers.md](docs/PRD-providers.md) F-43/F-44; this section covers what you need per provider.
+The agent behind the in-page chat is a *provider*. Claude Code is the default and needs nothing; `crt --provider codex` (or `provider: "codex"` in `.crt/config.json`, or the caret next to **Send**) runs the intake on the developer's own Codex CLI instead. The provider for a session is the first of these that is set:
+
+1. `provider` in the `POST /__crt/sessions` body — the caret next to **Send**, for that one send;
+2. the running server's active provider — `--provider` or `CRT_PROVIDER` at start, replaced by **Remember** in the Agent menu for the life of the process;
+3. `provider` in `.crt/config.local.json` (per machine, gitignored — what **Remember** writes);
+4. `provider` in `.crt/config.json` (per project, committed);
+5. auto-detection: what is installed and logged in here, disambiguated by the project's markers (`.claude/`, `CLAUDE.md`, `.codex/`, `AGENTS.md`);
+6. `claude`.
+
+A provider chosen explicitly (1–4) that is not usable is never swapped for another: the session fails with the provider's one-line problem. Only auto-detection falls back — a logged-out Claude is stepped over when Codex is usable, and the ready line says why (`provider: codex — claude not logged in`). `crt providers` prints every provider's state and which one a new session would use, with the reason:
+
+```
+claude   ready        Claude Code (Agent SDK) 0.3.270  logged in                                markers: .claude/, CLAUDE.md
+codex    not on PATH  Codex CLI                        install: npm i -g @openai/codex          markers: none
+→ claude — .claude/, CLAUDE.md; codex not on PATH
+```
+
+The full rules are in [docs/PRD-providers.md](docs/PRD-providers.md) F-43/F-44; this section covers what you need per provider. CRT itself has no telemetry; nothing leaves the machine except the model calls the chosen agent already makes, and that agent's own telemetry where it has any (below, per provider).
+
+### Claude Code
+
+Nothing to install beyond Claude Code itself: CRT runs sessions through the Agent SDK, which bundles its own Claude Code binary, and reuses the machine's login (`claude` → `/login`, or `CLAUDE_CODE_OAUTH_TOKEN`). Login is checked at start with the bundled binary's `auth status`; only its yes/no is read. Telemetry is Claude Code's own setting.
+
+```
+not logged in to Claude Code — run `claude` in a terminal and complete /login (or set CLAUDE_CODE_OAUTH_TOKEN), then send again
+```
+
+Log in, then send again — no restart needed; the page re-checks. When `claude` is not on your PATH the line ends with `(install Claude Code first: npm i -g @anthropic-ai/claude-code)`.
+
+```
+Claude Code binary not found — reinstall claude-review-tool (`npm install`) so @anthropic-ai/claude-agent-sdk-<platform>-<arch> is present
+```
+
+The SDK's platform package for this OS did not install (an `--omit=optional` install, or a package manager that skipped it). Reinstall `claude-review-tool`.
 
 ### Codex
 
@@ -135,9 +184,15 @@ Codex finished the turn without replying or calling write_task — check that Co
 
 The turn completed with no text and no tool call, which almost always means Codex could not start `crt mcp` (a missing `node`, a broken install) and so never saw the `write_task` tool. Run `crt serve` from a terminal and look at what Codex prints, or run `codex mcp list` inside the project.
 
+```
+write_task was called with a stale token — the session had ended
+```
+
+The agent called `write_task` after the session it belonged to was discarded or the server restarted (every session gets its own token for the life of that session). Start a new session and send again.
+
 ## Task format
 
-Tasks live at `.crt/tasks/CRT-NNNN-<slug>.md` (the ID is allocated by scanning the folder for the highest one, so there is no counter file to conflict on), with a generated `.crt/tasks/README.md` index that the server and `crt tasks` rewrite whenever a task changes. Commit `.crt/`; only `.crt/captures/` is ignored.
+Tasks live at `.crt/tasks/CRT-NNNN-<slug>.md` (the ID is allocated by scanning the folder for the highest one, so there is no counter file to conflict on), with a generated `.crt/tasks/README.md` index that the server and `crt tasks` rewrite whenever a task changes. Commit `.crt/`; only `.crt/captures/` and `.crt/config.local.json` are ignored.
 
 ```markdown
 ---
@@ -150,6 +205,7 @@ updated: 2026-09-14T10:32:00+08:00
 url: http://localhost:4400/cart?promo=SAVE10
 route: /cart
 session: 7a3d…             # intake session id — `claude --resume 7a3d…` continues it
+provider: claude           # which agent ran the intake (absent in v0.1 files)
 tags: [cart, pricing]
 files: [src/components/Cart.tsx, src/lib/pricing.ts]
 ---
@@ -177,7 +233,7 @@ The change requested, precisely.
 Constraints, hunches, non-goals, alternatives considered during intake.
 
 ## Log
-- 2026-09-14T10:32+08:00 — created by intake session 7a3d… from capture 20260914-103200-ab12.
+- 2026-09-14T10:32+08:00 — created by intake session 7a3d… (claude) from capture 20260914-103200-ab12.
 ```
 
 The seven sections are fixed and in this order. The **Log** is append-only: every status change, work session and verification result is a new bullet with a timestamp and the session that wrote it. A task is workable cold when a session that has never seen the page can start from the file alone — that is the bar intake holds itself to. `crt task CRT-0007 --validate` checks a file against the format; `crt tasks --json` is what the skills read.
@@ -214,15 +270,41 @@ crt server (Node, 127.0.0.1 only)                    ┌────────
 
 ## Troubleshooting
 
-Each `crt serve` failure is one line on stderr, prefixed `crt: `, followed by a non-zero exit. `<…>` below marks values filled in at runtime.
+Run `crt doctor` first. It is a read-only checklist — one row per check, `ok` / `warn` / `FAIL` / `--` as words, exit 1 on any `FAIL`, nothing but localhost probes — and its rows name the fix:
+
+```
+$ crt doctor
+ok    node      v22.4.0 (needs 20 or newer)
+ok    project   C:\my-app (.git)
+ok    .crt      tasks/ (4 tasks), config.json, config.local.json, .gitignore entries
+ok    target    http://localhost:3100 (remembered) — responding
+ok    port      4400 free
+ok    claude    Claude Code (Agent SDK 0.3.270) — logged in
+warn  codex     codex-cli 0.154.0 — not logged in — run `codex login`
+ok    plugin    crt@crt 0.3.0 installed (claude on PATH)
+→ claude — codex not logged in
+```
+
+`FAIL` is reserved for what stops `crt` from serving: `FAIL  node      v18.20.0 — CRT needs Node 20 or newer`; `FAIL  target    none set and nothing on the probed ports — crt <port>`; `FAIL  target    http://localhost:3100 (remembered) — not responding`; `FAIL  port      4400 held by CRT 0.3.0 → http://localhost:3000 (this project) — crt --replace`; `FAIL  port      4400 in use by a non-CRT process — crt --port 4401`; and the provider a session would use when it is unusable (its row carries the same line the panel shows). Everything else is a `warn` — `warn  project   C:\my-app\src — no .git above; .crt/ will be created here (run from the repo root, or git init)`, another provider's problem, `warn  plugin    crt@crt not installed — run crt setup`, `warn  plugin    crt@crt 0.2.0 installed, this is 0.3.0 — run crt setup` — or `--` for what was skipped (`--    .crt      not initialised — crt creates it`, `--    plugin    claude not on PATH — skipped`), so a Claude-only machine passes. `crt` runs the same checks before its first question and prints only the `FAIL` and `warn` rows.
+
+Each `crt` failure is one line on stderr, prefixed `crt: `, followed by a non-zero exit. `<…>` below marks values filled in at runtime.
+
+### Unknown command
+
+```
+crt: unknown command "<x>" — a target is a port, host:port or URL; `crt help` lists commands
+```
+
+The first argument was neither a command (`serve`, `doctor`, `setup`, `init`, `tasks`, `task`, `providers`, `skills`, `help`) nor something that looks like a dev server (`3000`, `localhost:3000`, `http://…`). Exit 2.
 
 ### No dev server found
 
 ```
 crt: no dev server found on ports 3000, 5173, 8080, 4200, 8000, 3001 — start it, or run `crt <port>`
+crt: found N dev servers (…); using http://localhost:3000 — run `crt <port>` to pick another
 ```
 
-You ran `crt` off a terminal (or with `--yes`) without a target, without `target` in either config file, and nothing answered HTTP on any of the probed ports. Start your dev server first, or name it: `crt 3100` (remembered per machine in `.crt/config.local.json`), `--target <url>`, or `target` in `.crt/config.json`. On a terminal `crt` asks for the URL or port instead and waits for it to come up; with several dev servers up it lists them (off a terminal: `crt: found N dev servers (…); using <first> — run `crt <port>` to pick another`).
+You ran `crt` off a terminal (or with `--yes`) without a target, without `target` in either config file, and nothing answered HTTP on any of the probed ports. Start your dev server first, or name it: `crt 3100` (remembered per machine in `.crt/config.local.json`), `--target <url>`, or `target` in `.crt/config.json`. On a terminal `crt` asks for the URL or port instead (`Dev server URL or port:`) and waits for it to come up, re-probing every 2 s; with several dev servers up it lists them and asks `Which one? [1]`. The second line is the off-terminal form of that list: the first responder was taken.
 
 ### Target unreachable
 
@@ -230,7 +312,7 @@ You ran `crt` off a terminal (or with `--yes`) without a target, without `target
 crt: target <origin> is not responding — start your dev server there, or run `crt <port>`
 ```
 
-CRT had an explicit target — positional, `--target`, or from a config file — but the connection was refused or timed out after 1.5s. Check the dev server really is up on that host and port (any HTTP status counts as up, so a 404 is fine) and that the port is not a typo. On a terminal `crt` waits for it instead, re-probing every 2 s, and offers another dev server it found.
+CRT had an explicit target — positional, `--target`, or from a config file — but the connection was refused or timed out after 1.5s. Check the dev server really is up on that host and port (any HTTP status counts as up, so a 404 is fine) and that the port is not a typo. On a terminal `crt` waits for it instead (`<origin> is not responding yet — start it, then press Enter to retry (type another URL to change, Ctrl+C to quit)`), re-probing every 2 s, and offers another dev server it found (`Use 3000? [Y/n]`).
 
 ### Target not a valid URL
 
@@ -244,13 +326,15 @@ The `--target` value (or `target` in `.crt/config.json`) could not be parsed as 
 ### Port in use
 
 ```
+crt: port 4400 is held by another CRT (→ <target>, project <root>); using 4401
+crt: port 4400 is in use by a process that is not CRT; using 4401
 crt: port <port> is already in use by CRT <version> (→ <target>, project <root>) — stop the other process, run `crt --replace`, or pass --port <n>
 crt: port <port> is already in use by a process that is not CRT — stop the other process or pass --port <n>
-crt: could not stop the CRT on port <port> (<reason>) — stop it yourself, or run `crt --port <n>`
+crt: could not stop the CRT on port 4400 (<reason>) — stop it yourself, or run `crt --port 4401`
 crt: ports <port>–<port+9> are all in use — run `crt --port <n>`
 ```
 
-The first two appear only with an explicit `--port`, which is never stepped around: without it `crt` reuses a CRT that serves the same project and target, and otherwise takes the next free port (see the flags table). `--replace` asks the other CRT to stop; the third line means it did not. Any other bind failure prints `crt: cannot listen on 127.0.0.1:<port> (<code>)` instead. `crt doctor` shows who holds the port.
+The first two are not errors: without `--port`, `crt` reuses a CRT that serves the same project and target (`CRT <version> is already serving … — opened it.`) and otherwise steps to the next free port, saying which it found on 4400. On a terminal it asks instead — `1) Start this one on 4401  2) Replace it  3) Quit` for another CRT, `Start on 4401 instead? [Y/n]` for anything else. The next two appear only with an explicit `--port`, which is never stepped around. `--replace` asks the other CRT to stop through its shutdown route; the fifth line means it did not. Any other bind failure prints `crt: cannot listen on 127.0.0.1:<port> (<code>)` instead. `crt doctor` shows who holds the port.
 
 ### No Claude login
 
@@ -261,9 +345,18 @@ crt: not logged in to Claude Code — run `claude` in a terminal and complete /l
 
 CRT asks the bundled Claude Code binary `auth status --json` at start (reading only its `loggedIn` flag) and prints this right after the ready line, whose `login:` field says `missing`; the second form appears when `claude` is not on your PATH. `crt providers` and `crt doctor` show the same state. Run `claude` in a terminal and complete `/login` (or set `CLAUDE_CODE_OAUTH_TOKEN`), then send your note — no need to restart `crt`; the page re-checks. When Codex is installed and logged in, a logged-out Claude is stepped over: the ready line reads `provider: codex — claude not logged in`.
 
+### Plugin not installed, or `crt setup` fails
+
+```
+crt: claude not found on PATH — install Claude Code (npm i -g @anthropic-ai/claude-code), or run: claude plugin marketplace add simv/crt && claude plugin install crt@crt
+crt: `claude plugin install crt@crt` failed: <first line of what claude printed> — fix that, or run: claude plugin marketplace add simv/crt && claude plugin install crt@crt
+```
+
+`crt setup` needs the `claude` CLI (it runs `claude plugin list --json`, `claude plugin marketplace add <dir>` and `claude plugin install crt@crt` — or `update` when an older `crt@crt` is there — and writes nothing itself). Install Claude Code, or pass the executable with `crt setup --claude <path>`; the second line quotes Claude Code's own error and the same two commands work by hand from GitHub. On success it prints `crt setup: registered marketplace crt from <path>` and `crt setup: installed crt@crt 0.3.0 — restart Claude Code to load /crt:serve, /crt:next, /crt:tasks, /crt:task, /crt:done, /crt:intake`; `crt setup: crt@crt 0.3.0 is already installed` means there was nothing to do. When the plugin and the project's `claude-review-tool` disagree on major.minor, the SessionStart hook says `CRT: plugin 0.3.0 but the project's claude-review-tool is 0.2.0 — npm update claude-review-tool (or crt setup after updating)`.
+
 ### No `.git` in the project
 
-Not an error. CRT uses the nearest ancestor of the launch directory that contains `.git` as the project root and falls back to the launch directory itself, so `.crt/` is created wherever you ran `crt serve`. If the `project:` path in the ready line (or in `/__crt/health`) is not where you want `.crt/tasks/` to live, run `crt serve` from your project root — or `git init` it.
+Not an error. CRT uses the nearest ancestor of the launch directory that contains `.git` as the project root and falls back to the launch directory itself, so `.crt/` is created wherever you ran `crt`. If the `project:` path in the ready line (or in `/__crt/health`) is not where you want `.crt/tasks/` to live, run `crt` from your project root — or `git init` it. `crt doctor` warns about it.
 
 ### Overlay does not appear
 
@@ -277,10 +370,10 @@ The proxy is up, it put the overlay tag into the page, but ten seconds later the
 
 | Path | What |
 |---|---|
-| `packages/server` | npm package `claude-review-tool` — the `crt` CLI, proxy, capture store, session manager |
+| `packages/server` | npm package `claude-review-tool` — the `crt` CLI, proxy, capture store, session manager; its `dist/plugin-marketplace/` is the plugin as `crt setup` installs it |
 | `packages/overlay` | in-page UI, bundled into the server |
 | `plugin/` | the Claude Code plugin (skills + hooks); marketplace manifest at `.claude-plugin/marketplace.json` |
-| `docs/PRD.md` | the product requirements document |
+| `docs/PRD.md`, `docs/PRD-providers.md`, `docs/PRD-setup.md` | the product requirements documents (v1.0, v0.2 providers, v0.3 setup) |
 | `.crt/tasks` | this repo's own work items, in CRT's task format |
 
 ## Develop
@@ -291,8 +384,8 @@ npm run check   # typecheck, lint, unit tests, build
 npm run e2e     # Playwright smoke: fixture app behind a real `crt serve` (needs `npx playwright install chromium` once)
 ```
 
-Plugin changes: `claude plugin validate ./plugin` (and `.` for the marketplace) must pass — CI runs both. To try a local skill edit before it is on `main`, run `claude --plugin-dir ./plugin` in the project you are testing against, or `claude plugin marketplace add ./` from a fresh profile (`CLAUDE_CONFIG_DIR=<empty dir>`).
+Plugin changes: `claude plugin validate ./plugin` (and `.` for the marketplace, and `packages/server/dist/plugin-marketplace` after a build) must pass — CI runs all of them. To try a local skill edit before it is on `main`, run `claude --plugin-dir ./plugin` in the project you are testing against, or `crt setup` from a fresh profile (`CLAUDE_CONFIG_DIR=<empty dir>`) with `crt` npm-linked to this repo.
 
-Release: bump `version` in `packages/server/package.json` (and the plugin manifests), merge, then `git tag v<version> && git push origin v<version>`. The `release` workflow checks the tag matches the package version, runs `npm run check`, **stages** `claude-review-tool` on npm through trusted publishing (OIDC from this repository's `release.yml`; no token, provenance attested) and creates a GitHub Release with generated notes. The version goes live only when the maintainer promotes the staged version on npmjs.com (package → Versions) with 2FA — CI can stage a release but never ship one.
+Release: bump `version` in `packages/server/package.json`, both plugin manifests and the pinned `claude-review-tool@<major.minor>` in the six skills (a unit test fails when they disagree), merge, then `git tag v<version> && git push origin v<version>`. The `release` workflow checks the tag matches the package version, runs `npm run check`, **stages** `claude-review-tool` on npm through trusted publishing (OIDC from this repository's `release.yml`; no token, provenance attested) and creates a GitHub Release with generated notes. The version goes live only when the maintainer promotes the staged version on npmjs.com (package → Versions) with 2FA — CI can stage a release but never ship one.
 
 License: MIT.

@@ -39,3 +39,4 @@ No page capture: created from PRD-providers milestone M11.
 
 ## Log
 - 2026-09-15T17:30+08:00 — created from PRD-providers milestone M11 by the planning session that wrote docs/PRD-providers.md.
+- 2026-09-16T23:05+08:00 — folded into CRT-0018 (PRD-setup F-89): `0.2.0` was never released, so M14 carries this task's Asks — README Providers section (F-43 order list, `crt providers` sample, every N-7 line, F-64 first-paragraph line, N-12 telemetry, F-48 minimum-version note, N-13 resume note; doc test `test/readme.test.ts`), `docs/PRD.md` §9 "v0.2:" annotations, `docs/PRD-providers.md` §10 ticked with evidence (M10 row marked not shipped), and one release `0.3.0` (no `v0.2.0` tag). Written by session 21c8bea3-fd0d-49d4-97aa-734d23658916 per the CRT-0018 Ask; status left for Simon to close alongside CRT-0018.
