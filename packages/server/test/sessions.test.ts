@@ -298,7 +298,7 @@ provider: stub
     strict.closeAll();
   });
 
-  it("the same write_task request yields the same file through the in-process tool and the stdio route (§5.3, F-49)", async () => {
+  it("the same write_task request yields the same file through the in-process tool and the stdio route, PRD-providers §5.3 (F-49)", async () => {
     // In-process: the stub calls its `writeTask` option when told to write (the Claude driver's path).
     const capA = writeCapture(root, samplePost());
     const a = (await api("POST", "/__crt/sessions", { captureId: capA.id })).json as { id: string };
