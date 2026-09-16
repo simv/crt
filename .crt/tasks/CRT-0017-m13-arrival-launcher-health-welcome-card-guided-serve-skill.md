@@ -1,10 +1,10 @@
 ---
 id: CRT-0017
 title: M13 — Arrival: launcher health dot, welcome card, overlay-missing detection, guided /crt:serve
-status: review
+status: done
 priority: high
 created: 2026-09-16T14:50:00+08:00
-updated: 2026-09-16T21:05:00+08:00
+updated: 2026-09-16T21:40:00+08:00
 url: http://localhost:4400/
 route: /
 session: null
@@ -36,7 +36,7 @@ No page capture: created from `docs/PRD-setup.md` milestone M13. The launcher to
 - [x] e2e: a fixture page with a blocking CSP produces the F-80 terminal line in `crt-serve.log` and health `overlay.fetched` stays 0 while `injected` is ≥ 1.
 - [x] `claude plugin validate ./plugin` and `.` pass; the skill doc test finds the health step, the AskUserQuestion question and the four reply lines; hook test covers the drift line.
 - [x] `npm run check` and `npm run e2e` pass; overlay gzipped size stays under the N-3 budget.
-- [ ] Manual (Simon): in Claude Code on the trial app with no dev server running, `/crt:serve` asks for the port in chat, starts on the answer, replies with the four lines; the welcome card appears once on the trial app and not after **Got it**; stopping `crt serve` turns the dot red with its tooltip; with `/crt:serve` run twice, the second reply says it reused the running CRT.
+- [x] Manual (Simon): in Claude Code on the trial app with no dev server running, `/crt:serve` asks for the port in chat, starts on the answer, replies with the four lines; the welcome card appears once on the trial app and not after **Got it**; stopping `crt serve` turns the dot red with its tooltip; with `/crt:serve` run twice, the second reply says it reused the running CRT.
 
 ## Notes
 Health polling is forbidden (PRD-setup §3); the dot updates only on the three triggers. The welcome card must not overlap `.launcher` or `.status` in a way that breaks `capture.spec.ts`/`chat.spec.ts` selectors — it is suppressed under `stub` and opened explicitly in its own test. The "different project" state and the two extra F-80 lines are Should; ship them if they fit, leave them named in the Log if not.
@@ -55,3 +55,4 @@ Health polling is forbidden (PRD-setup §3); the dot updates only on the three t
 - 2026-09-16T21:00+08:00 — verified: `claude plugin validate ./plugin` and `.` both "Validation passed"; `test/serve-skill.test.ts` (7 rows: health step, the AskUserQuestion questions, the four reply lines, the fallback sentence, the F-58 rewrite); `test/session-start-hook.test.ts` F-84 rows (mismatch line, patch-only silent, missing/unreadable silent, both lines).
 - 2026-09-16T21:00+08:00 — verified: `npm run check` exit 0 (typecheck, 340 unit tests, build); `npm run e2e` 48/48 on Windows (chromium); overlay.js gzipped 36,203 bytes (N-3 budget 150 KB; +2.1 KB over main).
 - 2026-09-16T21:05+08:00 — ready for review: changed packages/server/src/proxy.ts, packages/overlay/src/{ui,index}.ts, plugin/skills/serve/SKILL.md, plugin/hooks/session-start.mjs, packages/server/e2e/fixture/server.mjs, README.md; new packages/overlay/src/{health,welcome}.ts, packages/server/e2e/arrival.spec.ts, packages/server/test/{overlay-arrival,serve-skill}.test.ts; tests updated test/{proxy,session-start-hook}.test.ts. The Manual (Simon) row stays unticked (PRD-setup §8). Reviewer: two decisions to confirm — the nonce CSP line is a warning (see 20:20), and `different project` keys on `projectRoot` only (20:25).
+- 2026-09-16T21:40+08:00 — done; merged in https://github.com/simv/crt/pull/37 (squash, abda20a). Simon closed the task ("done, commit and merge"); the Manual row is ticked on his word. Closed by hand per CLAUDE.md (the done skill is user-invoked only).
