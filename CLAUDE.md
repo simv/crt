@@ -1,12 +1,12 @@
 # CRT — Claude Review Tool
 
-Read `docs/PRD.md` before doing anything non-trivial. It defines scope, requirement IDs (F-n, N-n), milestones (M1–M5) and the project definition of done. Requirement IDs are referenced in code comments, tests, commits and PRs. `docs/PRD-providers.md` amends it for v0.2 (provider-agnostic intake: F-42…F-64, N-7…N-13, milestones M6–M11); read both, and its §9 for which v1.0 statements and CLAUDE.md lines change once each milestone lands.
+Read `docs/PRD.md` and `docs/PRD-providers.md` before doing anything non-trivial. The first defines scope, requirement IDs (F-n, N-n), milestones (M1–M5) and the project definition of done; the second amends it for v0.2 (provider-agnostic intake: F-42…F-64, N-7…N-13, milestones M6–M11) and its §9 lists which v1.0 statements and CLAUDE.md lines change as each milestone lands. Requirement IDs are referenced in code comments, tests, commits and PRs.
 
 ## What this is
 
-A local proxy + in-page overlay that lets a developer annotate their running site and talk to Claude in the page; Claude writes a self-contained task file to `.crt/tasks/` that any later session can complete with `/crt:next`. One repo, three deliverables: `packages/server` (npm `claude-review-tool`, bin `crt`), `packages/overlay` (bundled into the server), `plugin/` (Claude Code plugin, marketplace at repo root).
+A local proxy + in-page overlay that lets a developer annotate their running site and talk to a coding agent in the page (Claude Code by default; the agent is a *provider*, resolved per PRD-providers F-43); the agent writes a self-contained task file to `.crt/tasks/` that any later session can complete with `/crt:next`. One repo, three deliverables: `packages/server` (npm `claude-review-tool`, bin `crt`), `packages/overlay` (bundled into the server), `plugin/` (Claude Code plugin, marketplace at repo root).
 
-Entry points: `packages/server/src/cli.ts` → `serve.ts` (wires `proxy.ts`, `inject.ts`, `captures.ts`, `sessions.ts`, `tasks.ts`, `target.ts`); `packages/overlay/src/index.ts` (UI) and `early.ts` (console/network hooks, injected before the app's own scripts).
+Entry points: `packages/server/src/cli.ts` → `serve.ts` (wires `proxy.ts`, `inject.ts`, `captures.ts`, `session.ts` (the provider registry), `sessions.ts`, `tasks.ts`, `target.ts`); provider profiles and drivers under `packages/server/src/providers/` (`claude.ts`, `codex.ts`, `stub.ts`, plus `detect.ts`, `exec.ts`, `types.ts`); `packages/overlay/src/index.ts` (UI) and `early.ts` (console/network hooks, injected before the app's own scripts).
 
 ## Commands
 
@@ -21,9 +21,9 @@ Entry points: `packages/server/src/cli.ts` → `serve.ts` (wires `proxy.ts`, `in
 ## Conventions
 
 - TypeScript strict, ESM, no default exports. Node built-ins over dependencies; add a dependency only when it removes real code.
-- All Agent SDK usage lives in `packages/server/src/session.ts` behind a small interface (PRD §12).
+- All Agent SDK usage lives in `packages/server/src/providers/claude.ts`; every other agent's CLI or protocol is driven only from `providers/<id>.ts` and `providers/exec.ts`, all behind `SessionDriver` (PRD §12, PRD-providers §5).
 - `@anthropic-ai/claude-agent-sdk` is pinned to an exact version (PRD §12) — no `^`.
-- `CRT_SESSION_STUB=1` swaps the SDK driver for `session-stub.ts` (scripted intake, no login). Unit tests and e2e exercise the chat path this way.
+- `CRT_SESSION_STUB=1` selects the `stub` provider (`providers/stub.ts`, scripted intake, no login) ahead of every other resolution step. Unit tests and e2e exercise the chat path this way.
 - Intake instructions have one source, `plugin/skills/intake/SKILL.md`; edit the skill, never `dist/intake.md`.
 - Overlay pure logic is unit-tested from `packages/server/test` by importing `../../overlay/src/*` directly (e.g. `owner-stack.test.ts`).
 - Overlay is framework-free, renders inside Shadow DOM, no globals except `window.__crt` for debugging.

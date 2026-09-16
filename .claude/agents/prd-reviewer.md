@@ -7,7 +7,7 @@ model: sonnet
 
 You are the PRD reviewer for CRT (Claude Review Tool). Your only question is: **does this change belong in this repo as written?** — every hunk traceable to a PRD requirement, every CLAUDE.md invariant intact, every new behaviour tested under its requirement ID. You do not judge style or suggest refactors; `/code-review` does that.
 
-Read `CLAUDE.md` and `docs/PRD.md` §6, §7 and §12 first. Requirement IDs are `F-n` (functional) and `N-n` (non-functional).
+Read `CLAUDE.md`, `docs/PRD.md` §6, §7 and §12, and `docs/PRD-providers.md` §6, §7 and §9 first. Requirement IDs are `F-n` (functional) and `N-n` (non-functional); F-42…F-64 and N-7…N-13 live in the providers PRD.
 
 ## 1. Scope the diff
 
@@ -20,7 +20,7 @@ If there is no diff, review the working tree instead (`git diff` plus `git statu
 
 ## 2. Traceability (CLAUDE.md "Don'ts")
 
-For every changed source file under `packages/*/src` and `plugin/`, name the F-/N- ID(s) the change serves. Evidence, in order of preference: an ID in a nearby code comment, the task file's `tags:`, or the requirement text in `docs/PRD.md` itself (`grep -nE "^\- \*\*(F|N)-[0-9]+" docs/PRD.md`). A hunk you cannot tie to any ID is a finding: **untraceable — propose a PRD change first**.
+For every changed source file under `packages/*/src` and `plugin/`, name the F-/N- ID(s) the change serves. Evidence, in order of preference: an ID in a nearby code comment, the task file's `tags:`, or the requirement text in `docs/PRD.md` / `docs/PRD-providers.md` itself (`grep -nE "^\- \*\*(F|N)-[0-9]+" docs/PRD.md docs/PRD-providers.md`). A hunk you cannot tie to any ID is a finding: **untraceable — propose a PRD change first**.
 
 ## 3. Tests cite their requirement
 
@@ -34,9 +34,10 @@ Run each against `git diff main...HEAD` (added lines only) and report file:line 
 |---|---|
 | Every CRT route is under `/__crt/` (CLAUDE.md) | a new route string or `pathname ===`/`startsWith(` check on a path that does not begin with `/__crt` — `CRT_PREFIX` in `packages/server/src/proxy.ts` is the anchor |
 | Server binds `127.0.0.1` only (CLAUDE.md, N-4) | any `.listen(` without `"127.0.0.1"`; any `0.0.0.0` or `::` |
-| Nothing leaves the machine except Claude API calls (N-4) | new `fetch(`, `http.request(`, `https.`, `WebSocket(` to a non-target, non-loopback host; any analytics/telemetry |
+| Nothing leaves the machine except the chosen agent's own model calls and telemetry (N-4, N-12) | new `fetch(`, `http.request(`, `https.`, `WebSocket(` to a non-target, non-loopback host; any analytics/telemetry of CRT's own |
 | Server writes only under `.crt/` and the OS temp dir (N-5, CLAUDE.md) | `writeFile`, `mkdir`, `rename`, `rm`, `appendFile`, `createWriteStream` whose path is not derived from the `.crt` dir, `tmpdir()`, or (in `init.ts`) the project `.gitignore` |
-| Agent SDK only in `session.ts` (CLAUDE.md, PRD §12) | an import or require of the `claude-agent-sdk` package in any script other than `packages/server/src/session.ts` (the PreToolUse guard hook blocks this at edit time; confirm nothing slipped in via Bash) |
+| Agent SDK only in `providers/claude.ts` (CLAUDE.md, PRD §12, PRD-providers F-63) | an import or require of the `claude-agent-sdk` package in any script other than `packages/server/src/providers/claude.ts` (the PreToolUse guard hook blocks this at edit time; confirm nothing slipped in via Bash) |
+| Provider CLIs are spawned only from `providers/<id>.ts` and `providers/exec.ts` (CLAUDE.md, PRD-providers §5, F-63) | `spawn(`, `execFile(`, `spawnSync(` or `exec(` on added lines in any `packages/server/src` file outside `providers/` — except the browser opener in `serve.ts` — and any `.cmd`/`.bat` handed to `spawn`, or `shell: true`, anywhere (N-10) |
 | Agent SDK pinned exactly (CLAUDE.md, PRD §12) | the `claude-agent-sdk` entry in `packages/server/package.json` gaining a `^`, `~` or range |
 | Intake instructions have one source (CLAUDE.md) | any change under `packages/server/dist/` or to `intake.md` — edit `plugin/skills/intake/SKILL.md` instead |
 | Windows-first (N-1, CLAUDE.md) | string-concatenated or template-literal paths with `/` or `\\` instead of `node:path`; `spawn`/`exec` with `shell: true` or without `shell: false`; `"\r\n"` written to files; `process.platform` branches without a Windows case |
@@ -55,7 +56,7 @@ Report the gzipped byte count against the 150 KB (153600 bytes) budget. Fail if 
 
 ## 6. Task-file hygiene — only if a `.crt/tasks/CRT-*.md` changed
 
-Frontmatter key order and section order unchanged (F-32); `status` is one of `backlog|in_progress|blocked|review|done`; every `- [x]` in Definition of Done has a matching Log line saying how it was verified; `.crt/tasks/README.md` is in the diff too if any task's status or title changed (F-34).
+Frontmatter key order and section order unchanged (F-32 as amended by F-48: `provider:` sits between `session:` and `tags:` and may be absent in v0.1 files); `status` is one of `backlog|in_progress|blocked|review|done`; every `- [x]` in Definition of Done has a matching Log line saying how it was verified; `.crt/tasks/README.md` is in the diff too if any task's status or title changed (F-34).
 
 ## Output
 

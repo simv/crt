@@ -12,12 +12,13 @@
  *
  * Every event a driver emits is numbered and kept in memory for the life of the server, so a
  * panel that reloads the page (or the developer opening the session list) can rebuild the
- * transcript by replaying from 0. The driver behind each session is whatever `SessionStarter`
- * the server was created with: the SDK one (session.ts) or the stub (session-stub.ts).
+ * transcript by replaying from 0. The driver behind each session comes from the provider the
+ * `ProviderRegistry` resolves for it (session.ts, PRD-providers F-43): Claude on the Agent SDK
+ * by default, the scripted stub under `CRT_SESSION_STUB=1`, Codex from CRT-0012.
  *
  * Warm start (N-2): the overlay may POST /__crt/sessions with no capture as soon as Send is
- * clicked, so the Claude Code process boots while the page is still being rasterised; the
- * capture is attached with POST …/capture once it is saved, which sends the first message.
+ * clicked, so the agent process boots while the page is still being rasterised; the capture is
+ * attached with POST …/capture once it is saved, which sends the first message.
  */
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -26,7 +27,8 @@ import { capturesDir } from "./captures.js";
 import { json, readJson } from "./http.js";
 import { buildIntakeMessage, readCaptureBundle, summarizeCapture } from "./intake-message.js";
 import { decidePermission } from "./permissions.js";
-import type { SessionDriver, SessionEvent, SessionInfo, SessionStarter, SessionState, UserInput, WriteTaskRequest } from "./session-events.js";
+import { describeResolution, type ProviderRegistry } from "./session.js";
+import type { SessionDriver, SessionEvent, SessionInfo, SessionState, UserInput, WriteTaskRequest } from "./session-events.js";
 import { createTask, displayPath } from "./tasks.js";
 
 export const SESSIONS_PATH = "/__crt/sessions";
@@ -38,7 +40,8 @@ export interface RegistryOptions {
   tasksDir: string;
   /** Body of plugin/skills/intake/SKILL.md; `$ARGUMENTS` is replaced with a pointer to the first message. */
   intakePrompt: string;
-  start: SessionStarter;
+  /** Resolves the provider (and so the driver) for every new session (F-43). */
+  providers: ProviderRegistry;
   permissionTimeoutMs?: number;
   log?: (line: string) => void;
 }
@@ -57,20 +60,42 @@ export class SessionRegistry {
   /**
    * F-24: start an intake session. With a capture id the first message is sent immediately;
    * without one the process boots and waits for `attachCapture` (warm start, N-2). `quick`
-   * (F-14) makes the first message tell Claude to write the task without waiting for confirmation.
+   * (F-14) makes the first message tell the agent to write the task without waiting for
+   * confirmation. `provider` is the F-43 step-1 request value; an explicit provider that cannot
+   * be used still gets a session, one that fails at once with the N-7 line so the panel shows it.
    * Throws when the capture is missing (nothing is started in that case).
    */
-  create(captureId: string | null, opts: { quick?: boolean } = {}): SessionInfo {
+  create(captureId: string | null, opts: { quick?: boolean; provider?: string | null } = {}): SessionInfo {
     const quick = opts.quick === true;
     const id = randomUUID();
+    const resolution = this.opts.providers.resolve(opts.provider ?? null);
     const entry: Entry = {
-      info: { id, captureId, startedAt: new Date().toISOString(), state: "starting", taskId: null, quick, summary: null, url: null },
+      info: {
+        id,
+        provider: resolution.provider,
+        nativeSessionId: null,
+        captureId,
+        startedAt: new Date().toISOString(),
+        state: "starting",
+        taskId: null,
+        quick,
+        summary: null,
+        url: null,
+      },
       driver: undefined as unknown as SessionDriver,
       events: [],
       subscribers: new Set(),
     };
     const first = captureId ? this.firstMessage(entry, captureId) : undefined;
     this.entries.set(id, entry);
+    const profile = resolution.problem === null ? this.opts.providers.get(resolution.provider) : null;
+    if (!profile) {
+      const problem = resolution.problem ?? `provider "${resolution.provider}" is not available`;
+      entry.driver = failedDriver(id, problem);
+      entry.driver.onEvent((event) => this.record(entry, event));
+      this.opts.log?.(`crt: ${quick ? "quick-note" : "intake"} session ${id} could not start — ${describeResolution(resolution)}`);
+      return { ...entry.info };
+    }
     const driverOpts = {
       id,
       cwd: this.opts.projectRoot,
@@ -78,16 +103,22 @@ export class SessionRegistry {
       ...(first ? { first } : {}),
       decide: (toolName: string, input: Record<string, unknown>) => decidePermission(toolName, input, this.opts.projectRoot),
       writeTask: async (request: WriteTaskRequest) => {
-        const created = createTask(this.opts.projectRoot, this.opts.tasksDir, { ...request, session: id, captureId: entry.info.captureId });
+        // F-48: `session:` is the provider's own id (§5.4); null until the driver reported it.
+        const created = createTask(this.opts.projectRoot, this.opts.tasksDir, {
+          ...request,
+          session: entry.info.nativeSessionId,
+          provider: entry.info.provider,
+          captureId: entry.info.captureId,
+        });
         entry.info.taskId = created.id;
         return { id: created.id, path: displayPath(this.opts.projectRoot, created.path) };
       },
       log: this.opts.log,
       ...(this.opts.permissionTimeoutMs !== undefined ? { permissionTimeoutMs: this.opts.permissionTimeoutMs } : {}),
     };
-    entry.driver = this.opts.start(driverOpts);
+    entry.driver = profile.start(driverOpts);
     entry.driver.onEvent((event) => this.record(entry, event));
-    this.opts.log?.(`crt: ${quick ? "quick-note" : "intake"} session ${id} started${captureId ? ` for capture ${captureId}` : ""} (claude --resume ${id})`);
+    this.opts.log?.(`crt: ${quick ? "quick-note" : "intake"} session ${id} started on ${profile.id}${captureId ? ` for capture ${captureId}` : ""} (${describeResolution(resolution)})`);
     return { ...entry.info };
   }
 
@@ -115,6 +146,12 @@ export class SessionRegistry {
   private record(entry: Entry, event: SessionEvent): void {
     if (event.type === "state") entry.info.state = event.state;
     if (event.type === "task_written") entry.info.taskId = event.id;
+    if (event.type === "init") {
+      // F-47: the provider's own id is known now; that is what `session:` and the resume hint use.
+      entry.info.nativeSessionId = event.nativeSessionId;
+      const agent = [event.displayName, event.agentVersion].filter(Boolean).join(" ");
+      this.opts.log?.(`crt: session ${entry.info.id} is ${agent}${event.model ? ` (${event.model})` : ""}${event.resumeCommand ? `, continue with \`${event.resumeCommand}\`` : ""}`);
+    }
     entry.events.push(event);
     const seq = entry.events.length;
     for (const fn of entry.subscribers) fn(seq, event);
@@ -173,6 +210,30 @@ export class SessionRegistry {
 
 function isOver(state: SessionState): boolean {
   return state === "ended" || state === "error";
+}
+
+/**
+ * F-43/N-7: a session whose explicitly chosen provider cannot be used. It emits the one-line
+ * problem and dies, so the panel shows the reason and the session list keeps the row.
+ */
+function failedDriver(id: string, problem: string): SessionDriver {
+  const listeners = new Set<(e: SessionEvent) => void>();
+  // Deferred so the registry can attach onEvent() first, like every real driver.
+  queueMicrotask(() => {
+    for (const fn of listeners) fn({ type: "error", message: problem });
+    for (const fn of listeners) fn({ type: "state", state: "error", detail: problem });
+  });
+  return {
+    id,
+    send: () => undefined,
+    interrupt: async () => undefined,
+    respondPermission: () => false,
+    close: () => undefined,
+    onEvent(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+  };
 }
 
 function isCaptureId(v: unknown): v is string {

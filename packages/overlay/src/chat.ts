@@ -380,7 +380,7 @@ export class ChatPanel {
         else if (this.quiet && event.state === "ended" && !this.taskId) this.attention("the session ended without writing a task");
         break;
       case "init":
-        this.renderFoot(event.model, event.claudeCodeVersion);
+        this.renderFoot(event);
         break;
       case "user":
         this.append(userBubble(event.text, event.images));
@@ -493,11 +493,12 @@ export class ChatPanel {
     this.stopBtn.disabled = s !== "running" && s !== "waiting";
   }
 
-  /** F-28: session id and the resume hint. */
-  private renderFoot(model?: string, version?: string): void {
+  /** F-28/F-47: session id, then model, agent and the resume hint from the session's own init event. */
+  private renderFoot(init?: Extract<SessionEvent, { type: "init" }>): void {
     const id = this.sessionId ?? "";
-    this.foot.innerHTML = `session <code>${escapeHtml(id)}</code>${model ? ` · ${escapeHtml(model)}` : ""}${version ? ` · Claude Code ${escapeHtml(version)}` : ""} · continue in a terminal: <code>claude --resume ${escapeHtml(id)}</code>`;
-    this.foot.title = `claude --resume ${id}`;
+    const agent = init ? [init.displayName, init.agentVersion].filter(Boolean).join(" ") : "";
+    this.foot.innerHTML = `session <code>${escapeHtml(id)}</code>${init?.model ? ` · ${escapeHtml(init.model)}` : ""}${agent ? ` · ${escapeHtml(agent)}` : ""}${init?.resumeCommand ? ` · continue in a terminal: <code>${escapeHtml(init.resumeCommand)}</code>` : ""}`;
+    this.foot.title = init?.resumeCommand ?? id;
   }
 
   private scrollToEnd(): void {

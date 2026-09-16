@@ -1,424 +1,266 @@
 /**
- * Intake session on the Claude Agent SDK (PRD §5.3, F-24…F-29, N-6).
+ * Provider registry (PRD-providers §5, F-42…F-45): which coding agent an intake session runs on.
  *
- * This is the only module that imports `@anthropic-ai/claude-agent-sdk` (CLAUDE.md, PRD §12).
- * It exposes one function, `startSession`, that returns a `SessionDriver` (session-events.ts);
- * everything above it — the registry, SSE, the panel — talks to that interface only, so the SDK
- * surface used here stays small and swappable:
+ * The drivers live under `providers/` (`claude.ts` on the Agent SDK, `stub.ts` scripted,
+ * `codex.ts` profile-only until CRT-0012); this module knows them only as `ProviderProfile`s:
  *
- *   query({ prompt: <async iterable of user messages>, options })   streaming input (F-25)
- *   options: cwd, sessionId, settingSources, systemPrompt preset+append, includePartialMessages,
- *            permissionMode 'default', canUseTool, mcpServers (one in-process tool: write_task)
- *   q.interrupt(), q.close()
+ *   • `listProviders()` — the built-in profiles; `stub` only with `CRT_SESSION_STUB=1` (F-42).
+ *   • `ProviderRegistry.resolve()` — the F-43 order: stub env → request body → the server's
+ *     active provider (`--provider`, `CRT_PROVIDER`, replaced by `PUT /__crt/config`) →
+ *     `.crt/config.local.json` → `.crt/config.json` → auto-detection (F-44) → `claude`. An
+ *     explicit choice that fails preflight is never replaced: the caller fails the session with
+ *     the profile's one-line problem (N-7).
+ *   • `renderProviders()` — the `crt providers` table (F-45) and its `--json` payload (F-57).
  *
- * Messages consumed: system/init, stream_event (text deltas), assistant (tool_use blocks),
- * user (tool_result blocks), result, auth_status.
+ * Preflight results are cached per registry (`refresh()` re-runs them: server start, `--refresh`).
  */
-import { randomUUID } from "node:crypto";
-import { relative } from "node:path";
-import {
-  type CanUseTool,
-  createSdkMcpServer,
-  type Options,
-  type PermissionResult,
-  query,
-  type Query,
-  type SDKAssistantMessage,
-  type SDKMessage,
-  type SDKPartialAssistantMessage,
-  type SDKUserMessage,
-  tool,
-} from "@anthropic-ai/claude-agent-sdk";
-import { z } from "zod/v4";
-import { PERMISSION_TIMEOUT_MS } from "./permissions.js";
-import type {
-  SessionDriver,
-  SessionEvent,
-  SessionState,
-  StartSessionOptions,
-  UserInput,
-  WriteTaskRequest,
-} from "./session-events.js";
+import { type CrtConfig, DEFAULT_CONFIG, LOCAL_CONFIG_FILE, CONFIG_FILE } from "./init.js";
+import { claudeProfile } from "./providers/claude.js";
+import { codexProfile } from "./providers/codex.js";
+import { type Decision, DEFAULT_PROVIDER, detectProvider, formatDecision, scanMarkers } from "./providers/detect.js";
+import { stubProfile } from "./providers/stub.js";
+import { type LoggedIn, type PreflightResult, preflightPasses, preflightState, type ProviderProfile, type ProviderState } from "./providers/types.js";
+import type { ProviderCapabilities } from "./session-events.js";
 
-export const CRT_MCP_SERVER = "crt";
-export const WRITE_TASK_TOOL = "write_task";
-/** How the tool is named in canUseTool / permission rules. */
-export const WRITE_TASK_TOOL_FULL = `mcp__${CRT_MCP_SERVER}__${WRITE_TASK_TOOL}`;
+export { DEFAULT_PROVIDER, formatDecision } from "./providers/detect.js";
+export type { Decision } from "./providers/detect.js";
+export type { ProviderProfile } from "./providers/types.js";
 
-const STDERR_TAIL_LINES = 30;
+/** Registry order; `crt providers` prints rows in this order. `stub` is appended only when enabled. */
+export const BUILT_IN_PROFILES: readonly ProviderProfile[] = [claudeProfile, codexProfile];
 
-/** Streaming-input source for `query()`: a queue the panel pushes user messages into. */
-class InputQueue implements AsyncIterable<SDKUserMessage> {
-  private items: SDKUserMessage[] = [];
-  private waiters: Array<() => void> = [];
-  private done = false;
-
-  push(message: SDKUserMessage): void {
-    if (this.done) return;
-    this.items.push(message);
-    this.wake();
-  }
-
-  end(): void {
-    this.done = true;
-    this.wake();
-  }
-
-  private wake(): void {
-    const w = this.waiters;
-    this.waiters = [];
-    for (const fn of w) fn();
-  }
-
-  async *[Symbol.asyncIterator](): AsyncGenerator<SDKUserMessage, void> {
-    for (;;) {
-      const next = this.items.shift();
-      if (next) {
-        yield next;
-      } else if (this.done) {
-        return;
-      } else {
-        await new Promise<void>((resolve) => this.waiters.push(resolve));
-      }
-    }
-  }
+/** `CRT_SESSION_STUB=1` (any non-empty value, as v0.1 read it) enables the scripted provider. */
+export function stubEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env.CRT_SESSION_STUB);
 }
 
-interface PendingPermission {
-  settle: (behavior: "allow" | "deny", by: "user" | "timeout" | "session") => void;
+/** F-42: the profiles a developer may pick from — never `stub` unless `CRT_SESSION_STUB` is set. */
+export function listProviders(env: NodeJS.ProcessEnv = process.env, profiles: readonly ProviderProfile[] = BUILT_IN_PROFILES): ProviderProfile[] {
+  const visible = profiles.filter((p) => p.id !== stubProfile.id);
+  return stubEnabled(env) ? [...visible, stubProfile] : visible;
 }
 
-export function startSession(opts: StartSessionOptions): SessionDriver {
-  const listeners = new Set<(e: SessionEvent) => void>();
-  const pending = new Map<string, PendingPermission>();
-  const input = new InputQueue();
-  const stderrTail: string[] = [];
-  const streamedMessages = new Set<string>();
-  const log = opts.log ?? (() => undefined);
-  let state: SessionState = "starting";
-  let closed = false;
-  let q: Query | null = null;
+export type ResolutionLayer = "stub" | "request" | "active" | "local" | "project" | "detected" | "default";
 
-  const emit = (event: SessionEvent) => {
-    for (const fn of listeners) {
-      try {
-        fn(event);
-      } catch {
-        // a listener failing must not take the session down
-      }
-    }
-  };
-  const setState = (next: SessionState, detail?: string) => {
-    if (state === "error" || state === "ended") return;
-    state = next;
-    emit(detail === undefined ? { type: "state", state: next } : { type: "state", state: next, detail });
-  };
-  const fail = (message: string) => {
-    if (state === "error" || state === "ended") return;
-    emit({ type: "error", message });
-    state = "error";
-    emit({ type: "state", state: "error", detail: message });
-    denyAllPending("session");
-  };
-  const denyAllPending = (by: "user" | "timeout" | "session") => {
-    for (const p of [...pending.values()]) p.settle("deny", by);
-  };
+export interface Resolution {
+  /** Profile id; when `problem` is set the id is what was asked for, not something usable. */
+  provider: string;
+  layer: ResolutionLayer;
+  /** What chose it: `CRT_SESSION_STUB`, `request`, `--provider`, `CRT_PROVIDER`, `PUT /__crt/config`, a config file, or the F-44 reason. */
+  source: string;
+  /** F-44 decision when `layer` is `detected`/`default`. */
+  decision: Decision | null;
+  /** N-7 line when an explicit choice cannot be used; the session must fail with it. */
+  problem: string | null;
+}
 
-  const canUseTool: CanUseTool = async (toolName, toolInput, options) => {
-    const decision = opts.decide(toolName, toolInput);
-    if (decision.kind === "allow") return { behavior: "allow", updatedInput: toolInput };
-    if (decision.kind === "deny") return { behavior: "deny", message: decision.reason };
-    const id = randomUUID();
-    const timeoutMs = opts.permissionTimeoutMs ?? PERMISSION_TIMEOUT_MS;
-    const expiresAt = Date.now() + timeoutMs;
-    return new Promise<PermissionResult>((resolve) => {
-      const timer = setTimeout(() => settle("deny", "timeout"), timeoutMs);
-      const settle = (behavior: "allow" | "deny", by: "user" | "timeout" | "session") => {
-        if (!pending.delete(id)) return;
-        clearTimeout(timer);
-        emit({ type: "permission_resolved", id, behavior, by });
-        if (pending.size === 0 && state === "waiting") setState("running");
-        const why =
-          by === "timeout" ? "No answer in the CRT panel within 5 minutes" : by === "session" ? "The CRT session ended before this was answered" : "Denied in the CRT panel";
-        resolve(behavior === "allow" ? { behavior: "allow", updatedInput: toolInput } : { behavior: "deny", message: why });
-      };
-      pending.set(id, { settle });
-      options.signal.addEventListener("abort", () => settle("deny", "session"), { once: true });
-      emit({
-        type: "permission",
-        id,
-        toolName,
-        title: options.title ?? `Claude wants to use ${options.displayName ?? toolName}`,
-        detail: describeInput(toolName, toolInput, opts.cwd),
-        expiresAt,
-      });
-      setState("waiting");
-    });
-  };
+/** One row of `crt providers` / `GET /__crt/providers` (F-45, F-57). */
+export interface ProviderStatus {
+  id: string;
+  displayName: string;
+  agentName: string;
+  installed: boolean;
+  loggedIn: LoggedIn;
+  version: string | null;
+  problem: string | null;
+  /** F-44 markers found in the project root. */
+  markers: string[];
+  capabilities: ProviderCapabilities;
+  state: ProviderState;
+  hints: ProviderProfile["hints"];
+}
 
-  const writeTask = tool(
-    WRITE_TASK_TOOL,
-    "Write the CRT task file for this intake (PRD F-32). The server allocates the CRT-NNNN id, moves the capture's screenshots to .crt/tasks/assets/<ID>/, renders the Evidence section from the capture, writes the file and regenerates the index. Call it once, after the developer has confirmed the definition of done. Returns the id and path.",
-    {
-      title: z.string().min(3).describe("Short imperative title, e.g. 'Cart total excludes applied discount'"),
-      summary: z.string().min(1).describe("One paragraph: what is wrong / wanted, in plain language"),
-      context: z.string().min(1).describe("What the page showed, how to reproduce, which component renders it, where the logic lives (file:line)"),
-      evidence: z.string().optional().describe("Extra evidence beyond the screenshots and annotations the server adds automatically (optional)"),
-      ask: z.string().min(1).describe("The change requested, precisely"),
-      definitionOfDone: z.array(z.string().min(1)).min(1).describe("Checkable items, one per entry; the server renders them as - [ ] checkboxes"),
-      notes: z.string().optional().describe("Constraints, hunches, non-goals, alternatives considered"),
-      priority: z.enum(["low", "normal", "high"]).optional().describe("Default normal"),
-      tags: z.array(z.string()).optional().describe("Short lowercase tags, e.g. ['cart', 'pricing']"),
-      files: z.array(z.string()).optional().describe("Project-relative source files identified during intake"),
-    },
-    async (args) => {
-      try {
-        const written = await opts.writeTask(args as WriteTaskRequest);
-        emit({ type: "task_written", id: written.id, path: written.path });
-        log(`crt: task ${written.id} written to ${written.path}`);
-        return { content: [{ type: "text", text: `Task ${written.id} written to ${written.path}` }] };
-      } catch (err) {
-        return { content: [{ type: "text", text: `write_task failed: ${(err as Error).message}` }], isError: true };
-      }
-    },
-  );
+export interface ProviderRegistryOptions {
+  /** Project root (marker scan). */
+  root: string;
+  env?: NodeJS.ProcessEnv;
+  /** Merged config (`readConfig`); layers 3–4 and `providers.<id>.command`. */
+  config?: CrtConfig;
+  /** `--provider` from the command line (F-43 step 2, first source). */
+  flag?: string | null;
+  /** Profiles to use instead of the built-ins (tests). `stub` is still gated by the env. */
+  profiles?: readonly ProviderProfile[];
+  log?: (line: string) => void;
+}
 
-  const options: Options = {
-    cwd: opts.cwd,
-    sessionId: opts.id,
-    settingSources: ["user", "project", "local"],
-    systemPrompt: { type: "preset", preset: "claude_code", append: opts.systemPromptAppend },
-    includePartialMessages: true,
-    permissionMode: "default",
-    canUseTool,
-    mcpServers: { [CRT_MCP_SERVER]: createSdkMcpServer({ name: CRT_MCP_SERVER, version: "1.0.0", tools: [writeTask] }) },
-    stderr: (data) => {
-      for (const line of data.split(/\r?\n/)) {
-        if (!line.trim()) continue;
-        stderrTail.push(line);
-        if (stderrTail.length > STDERR_TAIL_LINES) stderrTail.shift();
-      }
-    },
-  };
+const FAILED: PreflightResult = { installed: false, loggedIn: "unknown", version: null, problem: "preflight has not run" };
 
-  const toSdkMessage = (u: UserInput): SDKUserMessage => {
-    const blocks: Array<
-      | { type: "text"; text: string }
-      | { type: "image"; source: { type: "base64"; media_type: "image/png" | "image/jpeg" | "image/webp" | "image/gif"; data: string } }
-    > = [{ type: "text", text: u.text }];
-    for (const img of u.images ?? []) {
-      blocks.push({ type: "image", source: { type: "base64", media_type: img.mediaType, data: img.data } });
-    }
-    return {
-      type: "user",
-      message: { role: "user", content: blocks },
-      parent_tool_use_id: null,
-      session_id: opts.id,
-    };
-  };
+export class ProviderRegistry {
+  readonly root: string;
+  readonly env: NodeJS.ProcessEnv;
+  readonly config: CrtConfig;
+  private readonly profiles: readonly ProviderProfile[];
+  private readonly preflights = new Map<string, PreflightResult>();
+  private active: { id: string; source: string } | null;
+  private detected: Decision | null = null;
+  private readonly log: (line: string) => void;
 
-  const handle = (msg: SDKMessage): void => {
-    switch (msg.type) {
-      case "system":
-        if (msg.subtype === "init") {
-          emit({ type: "init", sessionId: msg.session_id, model: msg.model, cwd: msg.cwd, claudeCodeVersion: msg.claude_code_version });
-          setState("running");
+  constructor(opts: ProviderRegistryOptions) {
+    this.root = opts.root;
+    this.env = opts.env ?? process.env;
+    this.config = opts.config ?? DEFAULT_CONFIG;
+    this.profiles = opts.profiles ?? BUILT_IN_PROFILES;
+    this.log = opts.log ?? (() => undefined);
+    const fromEnv = this.env.CRT_PROVIDER?.trim();
+    this.active = opts.flag ? { id: opts.flag, source: "--provider" } : fromEnv ? { id: fromEnv, source: "CRT_PROVIDER" } : null;
+  }
+
+  /** F-42: profiles a session may run on (stub only when enabled). */
+  list(): ProviderProfile[] {
+    return listProviders(this.env, this.profiles);
+  }
+
+  get(id: string): ProviderProfile | null {
+    return this.list().find((p) => p.id === id) ?? null;
+  }
+
+  /** Ids `--provider`, `CRT_PROVIDER`, the config files and the routes may name. */
+  ids(): string[] {
+    return this.list().map((p) => p.id);
+  }
+
+  /** F-44/F-45: run every listed profile's preflight (in parallel) and recompute the detection. */
+  async refresh(): Promise<void> {
+    await Promise.all(
+      this.list().map(async (p) => {
+        const command = this.config.providers[p.id]?.command ?? null;
+        let result: PreflightResult;
+        try {
+          result = await p.preflight({ command, env: this.env });
+        } catch (err) {
+          result = { installed: false, loggedIn: "unknown", version: null, problem: `${p.id} preflight failed: ${(err as Error).message}` };
         }
-        return;
-      case "stream_event":
-        handleStream(msg);
-        return;
-      case "assistant":
-        handleAssistant(msg);
-        return;
-      case "user":
-        handleToolResults(msg);
-        return;
-      case "result": {
-        const errors = msg.subtype === "success" ? (msg.is_error ? [msg.result] : []) : msg.errors.length ? msg.errors : [msg.subtype];
-        emit({ type: "result", ok: !msg.is_error, durationMs: msg.duration_ms, costUsd: msg.total_cost_usd, errors });
-        const login = errors.map(loginProblem).find(Boolean);
-        if (login) fail(login);
-        else if (pending.size === 0) setState("idle");
-        return;
-      }
-      case "auth_status":
-        if (msg.error) fail(loginProblem(msg.error) ?? `Claude Code authentication failed: ${msg.error}`);
-        return;
-      default:
-        return;
+        this.preflights.set(p.id, result);
+      }),
+    );
+    this.detected = detectProvider({
+      root: this.root,
+      env: this.env,
+      profiles: this.list().filter((p) => p.id !== stubProfile.id),
+      preflights: Object.fromEntries(this.preflights),
+    });
+  }
+
+  /** Cached preflight; failing until `refresh()` has run. */
+  preflight(id: string): PreflightResult {
+    return this.preflights.get(id) ?? FAILED;
+  }
+
+  /** The F-44 decision from the last `refresh()`; computed on demand if none ran (every preflight then fails). */
+  detection(): Decision {
+    if (!this.detected) {
+      this.detected = detectProvider({ root: this.root, env: this.env, profiles: this.list().filter((p) => p.id !== stubProfile.id), preflights: Object.fromEntries(this.preflights) });
     }
-  };
+    return this.detected;
+  }
 
-  const handleStream = (msg: SDKPartialAssistantMessage): void => {
-    if (msg.parent_tool_use_id !== null) return;
-    const ev = msg.event;
-    if (ev.type === "message_start") {
-      streamedMessages.add(ev.message.id);
-      emit({ type: "assistant_start", messageId: ev.message.id });
-      setState("running");
-    } else if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") {
-      emit({ type: "text", messageId: current(streamedMessages), text: ev.delta.text });
-    } else if (ev.type === "message_stop") {
-      emit({ type: "assistant_end", messageId: current(streamedMessages) });
-    }
-  };
+  /**
+   * F-43 step 2 / F-57: `PUT /__crt/config { provider }` replaces the active provider for the
+   * life of the process, so "Remember" is never silently outranked by a flag. Only a listed
+   * string id whose preflight passes is accepted.
+   */
+  setActive(id: unknown, source = "PUT /__crt/config"): { ok: true } | { ok: false; error: string } {
+    const check = this.usable(id);
+    if (check.problem) return { ok: false, error: check.problem };
+    this.active = { id: check.id, source };
+    this.log(`crt: active provider is now ${check.id} (${source})`);
+    return { ok: true };
+  }
 
-  const handleAssistant = (msg: SDKAssistantMessage): void => {
-    if (msg.parent_tool_use_id !== null) return;
-    const id = msg.message.id;
-    for (const block of msg.message.content) {
-      if (block.type === "tool_use") {
-        emit({ type: "tool_use", id: block.id, name: block.name, label: toolLabel(block.name, block.input as Record<string, unknown>, opts.cwd) });
-      } else if (block.type === "text" && !streamedMessages.has(id) && block.text) {
-        // Partial messages were not delivered for this message; show the whole block at once.
-        emit({ type: "assistant_start", messageId: id });
-        emit({ type: "text", messageId: id, text: block.text });
-        emit({ type: "assistant_end", messageId: id });
+  /** F-43: the provider a new session runs on. `requested` is the `POST /__crt/sessions` body value. */
+  resolve(requested: unknown = null): Resolution {
+    const explicit = (id: unknown, layer: ResolutionLayer, source: string): Resolution => {
+      const check = this.usable(id);
+      return { provider: check.id, layer, source, decision: null, problem: check.problem };
+    };
+    if (stubEnabled(this.env)) return { provider: stubProfile.id, layer: "stub", source: "CRT_SESSION_STUB", decision: null, problem: null };
+    if (requested !== null && requested !== undefined) return explicit(requested, "request", "request");
+    if (this.active) return explicit(this.active.id, "active", this.active.source);
+    const { provider, providerSource } = this.config;
+    if (provider !== null && providerSource !== null) {
+      const layer = providerSource;
+      const file = `.crt/${providerSource === "local" ? LOCAL_CONFIG_FILE : CONFIG_FILE}`;
+      if (typeof provider !== "string") {
+        return { provider: "acp", layer, source: file, decision: null, problem: `${file} sets provider { kind: "acp" }, which this version of CRT does not support yet — remove it or set a built-in id (${this.ids().join(", ")})` };
       }
+      return explicit(provider, layer, file);
     }
-  };
+    const decision = this.detection();
+    return { provider: decision.provider, layer: decision.reason === null ? "default" : "detected", source: formatDecision(decision), decision, problem: null };
+  }
 
-  const handleToolResults = (msg: Extract<SDKMessage, { type: "user" }>): void => {
-    if (msg.parent_tool_use_id !== null) return;
-    const content = msg.message.content;
-    if (typeof content === "string") return;
-    for (const block of content) {
-      if (block.type !== "tool_result") continue;
-      const text =
-        typeof block.content === "string"
-          ? block.content
-          : (block.content ?? [])
-              .map((c) => (c.type === "text" ? c.text : `[${c.type}]`))
-              .join(" ");
-      emit({ type: "tool_result", id: block.tool_use_id, isError: block.is_error === true, summary: summarize(text) });
-    }
-  };
+  /** Validate an explicitly named provider: a listed string id whose cached preflight passes. */
+  private usable(id: unknown): { id: string; problem: string | null } {
+    if (typeof id !== "string" || !id.trim()) return { id: String(id), problem: `provider must be one of ${this.ids().join(", ")}` };
+    const profile = this.get(id.trim());
+    if (!profile) return { id: id.trim(), problem: `provider "${id.trim()}" is not a built-in provider (${this.ids().join(", ")})` };
+    const p = this.preflight(profile.id);
+    return { id: profile.id, problem: preflightPasses(p) ? null : (p.problem ?? `${profile.id} is not usable`) };
+  }
 
-  const run = async () => {
-    try {
-      if (opts.first) {
-        input.push(toSdkMessage(opts.first));
-        emit({ type: "user", text: opts.first.text, images: (opts.first.images ?? []).map((i) => i.label) });
-      }
-      q = query({ prompt: input, options });
-      for await (const msg of q) handle(msg);
-      setState("ended");
-    } catch (err) {
-      fail(describeSessionError(err, stderrTail));
-    } finally {
-      denyAllPending("session");
-      state = state === "error" ? "error" : "ended";
-    }
-  };
-  // Deferred so the caller can attach onEvent() before the first message is echoed.
-  queueMicrotask(() => void run());
+  /** F-45/F-57 rows, in registry order. */
+  status(): ProviderStatus[] {
+    const listed = this.list();
+    const markers = scanMarkers(this.root, listed);
+    return listed.map((p) => {
+      const pf = this.preflight(p.id);
+      return {
+        id: p.id,
+        displayName: p.displayName,
+        agentName: p.agentName,
+        installed: pf.installed,
+        loggedIn: pf.loggedIn,
+        version: pf.version,
+        problem: pf.problem,
+        markers: markers[p.id] ?? [],
+        capabilities: p.capabilities,
+        state: preflightState(pf),
+        hints: p.hints,
+      };
+    });
+  }
 
-  return {
-    id: opts.id,
-    send(u) {
-      if (state === "ended" || state === "error") return;
-      emit({ type: "user", text: u.text, images: (u.images ?? []).map((i) => i.label) });
-      input.push(toSdkMessage(u));
-      if (state !== "starting") setState("running");
-    },
-    async interrupt() {
-      try {
-        await q?.interrupt();
-      } catch (err) {
-        emit({ type: "error", message: `interrupt failed: ${(err as Error).message}` });
-      }
-    },
-    respondPermission(id, behavior) {
-      const p = pending.get(id);
-      if (!p) return false;
-      p.settle(behavior, "user");
-      return true;
-    },
-    close() {
-      if (closed) return;
-      closed = true;
-      input.end();
-      denyAllPending("session");
-      try {
-        q?.close();
-      } catch {
-        // already gone
-      }
-      setState("ended");
-    },
-    onEvent(fn) {
-      listeners.add(fn);
-      return () => listeners.delete(fn);
-    },
-  };
-}
-
-function current(ids: Set<string>): string {
-  let last = "";
-  for (const id of ids) last = id;
-  return last;
-}
-
-function summarize(text: string): string {
-  const t = text.replace(/\s+/g, " ").trim();
-  return t.length > 160 ? `${t.slice(0, 157)}…` : t;
-}
-
-/** F-25: the collapsed one-liner for a tool call ("Read src/components/Cart.tsx"). */
-export function toolLabel(name: string, input: Record<string, unknown>, cwd: string): string {
-  const rel = (p: unknown) => (typeof p === "string" ? shortPath(p, cwd) : "");
-  switch (name) {
-    case "Read":
-    case "Write":
-    case "Edit":
-    case "MultiEdit":
-    case "NotebookEdit":
-      return `${name} ${rel(input.file_path ?? input.notebook_path)}`.trim();
-    case "Glob":
-      return `Glob ${String(input.pattern ?? "")}${input.path ? ` in ${rel(input.path)}` : ""}`;
-    case "Grep":
-      return `Grep ${JSON.stringify(String(input.pattern ?? ""))}${input.path ? ` in ${rel(input.path)}` : ""}`;
-    case "Bash":
-      return `Bash ${summarize(String(input.command ?? ""))}`;
-    case WRITE_TASK_TOOL_FULL:
-      return `Write task: ${String(input.title ?? "")}`;
-    default:
-      return name;
+  /** F-57 payload: what `GET /__crt/providers` returns and `crt providers --json` prints. */
+  payload(): { ok: true; active: string; decision: Decision; providers: Array<Omit<ProviderStatus, "state" | "agentName" | "hints">> } {
+    const decision = this.detection();
+    return {
+      ok: true,
+      active: this.resolve(null).provider,
+      decision,
+      providers: this.status().map(({ state: _state, agentName: _agentName, hints: _hints, ...row }) => row),
+    };
   }
 }
 
-/** The human-readable body of a permission card. */
-export function describeInput(name: string, input: Record<string, unknown>, cwd: string): string {
-  if (name === "Bash" && typeof input.command === "string") return input.command;
-  const path = input.file_path ?? input.notebook_path ?? input.path;
-  if (typeof path === "string") return shortPath(path, cwd);
-  const text = JSON.stringify(input);
-  return text.length > 500 ? `${text.slice(0, 497)}…` : text;
+/** The `provider: …` phrase on the `CRT ready` line (F-44, N-7) and in the session log. */
+export function describeResolution(r: Resolution): string {
+  const head = r.layer === "detected" || r.layer === "default" ? r.source : `${r.provider} (${r.source})`;
+  return r.problem ? `${head} — ${r.problem}` : head;
 }
 
-function shortPath(p: string, cwd: string): string {
-  const r = relative(cwd, p);
-  return r && !r.startsWith("..") ? r.split("\\").join("/") : p;
-}
-
-/** N-6: the one-line message for "not logged in", or null when the text is something else. */
-export function loginProblem(text: string): string | null {
-  if (/not logged in|please run \/login|\/login\b|invalid api key|authentication[_ ]error|oauth token|401\b|unauthori[sz]ed/i.test(text)) {
-    return "not logged in to Claude Code — run `claude` in a terminal and complete /login (or set CLAUDE_CODE_OAUTH_TOKEN), then send again";
-  }
-  return null;
-}
-
-/** N-6: map an SDK/process failure to one actionable line. */
-export function describeSessionError(err: unknown, stderrTail: readonly string[] = []): string {
-  const message = err instanceof Error ? err.message : String(err);
-  const all = [message, ...stderrTail].join("\n");
-  if (/executable not found|native binary.*not found|ENOENT/i.test(all)) {
-    return `Claude Code binary not found — reinstall claude-review-tool (\`npm install\`) so @anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch} is present (${message})`;
-  }
-  const login = loginProblem(all);
-  if (login) return login;
-  const tail = stderrTail.slice(-3).join(" | ");
-  return `Claude Code session failed: ${message}${tail ? ` (${tail})` : ""}`;
+/**
+ * F-45 human layout, exactly:
+ *
+ *   claude   ready        Claude Code (Agent SDK)    login: unknown until a session starts    markers: .claude/, CLAUDE.md
+ *   codex    not on PATH  Codex CLI                  install: npm i -g @openai/codex          markers: AGENTS.md
+ *   → claude — .claude/, CLAUDE.md; codex not on PATH
+ */
+export function renderProviders(rows: ProviderStatus[], decision: Decision): string {
+  const cells = rows.map((r) => {
+    const name = r.version ? `${r.agentName} ${r.version}` : r.agentName;
+    const hint =
+      r.state === "ready"
+        ? `login: ${r.loggedIn === true ? "ok" : "unknown until a session starts"}`
+        : r.state === "not on PATH"
+          ? `install: ${r.hints.install}`
+          : r.state === "not logged in"
+            ? `login: ${r.hints.login}`
+            : (r.problem ?? r.state);
+    return [r.id, r.state, name, hint, `markers: ${r.markers.length ? r.markers.join(", ") : "none"}`];
+  });
+  // The sample's widths, widened only when a value (a version, a long problem) would not fit.
+  const widths = [9, 13, 27, 41].map((w, i) => Math.max(w, ...cells.map((c) => c[i]!.length + 2)));
+  const lines = cells.map((c) => c.map((cell, i) => (i < widths.length ? cell.padEnd(widths[i]!) : cell)).join(""));
+  lines.push(`→ ${formatDecision(decision)}`);
+  return lines.join("\n");
 }

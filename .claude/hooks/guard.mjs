@@ -1,7 +1,8 @@
 // PreToolUse hook on Edit|Write: enforce three CLAUDE.md / PRD invariants before a file is touched.
 //   1. Generated files are regenerated, never edited (.crt/tasks/README.md is the F-34 index).
 //   2. Product scripts (packages/*/src, plugin/) import the Agent SDK only in
-//      packages/server/src/session.ts (PRD §12); comments, docs and tests may name the package.
+//      packages/server/src/providers/claude.ts (PRD §12, PRD-providers F-63); comments, docs and
+//      tests may name the package.
 //   3. Files are LF-only (.editorconfig; CLAUDE.md "write files with \n").
 // Reads the hook JSON from stdin. Exit 2 blocks the tool call and feeds stderr back to Claude;
 // anything else (bad JSON, no file_path) exits 0 so a broken hook can never block real work.
@@ -14,7 +15,7 @@ const GENERATED = [
 ];
 // An actual import of the SDK (static, dynamic or require) — not a mention in a comment or doc.
 const SDK_IMPORT = /\b(?:from|import|require)\s*\(?\s*["']@anthropic-ai\/claude-agent-sdk["']/;
-const SDK_HOME = "packages/server/src/session.ts";
+const SDK_HOME = "packages/server/src/providers/claude.ts";
 // Product scripts only: tests and e2e fixtures may mock or quote the import.
 const SDK_SCOPE = /^(?:packages\/[^/]+\/src\/|plugin\/).*\.[cm]?[jt]sx?$/;
 

@@ -1,6 +1,9 @@
 /**
- * Scripted intake session for tests (task CRT-0003 Ask 7). Enabled by `CRT_SESSION_STUB=1` on
- * `crt serve`; produces the same `SessionEvent`s the real driver would, without the SDK:
+ * The `stub` provider: a scripted intake session for tests (task CRT-0003 Ask 7; PRD-providers
+ * F-42). `CRT_SESSION_STUB=1` selects it ahead of every other resolution step (F-43 step 0) and
+ * is the only way to reach it: `listProviders()` hides it otherwise. It produces the same
+ * `SessionEvent`s the Claude driver would, without the SDK, and shares Claude's profile values
+ * (F-46 "stub = as claude") so the panel and the e2e specs see no difference:
  *
  *   init → streamed text → a pre-allowed tool (Read) → a tool that needs permission (Bash npm test,
  *   through the real F-26 policy) → text depending on Allow/Deny → result.
@@ -11,9 +14,36 @@
  *   the stub ask a question instead, so the panel-opens-itself path can be tested too).
  */
 import { randomUUID } from "node:crypto";
-import type { SessionDriver, SessionEvent, SessionState, StartSessionOptions } from "./session-events.js";
+import type { ProviderCapabilities, SessionDriver, SessionEvent, SessionState, StartSessionOptions } from "../session-events.js";
+import type { ProviderProfile } from "./types.js";
 
 const TICK_MS = 15;
+
+/** F-46: as Claude. (M8 runs the conformance scenario with `first-message`/`sandboxed` variants too.) */
+export const STUB_CAPABILITIES: ProviderCapabilities = {
+  streaming: true,
+  toolEvents: true,
+  permissions: "interactive",
+  images: "inline",
+  resume: true,
+  interrupt: true,
+  instructions: "system",
+};
+
+export const stubProfile: ProviderProfile = {
+  id: "stub",
+  displayName: "Claude",
+  agentName: "Scripted stub",
+  markers: { private: [], shared: [] },
+  launchEnv: [],
+  hints: { install: "set CRT_SESSION_STUB=1", login: "nothing to do — the stub never logs in" },
+  capabilities: STUB_CAPABILITIES,
+  telemetryOptOut: [],
+  preflight: async () => ({ installed: true, loggedIn: "unknown", version: "stub", problem: null }),
+  // Mirrors Claude so the footer and the e2e resume assertion read the same string (F-63).
+  resumeCommand: (id) => `claude --resume ${id}`,
+  start: startStubSession,
+};
 
 export function startStubSession(opts: StartSessionOptions): SessionDriver {
   const listeners = new Set<(e: SessionEvent) => void>();
@@ -79,6 +109,20 @@ export function startStubSession(opts: StartSessionOptions): SessionDriver {
       setState("waiting");
     });
 
+  /** F-47: the stub is its own agent, so the native id is CRT's. */
+  const emitInit = () =>
+    emit({
+      type: "init",
+      sessionId: opts.id,
+      nativeSessionId: opts.id,
+      provider: stubProfile.id,
+      displayName: stubProfile.displayName,
+      model: "stub-model",
+      agentVersion: "stub",
+      resumeCommand: stubProfile.resumeCommand(opts.id),
+      capabilities: STUB_CAPABILITIES,
+    });
+
   const finish = (t: number, ok: boolean, errors: string[] = []) => {
     if (cancelled(t)) return; // an interrupt already produced this turn's result
     emit({ type: "result", ok, durationMs: 100, costUsd: 0.001, errors });
@@ -90,7 +134,7 @@ export function startStubSession(opts: StartSessionOptions): SessionDriver {
     emit({ type: "user", text: first.text, images: (first.images ?? []).map((i) => i.label) });
     await sleep(TICK_MS);
     if (cancelled(t)) return;
-    emit({ type: "init", sessionId: opts.id, model: "stub-model", cwd: opts.cwd, claudeCodeVersion: "stub" });
+    emitInit();
     setState("running");
     await say(t, "I read the capture. The annotated element is rendered by **CartSummary**; let me look at the source.\n");
     if (cancelled(t)) return;
@@ -111,7 +155,7 @@ export function startStubSession(opts: StartSessionOptions): SessionDriver {
     emit({ type: "user", text: first.text, images: (first.images ?? []).map((i) => i.label) });
     await sleep(TICK_MS);
     if (cancelled(t)) return;
-    emit({ type: "init", sessionId: opts.id, model: "stub-model", cwd: opts.cwd, claudeCodeVersion: "stub" });
+    emitInit();
     setState("running");
     if (!(await useTool(t, "Read", { file_path: "src/components/Cart.tsx" }, "Read src/components/Cart.tsx", "88 lines"))) return;
     if (/ask me/i.test(first.text)) {

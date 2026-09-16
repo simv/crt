@@ -3,8 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { claudePreflight, claudeProfile, describeInput, describeSessionError, loginProblem, startSession, toolLabel } from "../src/providers/claude.js";
 import type { SessionEvent } from "../src/session-events.js";
-import { describeInput, describeSessionError, loginProblem, startSession, toolLabel } from "../src/session.js";
 
 // Pure helpers always run. The real Agent SDK session (PRD §12 smoke test) runs only when a
 // Claude login is available: CLAUDE_CODE_OAUTH_TOKEN, a CLI credentials file, or CRT_SESSION_SMOKE=1.
@@ -50,7 +50,29 @@ describe("failure messages (N-6)", () => {
   });
 });
 
-describe.skipIf(!loggedIn)("Agent SDK session smoke test (F-24, F-25, F-28)", () => {
+describe("claude profile (F-42, F-52)", () => {
+  it("declares the F-44 markers, the launch signal, the F-46 reference capabilities and the resume command (F-42, F-52)", () => {
+    expect(claudeProfile.id).toBe("claude");
+    expect(claudeProfile.markers).toEqual({ private: [".claude/", "CLAUDE.md"], shared: ["AGENTS.md"] });
+    expect(claudeProfile.launchEnv).toEqual(["CLAUDECODE"]);
+    expect(claudeProfile.capabilities).toEqual({ streaming: true, toolEvents: true, permissions: "interactive", images: "inline", resume: true, interrupt: true, instructions: "system" });
+    expect(claudeProfile.resumeCommand("abc")).toBe("claude --resume abc");
+    expect(claudeProfile.telemetryOptOut).toEqual([]);
+  });
+
+  it("preflight finds the SDK's bundled binary, reports the SDK version and leaves login unknown (F-52)", async () => {
+    const p = claudePreflight();
+    expect(p).toMatchObject({ installed: true, loggedIn: "unknown", problem: null });
+    expect(p.version).toMatch(/^\d+\.\d+\.\d+/);
+    expect(await claudeProfile.preflight()).toEqual(p);
+    // A platform the SDK has no binary package for: the N-6 reinstall line.
+    const missing = claudePreflight("sunos", "mips");
+    expect(missing).toMatchObject({ installed: false, loggedIn: "unknown" });
+    expect(missing.problem).toContain("@anthropic-ai/claude-agent-sdk-sunos-mips");
+  });
+});
+
+describe.skipIf(!loggedIn)("Agent SDK session smoke test (F-24, F-25, F-28, F-47)", () => {
   let tmp: string;
   afterAll(() => {
     // The CLI process may still hold its cwd for a moment after close(); retry, then let it go.
@@ -90,9 +112,17 @@ describe.skipIf(!loggedIn)("Agent SDK session smoke test (F-24, F-25, F-28)", ()
       expect(idle, JSON.stringify(events.slice(-5))).toMatchObject({ type: "state", state: "idle" });
 
       const init = events.find((e) => e.type === "init") as Extract<SessionEvent, { type: "init" }>;
-      expect(init.sessionId).toBe(id);
-      expect(init.cwd.toLowerCase()).toBe(tmp.toLowerCase());
-      expect(init.claudeCodeVersion).toMatch(/^\d+\.\d+\.\d+/);
+      // F-47/F-52: Claude adopted CRT's UUID, so both ids are the same and the resume hint is the profile's.
+      expect(init).toMatchObject({
+        sessionId: id,
+        nativeSessionId: id,
+        provider: "claude",
+        displayName: claudeProfile.displayName,
+        resumeCommand: claudeProfile.resumeCommand(id),
+        capabilities: claudeProfile.capabilities,
+      });
+      expect(init.agentVersion).toMatch(/^\d+\.\d+\.\d+/);
+      expect(init.model).toBeTruthy();
       expect(writes).toHaveLength(1);
       expect(writes[0]).toMatchObject({ title: "Smoke test task", definitionOfDone: ["works"] });
       expect(events).toContainEqual({ type: "task_written", id: "CRT-9999", path: ".crt/tasks/CRT-9999-smoke-test-task.md" });
