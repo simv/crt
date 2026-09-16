@@ -19,6 +19,7 @@ import { clearConsoleEntries, consoleEntries, installConsoleHooks } from "./cons
 import { describeElement } from "./element.js";
 import { clearNetworkEntries, installNetworkHooks, networkEntries } from "./network-hook.js";
 import { selectorFor, xpathFor } from "./selector.js";
+import type { HealthPayload, HealthState } from "./health.js";
 import { OverlayUI, type SendOptions, type ThreadSummary, type Tool } from "./ui.js";
 
 installConsoleHooks();
@@ -72,6 +73,11 @@ export interface CrtTestHooks {
   clearConsole(): void;
   networkEntries(): ReturnType<typeof networkEntries>;
   clearNetwork(): void;
+  /** F-81: re-read health now (the dot follows) and the state it painted. */
+  checkHealth(): Promise<HealthPayload | "failed">;
+  healthState(): HealthState;
+  /** F-82: open the welcome card on demand, whatever the suppression rules say. */
+  welcome(): Promise<void>;
   /** F-6: "" behind the proxy, the CRT origin in script-tag mode. */
   crtOrigin(): string;
   scriptTagMode(): boolean;
@@ -158,6 +164,9 @@ function mount(): void {
     clearConsole: () => clearConsoleEntries(),
     networkEntries: () => networkEntries(),
     clearNetwork: () => clearNetworkEntries(),
+    checkHealth: () => ui.checkHealth(),
+    healthState: () => ui.healthState(),
+    welcome: () => ui.welcome(),
     crtOrigin: () => CRT_ORIGIN,
     scriptTagMode: () => SCRIPT_TAG_MODE,
     sessions: {

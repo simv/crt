@@ -8,6 +8,9 @@
 //   GET  /chunked       HTML streamed in pieces, no Content-Length
 //   GET  /nohead        HTML fragment with neither <head> nor <body>
 //   GET  /csp           HTML with a Content-Security-Policy that forbids scripts
+//   GET  /csp-strict    HTML with a 'strict-dynamic' CSP: the injected overlay tag is blocked by the
+//                       browser even after CRT relaxes the header (PRD-setup F-80)
+//   GET  /csp-meta      HTML whose CSP sits in a <meta http-equiv> tag, which CRT cannot rewrite (F-80)
 //   GET  /redirect      302 → http://localhost:<port>/ (absolute, points at the fixture itself)
 //   GET  /app           annotation playground: ids, classes, data-*, ARIA, a fixed header, long
 //                       scroll, a console.error + uncaught error, a failing fetch/XHR and a missing
@@ -216,6 +219,10 @@ export function startFixture(opts = {}) {
       }
       case "/csp":
         return html(PAGE, { "content-security-policy": "default-src 'none'; script-src 'nonce-abc'" });
+      case "/csp-strict":
+        return html(PAGE, { "content-security-policy": "script-src 'nonce-abc' 'strict-dynamic'" });
+      case "/csp-meta":
+        return html(PAGE.replace("<title>", `<meta http-equiv="Content-Security-Policy" content="script-src 'none'">\n  <title>`));
       case "/redirect":
         res.writeHead(302, { location: `http://localhost:${server.address().port}/?from=redirect` });
         return res.end();

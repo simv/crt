@@ -16,7 +16,13 @@
  *     anything else happens, CORS included.
  *   • /__crt/health is the whole story (PRD-setup F-78): version, start time, target, project,
  *     tasks, provider and its login, open sessions, and the overlay counters (injected HTML
- *     responses vs fetches of /__crt/overlay.js; F-80 fills in the rest).
+ *     responses vs fetches of /__crt/overlay.js).
+ *   • F-80: one 10 s timer per server, restarted by every injected HTML response and cleared by
+ *     any request for /__crt/overlay.js; when it fires the terminal says, once, that the browser
+ *     never asked for the overlay. Two more once-per-server lines (Should): a document request
+ *     answered without text/html, and a CSP that relaxCsp cannot promise to fix ('strict-dynamic',
+ *     a nonce, require-trusted-types-for, or a <meta http-equiv> policy). Health's `overlay` carries the counters plus
+ *     `lastContentType` (the last document response) and `cspWarning` (the flagged policy).
  *   • Every other /__crt/ response carries CORS headers when the request's Origin is a localhost
  *     origin, so an app can load the overlay with a script tag instead of the proxy (F-6).
  * The caller binds the returned server to 127.0.0.1 (see serve.ts).
@@ -63,8 +69,10 @@ export interface ProxyOptions {
   tasksDir?: string;
   /** F-79: closes the server the way Ctrl+C does; absent → the shutdown route answers 503. */
   shutdown?: () => Promise<void>;
-  /** Status lines (F-75 "overlay loaded"); silent by default. */
+  /** Status lines (F-75 "overlay loaded", the F-80 lines); silent by default. */
   log?: (line: string) => void;
+  /** F-80: how long the browser gets to fetch the overlay after an injected page (tests shorten it). */
+  overlayTimeoutMs?: number;
 }
 
 /** F-78/F-80: what health's `overlay` reports. */
@@ -73,7 +81,14 @@ export interface OverlayStats {
   injected: number;
   /** Requests for /__crt/overlay.js. */
   fetched: number;
+  /** Content-Type of the last response to a document request (`sec-fetch-dest: document`); null before one. */
+  lastContentType: string | null;
+  /** The unrelaxable CSP the last injected page sent (F-80 Should), null when none was seen. */
+  cspWarning: string | null;
 }
+
+/** F-80: the wait between an injected page and the "never fetched" line. */
+export const OVERLAY_TIMEOUT_MS = 10_000;
 
 export const SHUTDOWN_PATH = "/__crt/internal/shutdown";
 
@@ -107,7 +122,27 @@ export function createProxyServer(opts: ProxyOptions): Server {
   const targetOrigins = new Set(
     ["localhost", "127.0.0.1", "[::1]", "0.0.0.0", target.hostname].map((h) => `${target.protocol}//${h}:${targetPort}`),
   );
-  const state: RouteState = { overlay: { injected: 0, fetched: 0 }, lastInjected: "/" };
+  const state: RouteState = {
+    overlay: { injected: 0, fetched: 0, lastContentType: null, cspWarning: null },
+    lastInjected: "/",
+    timer: null,
+    warned: { missing: false, nonHtml: false, csp: false },
+  };
+  const log = opts.log ?? (() => undefined);
+  const overlayTimeout = opts.overlayTimeoutMs ?? OVERLAY_TIMEOUT_MS;
+  /** F-80: (re)start the one timer; it never keeps the process alive and dies with the server. */
+  const armOverlayTimer = () => {
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = setTimeout(() => {
+      state.timer = null;
+      if (state.overlay.fetched > 0 || state.warned.missing) return;
+      state.warned.missing = true;
+      log(
+        `crt: injected the overlay into GET ${state.lastInjected} but the browser never fetched ${OVERLAY_PATH} — a Content-Security-Policy or a JS-rendered shell is blocking it; see README › Overlay does not appear`,
+      );
+    }, overlayTimeout);
+    state.timer.unref();
+  };
 
   const server = createServer((req, res) => {
     const url = req.url ?? "/";
@@ -139,6 +174,15 @@ export function createProxyServer(opts: ProxyOptions): Server {
         const outHeaders = responseHeaders(up.headers, targetOrigins, crtOrigin);
         const inject =
           isHtml(up.headers["content-type"]) && req.method !== "HEAD" && status !== 204 && status !== 304;
+        if (req.headers["sec-fetch-dest"] === "document" && req.method === "GET") {
+          // F-80 (Should): a navigation answered without HTML gets no overlay, and the terminal says so once.
+          const ct = contentTypeOf(up.headers["content-type"]);
+          state.overlay.lastContentType = ct;
+          if (ct && !inject && status < 300 && !state.warned.nonHtml) {
+            state.warned.nonHtml = true;
+            log(`crt: GET ${url} answered ${ct}, not text/html — CRT injects only into HTML; use the script-tag fallback (README)`);
+          }
+        }
         up.on("end", () => {
           upstreamDone = true;
         });
@@ -163,10 +207,20 @@ export function createProxyServer(opts: ProxyOptions): Server {
           const body = Buffer.from(injectOverlayTag(decoded.toString("latin1")), "latin1");
           state.overlay.injected++;
           state.lastInjected = url;
+          armOverlayTimer();
           delete outHeaders["content-encoding"];
           outHeaders["content-length"] = String(body.length);
           const csp = outHeaders["content-security-policy"];
           if (typeof csp === "string") outHeaders["content-security-policy"] = relaxCsp(csp);
+          const unrelaxable = unrelaxableCsp(typeof csp === "string" ? csp : null, decoded.toString("latin1"));
+          if (unrelaxable) {
+            // F-80 (Should): relaxCsp added 'self', but this policy ignores it; say so once.
+            state.overlay.cspWarning = unrelaxable.policy;
+            if (!state.warned.csp) {
+              state.warned.csp = true;
+              log(`crt: GET ${url} sends a CSP with ${unrelaxable.why} that CRT cannot relax — the overlay may be blocked; use the script-tag fallback`);
+            }
+          }
           res.writeHead(status, outHeaders);
           res.end(body);
         });
@@ -194,8 +248,38 @@ export function createProxyServer(opts: ProxyOptions): Server {
     });
     wireClose(up, socket);
   });
+  server.on("close", () => {
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = null;
+  });
 
   return server;
+}
+
+/** The media type of a Content-Type header, without parameters; null when absent. */
+function contentTypeOf(value: string | string[] | undefined): string | null {
+  const v = Array.isArray(value) ? value[0] : value;
+  if (!v) return null;
+  return v.split(";")[0]!.trim().toLowerCase() || null;
+}
+
+/**
+ * F-80 (Should): a policy relaxCsp cannot promise to make work for the same-origin overlay —
+ * 'strict-dynamic' (host sources and 'self' are ignored), a nonce (listed by F-80; browsers do
+ * honour the added 'self' next to a nonce, so this one is a warning, not a verdict),
+ * require-trusted-types-for (the overlay assigns innerHTML), or a policy in a <meta http-equiv>
+ * tag (headers are all the proxy rewrites). Returns what to say.
+ */
+export function unrelaxableCsp(headerCsp: string | null, html: string): { why: string; policy: string } | null {
+  if (headerCsp) {
+    const l = headerCsp.toLowerCase();
+    if (l.includes("'strict-dynamic'")) return { why: "'strict-dynamic'", policy: headerCsp };
+    if (l.includes("require-trusted-types-for")) return { why: "require-trusted-types-for", policy: headerCsp };
+    if (/'nonce-[^']+'/.test(l)) return { why: "a nonce", policy: headerCsp };
+  }
+  const meta = /<meta\s+[^>]*http-equiv\s*=\s*["']?content-security-policy["']?[^>]*>/i.exec(html);
+  if (meta) return { why: "a <meta http-equiv> tag", policy: meta[0] };
+  return null;
 }
 
 /** Replay the client's upgrade request verbatim, with Host rewritten and X-Forwarded-* added. */
@@ -244,8 +328,12 @@ function responseHeaders(
 /** Per-server counters behind the health payload (one server = one browser session, F-80). */
 interface RouteState {
   overlay: OverlayStats;
-  /** The last page the overlay tag went into, for the "overlay loaded" line. */
+  /** The last page the overlay tag went into, for the "overlay loaded" and F-80 lines. */
   lastInjected: string;
+  /** F-80: the one "never fetched" timer, armed by an injected page. */
+  timer: NodeJS.Timeout | null;
+  /** F-80: each line prints once per server. */
+  warned: { missing: boolean; nonHtml: boolean; csp: boolean };
 }
 
 async function handleCrtRoute(
@@ -299,6 +387,8 @@ async function handleCrtRoute(
       // F-75: the first fetch proves the injected tag reached a browser (F-80 reports the miss).
       if (state.overlay.fetched === 0) opts.log?.(`crt: overlay loaded in the browser (GET ${state.lastInjected})`);
       state.overlay.fetched++;
+      if (state.timer) clearTimeout(state.timer); // F-80: the browser did ask for it
+      state.timer = null;
     }
     try {
       const js = await readFile(path === OVERLAY_PATH ? opts.overlayPath : earlyPath(opts.overlayPath));
@@ -360,7 +450,8 @@ async function handleCrtRoute(
 }
 
 /**
- * F-78: `{ ok, version, startedAt, target, projectRoot, tasksDir, tasks, provider, login, sessions, overlay }`.
+ * F-78: `{ ok, version, startedAt, target, projectRoot, tasksDir, tasks, provider, login, sessions, overlay }`
+ * with `overlay` the F-80 object `{ injected, fetched, lastContentType, cspWarning }`.
  * `provider` is what a new session would run on right now (F-43 with no request value) and
  * `login` its F-74 state; both are null / "unchecked" without a registry.
  */

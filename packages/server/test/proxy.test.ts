@@ -178,6 +178,11 @@ describe("CRT routes (F-4)", () => {
     expect((await raw("/__crt/internal/shutdown")).status).toBe(405);
   });
 
+  it("health's overlay object has the F-80 shape (F-78, F-80)", async () => {
+    const health = JSON.parse((await raw("/__crt/health")).body.toString()) as { overlay: Record<string, unknown> };
+    expect(Object.keys(health.overlay).sort()).toEqual(["cspWarning", "fetched", "injected", "lastContentType"]);
+  });
+
   it("serves /__crt/overlay.js with no-cache headers", async () => {
     const r = await raw("/__crt/overlay.js");
     expect(r.status).toBe(200);
@@ -321,5 +326,110 @@ describe("WebSocket passthrough (F-3)", () => {
 
     socket.write(encodeFrame(0x8, Buffer.alloc(0), randomBytes(4)));
     await new Promise<void>((r) => socket.once("close", () => r()));
+  });
+});
+
+describe("overlay-fetch timer (PRD-setup F-80)", () => {
+  /** A proxy of its own per case: the timer and the once-per-server lines are per server by design. */
+  async function ownProxy(): Promise<{ lines: string[]; get: (path: string, headers?: Record<string, string>) => Promise<Raw>; health: () => Promise<{ overlay: Record<string, unknown> }>; close: () => Promise<void> }> {
+    const lines: string[] = [];
+    const server = createProxyServer({ target: fixture.url, projectRoot: tmp, overlayPath: join(tmp, "overlay.js"), log: (l) => lines.push(l), overlayTimeoutMs: 60 });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const origin = `http://localhost:${(server.address() as { port: number }).port}`;
+    const get = (path: string, headers: Record<string, string> = {}) =>
+      new Promise<Raw>((resolve, reject) => {
+        const req = httpRequest(origin + path, { headers }, (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c: Buffer) => chunks.push(c));
+          res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks) }));
+        });
+        req.on("error", reject);
+        req.end();
+      });
+    return {
+      lines,
+      get,
+      health: async () => JSON.parse((await get("/__crt/health")).body.toString()) as { overlay: Record<string, unknown> },
+      close: async () => {
+        server.closeAllConnections();
+        await new Promise<void>((r) => server.close(() => r()));
+      },
+    };
+  }
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const MISSING = /^crt: injected the overlay into GET \/\S* but the browser never fetched \/__crt\/overlay\.js — a Content-Security-Policy or a JS-rendered shell is blocking it; see README › Overlay does not appear$/;
+
+  it("says once that the browser never fetched the overlay when no fetch follows an injected page (F-80)", async () => {
+    const p = await ownProxy();
+    try {
+      await p.get("/");
+      await p.get("/gzip");
+      expect((await p.health()).overlay).toMatchObject({ injected: 2, fetched: 0 });
+      await sleep(150);
+      expect(p.lines.filter((l) => MISSING.test(l))).toEqual(["crt: injected the overlay into GET /gzip but the browser never fetched /__crt/overlay.js — a Content-Security-Policy or a JS-rendered shell is blocking it; see README › Overlay does not appear"]);
+      await p.get("/");
+      await sleep(150);
+      expect(p.lines.filter((l) => MISSING.test(l))).toHaveLength(1);
+    } finally {
+      await p.close();
+    }
+  });
+
+  it("stays silent when the overlay is fetched in time, and never warns afterwards (F-80)", async () => {
+    const p = await ownProxy();
+    try {
+      await p.get("/");
+      await p.get("/__crt/overlay.js");
+      await sleep(150);
+      expect(p.lines).toEqual(["crt: overlay loaded in the browser (GET /)"]);
+      await p.get("/nohead"); // a later page with no fetch: this browser session did load the overlay once
+      await sleep(150);
+      expect(p.lines.some((l) => MISSING.test(l))).toBe(false);
+      expect((await p.health()).overlay).toMatchObject({ injected: 2, fetched: 1, cspWarning: null });
+    } finally {
+      await p.close();
+    }
+  });
+
+  it("reports a document request answered without HTML, once, and records its content type (F-80 Should)", async () => {
+    const p = await ownProxy();
+    try {
+      await p.get("/api/json", { "sec-fetch-dest": "document" });
+      await p.get("/api/json", { "sec-fetch-dest": "document" });
+      await p.get("/api/json"); // a fetch() from a page, not a navigation: not a document miss
+      expect(p.lines).toEqual(["crt: GET /api/json answered application/json, not text/html — CRT injects only into HTML; use the script-tag fallback (README)"]);
+      expect((await p.health()).overlay).toMatchObject({ injected: 0, lastContentType: "application/json" });
+      await p.get("/", { "sec-fetch-dest": "document" });
+      expect((await p.health()).overlay).toMatchObject({ injected: 1, lastContentType: "text/html" });
+    } finally {
+      await p.close();
+    }
+  });
+
+  it("reports a CSP it cannot relax ('strict-dynamic', a nonce, a <meta> policy) once per server and keeps it in health (F-80)", async () => {
+    const p = await ownProxy();
+    try {
+      await p.get("/");
+      expect(p.lines).toEqual([]);
+      const strict = await p.get("/csp-strict");
+      expect(strict.headers["content-security-policy"]).toBe("script-src 'nonce-abc' 'strict-dynamic' 'self'");
+      await p.get("/csp-meta");
+      await p.get("/csp");
+      expect(p.lines).toEqual(["crt: GET /csp-strict sends a CSP with 'strict-dynamic' that CRT cannot relax — the overlay may be blocked; use the script-tag fallback"]);
+      expect((await p.health()).overlay).toMatchObject({ injected: 4, cspWarning: "default-src 'none'; script-src 'nonce-abc'" });
+    } finally {
+      await p.close();
+    }
+    // A nonce is on F-80's list too (its own server, since the line prints once each).
+    const q = await ownProxy();
+    try {
+      await q.get("/csp");
+      expect(q.lines).toEqual(["crt: GET /csp sends a CSP with a nonce that CRT cannot relax — the overlay may be blocked; use the script-tag fallback"]);
+      await q.get("/csp-meta");
+      expect(q.lines).toHaveLength(1);
+      expect((await q.health()).overlay).toMatchObject({ cspWarning: `<meta http-equiv="Content-Security-Policy" content="script-src 'none'">` });
+    } finally {
+      await q.close();
+    }
   });
 });

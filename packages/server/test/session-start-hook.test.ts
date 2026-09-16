@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -82,5 +82,55 @@ describe("SessionStart hook (F-41)", () => {
     const r = spawnSync(process.execPath, [HOOK], { cwd: tmp, env, encoding: "utf8", shell: false });
     expect(r.status).toBe(0);
     expect(r.stdout).toMatch(/^CRT: 1 of 1 tasks in backlog/);
+  });
+});
+
+describe("SessionStart hook version drift line (PRD-setup F-84)", () => {
+  const PLUGIN_VERSION = (JSON.parse(readFileSync(resolve(dirname(HOOK), "..", ".claude-plugin", "plugin.json"), "utf8")) as { version: string }).version;
+  const [major, minor] = PLUGIN_VERSION.split(".").map(Number) as [number, number];
+
+  function installed(version: string): void {
+    const dir = join(tmp, "node_modules", "claude-review-tool");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "claude-review-tool", version }));
+  }
+
+  it("prints exactly the drift line when the project's claude-review-tool has another major.minor (F-84)", () => {
+    const other = `${major}.${minor + 1}.0`;
+    installed(other);
+    const r = runHook(tmp);
+    expect(r.status).toBe(0);
+    expect(r.stderr).toBe("");
+    expect(r.stdout).toBe(`CRT: plugin ${PLUGIN_VERSION} but the project's claude-review-tool is ${other} — npm update claude-review-tool (or crt setup after updating)\n`);
+  });
+
+  it("is silent when major.minor match (a patch difference is not drift) (F-84)", () => {
+    installed(`${major}.${minor}.99`);
+    const r = runHook(tmp);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe("");
+  });
+
+  it("is silent when the package is not installed in the project, or its package.json is unreadable (F-84, N-16)", () => {
+    expect(runHook(tmp).stdout).toBe("");
+    const dir = join(tmp, "node_modules", "claude-review-tool");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "package.json"), "{ not json");
+    const r = runHook(tmp);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toBe("");
+  });
+
+  it("prints the backlog line first and the drift line second when both apply (F-41, F-84)", () => {
+    const dir = join(tmp, ".crt", "tasks");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "CRT-0001-a.md"), task("CRT-0001", "backlog"));
+    installed(`${major + 1}.0.0`);
+    const r = runHook(tmp);
+    expect(r.stdout.split("\n").filter(Boolean)).toEqual([
+      "CRT: 1 of 1 tasks in backlog under .crt/tasks. Run /crt:next to work the next one, /crt:tasks to list.",
+      `CRT: plugin ${PLUGIN_VERSION} but the project's claude-review-tool is ${major + 1}.0.0 — npm update claude-review-tool (or crt setup after updating)`,
+    ]);
   });
 });
