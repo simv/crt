@@ -5,7 +5,7 @@
  *   POST   /__crt/sessions                  { captureId?, quick?, provider? } → 201 { id } start intake
  *   POST   /__crt/sessions/<id>/capture     { captureId }        → 200          first message (warm start)
  *   GET    /__crt/sessions                                        → { sessions: SessionInfo[] }
- *   GET    /__crt/sessions/<id>/events      SSE; `Last-Event-ID` or `?after=<seq>` replays
+ *   GET    /__crt/sessions/<id>/events      SSE; `Last-Event-ID` or `?after=<seq>` replays, then `event: live`
  *   POST   /__crt/sessions/<id>/messages    { text }             → 202
  *   POST   /__crt/sessions/<id>/interrupt                        → 202
  *   POST   /__crt/sessions/<id>/permission  { id, behavior }     → 200 | 404 | 409
@@ -525,6 +525,10 @@ function streamEvents(id: string, query: URLSearchParams, req: IncomingMessage, 
     res.write(`id: ${seq}\ndata: ${JSON.stringify(event)}\n\n`);
   };
   const unsubscribe = registry.subscribe(id, after, write);
+  // F-66: a named event marks the end of the replay, so a panel re-attaching after a reload can
+  // tell history from live events (a replayed permission request must not re-open the panel).
+  // Named events never reach a plain `onmessage` listener, so older clients see no change.
+  if (unsubscribe) res.write(`event: live\ndata: {}\n\n`);
   const keepalive = setInterval(() => res.write(":ka\n\n"), KEEPALIVE_MS);
   req.on("close", () => {
     clearInterval(keepalive);

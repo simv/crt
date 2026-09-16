@@ -310,6 +310,7 @@ export const CaptureBundleSchema = obj(
     id: str("F-23 capture id, assigned by the server (empty when sent by the overlay)"),
     page: PageSchema,
     framework: FrameworkSchema,
+    note: optional(str("F-68 the developer's message for a page-level chat (a capture with no annotations); absent otherwise", { max: 4000 })),
     annotations: arr(AnnotationSchema, "F-11 the frozen annotation set, in badge order"),
     console: arr(ConsoleEntrySchema, "F-20 console.error/warn + uncaught errors since overlay load, oldest first", {
       max: MAX_CONSOLE_ENTRIES,

@@ -97,6 +97,21 @@ describe("first intake message (F-24)", () => {
     expect(QUICK_NOTE_INSTRUCTIONS).toContain("call write_task directly");
   });
 
+  it("renders a page-level chat as Developer's message with no annotations (F-68)", () => {
+    const post = samplePost();
+    post.bundle.annotations = [];
+    post.bundle.note = "  the whole page feels slow after applying a promo  ";
+    post.bundle.screenshots.annotated = null;
+    post.images = { "viewport.png": PNG_B64 };
+    const written = writeCapture(root, post);
+    const msg = buildIntakeMessage(written.dir);
+    expect(msg.text).toContain(`Developer's message: "the whole page feels slow after applying a promo"`);
+    expect(msg.text).toContain("Annotations (0):");
+    expect(msg.text).toContain("(none — the developer is asking about the page as a whole");
+    expect(msg.images.map((i) => i.label)).toEqual(["viewport"]);
+    expect(summarizeCapture(post.bundle)).toBe("the whole page feels slow after applying a promo");
+  });
+
   it("summarises a capture for the session list by its first note, else by its annotations and path (F-30)", () => {
     const bundle = sampleBundle();
     expect(summarizeCapture(bundle)).toBe("total excludes discount");

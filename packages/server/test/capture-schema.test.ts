@@ -59,6 +59,17 @@ describe("capture bundle schema (F-15…F-22)", () => {
     expect(validateCaptureBundle(b)).toEqual([]);
   });
 
+  it("accepts a zero-annotation capture with a page-level note, and rejects a non-string note (F-68)", () => {
+    const b = sampleBundle();
+    b.annotations = [];
+    b.note = "why is the total wrong on this page?";
+    expect(validateCaptureBundle(b)).toEqual([]);
+    delete b.note;
+    expect(validateCaptureBundle(b)).toEqual([]);
+    (b as unknown as { note: unknown }).note = 42;
+    expect(validateCaptureBundle(b)).toEqual(["note: expected string, got number"]);
+  });
+
   it("documents every field with the requirement id that needs it", () => {
     const missing: string[] = [];
     const walk = (s: Schema<unknown> & { fields?: Record<string, Schema<unknown>> }, path: string) => {

@@ -1,10 +1,13 @@
 /**
- * Chat panel (PRD F-14, F-25, F-26, F-28, F-29, F-30; PRD-providers F-46, F-47, F-56): streams
- * an intake session's events over SSE, renders assistant text as it arrives (markdown-ish),
- * shows tool calls as collapsed lines, permission requests as Allow / Deny cards, and takes
- * multi-turn input. The current session id is kept in sessionStorage so a reload re-opens the
- * panel and replays the transcript from the server. A quick-note session (F-14) is followed
- * with the panel hidden; it opens itself only when the agent needs the developer.
+ * Chat panel (PRD F-14, F-25, F-26, F-28, F-29, F-30; PRD-providers F-46, F-47, F-56; F-66):
+ * streams an intake session's events over SSE, renders assistant text as it arrives
+ * (markdown-ish), shows tool calls as collapsed lines, permission requests as Allow / Deny
+ * cards, and takes multi-turn input. One instance per thread (F-66): the overlay mounts a panel
+ * inside each annotation's popover (or a docked one for a page-level chat), remembers which
+ * session each belongs to, and re-attaches them after a reload; the panel itself keeps nothing in
+ * storage. A quick-note session (F-14) is followed with the panel hidden; it opens itself only
+ * when the agent needs the developer. Every state change is reported through `onChange` so the
+ * marker beside the element can show it (F-67).
  *
  * Everything that names the agent — the head, the placeholder, "… has a question", the footer —
  * comes from the session's own replayed `init` event (F-47), never from the server's active
@@ -19,7 +22,6 @@ import { crtUrl } from "./base.js";
 import { ACCENT } from "./screenshot.js";
 
 export const SESSIONS_ENDPOINT = "/__crt/sessions";
-const STORAGE_KEY = "crt.session.v1";
 /** What the panel calls the agent before its `init` event has arrived. */
 const UNKNOWN_AGENT = "the agent";
 
@@ -39,9 +41,10 @@ export function endsWithAcceptLine(text: string): boolean {
 }
 
 export const CHAT_CSS = `
-  .chat { display: flex; flex-direction: column; width: 100%; height: min(72vh, 680px); border-radius: 12px; background: #fff;
-          box-shadow: 0 8px 28px rgba(0,0,0,.22); border: 1px solid rgba(0,0,0,.08); overflow: hidden; }
+  .chat { display: flex; flex-direction: column; width: 100%; height: min(60vh, 560px); border-radius: 12px; background: #fff;
+          overflow: hidden; }
   .chat[hidden] { display: none; }
+  .chat-head .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
   .chat-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid rgba(0,0,0,.08); background: #fafafa; }
   .chat-head .title { font-weight: 600; }
   .chat-head .agent { color: #555; }
@@ -137,6 +140,17 @@ export interface StartOptions {
 export interface ChatCallbacks {
   onVisibility(open: boolean): void;
   onQuiet(outcome: QuietOutcome): void;
+  /** A live event needs the developer (a permission request); the owner decides whether to open the panel (F-66). */
+  onAttention(reason: string): void;
+  /** F-67: the session's state, task or agent changed — the owner refreshes its marker. */
+  onChange(): void;
+  /** F-66: the developer chose Discard; the server session is closed and the owner drops the thread. */
+  onDiscard(): void;
+}
+
+export interface ChatOptions {
+  /** F-66: what the head calls this thread (`#1 · ProductCard · article.card`); "CRT" by default. */
+  title?: string;
 }
 
 export class ChatPanel {
@@ -160,25 +174,27 @@ export class ChatPanel {
   /** Placeholder shown between assistant_start and the first visible output (model thinking). */
   private thinking: HTMLElement | null = null;
   private lastSeq = 0;
+  /** True once the server has replayed history on the current connection; only live events may open the panel. */
+  private live = false;
   private quiet = false;
   /** F-47: the session's own init event (replayed on reattach); every agent name comes from it. */
   private init: InitEvent | null = null;
   private readonly agentEl: HTMLElement;
   private readonly callbacks: ChatCallbacks;
 
-  constructor(parent: HTMLElement, callbacks: ChatCallbacks) {
+  constructor(parent: HTMLElement, callbacks: ChatCallbacks, opts: ChatOptions = {}) {
     this.callbacks = callbacks;
     this.el = document.createElement("div");
     this.el.className = "chat";
     this.el.hidden = true;
     this.el.innerHTML = `
       <div class="chat-head">
-        <span class="title">CRT</span>
+        <span class="title"></span>
         <span class="agent"></span>
         <span class="state" data-state="starting">starting</span>
         <span class="spacer"></span>
         <button type="button" data-chat="interrupt" title="Interrupt the current turn (F-29)">Stop</button>
-        <button type="button" data-chat="new" title="Discard this session and go back to annotating (F-29)">New session</button>
+        <button type="button" data-chat="new" title="Close this session and remove its annotation (F-29, F-66)">Discard</button>
         <button type="button" data-chat="hide" title="Hide the chat (the session keeps running)">×</button>
       </div>
       <div class="chat-log" role="log" aria-live="polite"></div>
@@ -193,8 +209,9 @@ export class ChatPanel {
       </div>
       <div class="chat-foot"></div>
     `;
-    parent.prepend(this.el);
+    parent.appendChild(this.el);
     const q = <T extends HTMLElement>(sel: string) => this.el.querySelector(sel) as T;
+    this.setTitle(opts.title ?? "CRT");
     this.log = q(".chat-log");
     this.agentEl = q(".chat-head .agent");
     this.stateEl = q(".chat-head .state");
@@ -208,6 +225,17 @@ export class ChatPanel {
   }
 
   // ---- public ---------------------------------------------------------------------------------
+
+  /** F-66: the head's title (the thread's number and label). */
+  setTitle(text: string): void {
+    const el = this.el.querySelector(".chat-head .title") as HTMLElement;
+    el.textContent = text;
+    el.title = text;
+  }
+
+  sessionIdOf(): string | null {
+    return this.sessionId;
+  }
 
   snapshot(): ChatSnapshot {
     return { sessionId: this.sessionId, state: this.state, taskId: this.taskId, provider: this.init?.provider ?? null, quiet: this.quiet, events: this.events.slice() };
@@ -224,7 +252,7 @@ export class ChatPanel {
 
   /** F-13/F-24: start an intake session for a saved capture and open the panel on it (or follow it quietly, F-14). */
   async startFromCapture(captureId: string, opts: StartOptions = {}): Promise<string> {
-    const id = await this.createSession(captureId, opts);
+    const id = await ChatPanel.createSession(captureId, opts);
     if (opts.quick) this.follow(id);
     else this.open(id);
     return id;
@@ -234,8 +262,8 @@ export class ChatPanel {
    * N-2 warm start: boot the session while the capture is still being rasterised, then
    * `attachCapture` once it is saved (or `abandon` if the capture failed).
    */
-  warmStart(opts: StartOptions = {}): Promise<string> {
-    return this.createSession(null, opts);
+  static warmStart(opts: StartOptions = {}): Promise<string> {
+    return ChatPanel.createSession(null, opts);
   }
 
   async attachCapture(sessionId: string, captureId: string, opts: { quick?: boolean } = {}): Promise<void> {
@@ -250,19 +278,19 @@ export class ChatPanel {
     else this.open(sessionId);
   }
 
-  async abandon(sessionId: string): Promise<void> {
+  static async abandon(sessionId: string): Promise<void> {
     await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${sessionId}`), { method: "DELETE" }).catch(() => undefined);
   }
 
   /** F-30: the server's recent intake sessions, newest first. */
-  async listSessions(): Promise<SessionInfo[]> {
+  static async listSessions(): Promise<SessionInfo[]> {
     const res = await fetch(crtUrl(SESSIONS_ENDPOINT));
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean; sessions?: SessionInfo[]; error?: string };
     if (!res.ok || !data.ok || !data.sessions) throw new Error(data.error ?? `CRT server answered ${res.status}`);
     return data.sessions;
   }
 
-  private async createSession(captureId: string | null, opts: StartOptions): Promise<string> {
+  static async createSession(captureId: string | null, opts: StartOptions): Promise<string> {
     const res = await fetch(crtUrl(SESSIONS_ENDPOINT), {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -291,6 +319,13 @@ export class ChatPanel {
     this.show(false);
   }
 
+  /** F-66: re-attach a thread after a reload without opening it; the marker shows its state (F-67). */
+  watch(sessionId: string): void {
+    this.attach(sessionId);
+    this.quiet = false;
+    this.show(false);
+  }
+
   private attach(sessionId: string): void {
     if (this.sessionId !== sessionId) {
       this.detach();
@@ -307,36 +342,21 @@ export class ChatPanel {
       this.renderAgent();
       this.renderState();
       this.connect();
-      try {
-        sessionStorage.setItem(STORAGE_KEY, sessionId);
-      } catch {
-        // ignore
-      }
+      this.callbacks.onChange();
     }
   }
 
-  /** Re-open the session a previous page load was chatting with, if the server still has it. */
-  async restore(): Promise<boolean> {
-    let id: string | null = null;
-    try {
-      id = sessionStorage.getItem(STORAGE_KEY);
-    } catch {
-      return false;
-    }
-    if (!id) return false;
-    const alive = await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${id}`))
+  /** Whether the server still has a session (a reload re-attaches only live ones, F-66). */
+  static async alive(sessionId: string): Promise<boolean> {
+    return fetch(crtUrl(`${SESSIONS_ENDPOINT}/${sessionId}`))
       .then((r) => r.ok)
       .catch(() => false);
-    if (!alive) {
-      try {
-        sessionStorage.removeItem(STORAGE_KEY);
-      } catch {
-        // ignore
-      }
-      return false;
-    }
-    this.open(id);
-    return true;
+  }
+
+  /** Stop listening and drop the DOM (the owner forgot this thread; the server session is untouched). */
+  dispose(): void {
+    this.detach();
+    this.el.remove();
   }
 
   show(open: boolean): void {
@@ -372,7 +392,7 @@ export class ChatPanel {
     });
   }
 
-  /** F-29 "New session": close the server-side session, forget it, hide the panel. */
+  /** F-29/F-66 "Discard": close the server-side session, hide the panel, and tell the owner to drop the thread. */
   async discard(): Promise<void> {
     const id = this.sessionId;
     this.detach();
@@ -388,13 +408,9 @@ export class ChatPanel {
     this.thinking = null;
     this.init = null;
     this.renderAgent();
-    try {
-      sessionStorage.removeItem(STORAGE_KEY);
-    } catch {
-      // ignore
-    }
     this.show(false);
     if (id) await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${id}`), { method: "DELETE" }).catch(() => undefined);
+    this.callbacks.onDiscard();
   }
 
   // ---- transport --------------------------------------------------------------------------------
@@ -403,6 +419,8 @@ export class ChatPanel {
     if (!this.sessionId) return;
     const source = new EventSource(crtUrl(`${SESSIONS_ENDPOINT}/${this.sessionId}/events?after=${this.lastSeq}`));
     this.source = source;
+    this.live = false;
+    source.addEventListener("live", () => (this.live = true));
     source.onmessage = (e: MessageEvent<string>) => {
       const seq = Number(e.lastEventId);
       if (seq && seq <= this.lastSeq) return; // replay overlap after a reconnect
@@ -436,6 +454,7 @@ export class ChatPanel {
       case "state":
         this.state = event.state;
         this.renderState();
+        this.callbacks.onChange();
         if (event.state === "ended" || event.state === "error") this.detach();
         if (event.state === "ended") this.system("Session ended");
         if (event.state === "idle" && this.isOpen()) this.input.focus();
@@ -450,6 +469,7 @@ export class ChatPanel {
         this.init = event;
         this.renderAgent();
         this.renderState();
+        this.callbacks.onChange();
         break;
       case "user":
         this.acceptEl.hidden = true;
@@ -492,7 +512,7 @@ export class ChatPanel {
         // F-46: Allow/Deny exist only for `permissions: interactive`; a sandboxed agent decides alone.
         this.append(permissionCard(event.id, event.title, event.detail, (this.init?.capabilities.permissions ?? "interactive") === "interactive"));
         if (this.quiet) this.attention(`${this.agentName()} needs a permission`);
-        else this.show(true);
+        else if (this.live) this.callbacks.onAttention(`${this.agentName()} needs a permission`);
         break;
       case "permission_resolved": {
         const el = this.log.querySelector<HTMLElement>(`.perm[data-pid="${cssEscape(event.id)}"]`);
@@ -513,6 +533,7 @@ export class ChatPanel {
         this.taskEl.innerHTML = `Task <b>${escapeHtml(event.id)}</b> written to <code>${escapeHtml(event.path)}</code>`;
         this.taskEl.hidden = false;
         this.acceptEl.hidden = true;
+        this.callbacks.onChange();
         if (this.quiet) {
           this.quiet = false;
           this.callbacks.onQuiet({ kind: "task", id: event.id, path: event.path });

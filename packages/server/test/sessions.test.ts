@@ -67,22 +67,26 @@ async function api(method: string, path: string, body?: unknown): Promise<{ stat
   return { status: res.status, json: (await res.json()) as Record<string, unknown> };
 }
 
-/** Read the SSE stream until `until(event)` is true (or the stream ends); returns every event seen. */
+/**
+ * Read the SSE stream until `until(event)` is true (or the stream ends); returns every event seen,
+ * and `liveAfter`: how many events had been replayed when the named `live` frame arrived (F-66), or -1.
+ */
 function collect(
   path: string,
   until: (e: SessionEvent, all: SessionEvent[]) => boolean,
   headers: Record<string, string> = {},
-): Promise<{ events: SessionEvent[]; ids: number[] }> {
+): Promise<{ events: SessionEvent[]; ids: number[]; liveAfter: number }> {
   return new Promise((resolve, reject) => {
     const events: SessionEvent[] = [];
     const ids: number[] = [];
+    let liveAfter = -1;
     const req = httpRequest(crt + path, { headers }, (res) => {
       expect(res.statusCode).toBe(200);
       expect(res.headers["content-type"]).toContain("text/event-stream");
       let buf = "";
       const finish = () => {
         res.destroy();
-        resolve({ events, ids });
+        resolve({ events, ids, liveAfter });
       };
       res.on("data", (c: Buffer) => {
         buf += c.toString("utf8");
@@ -91,6 +95,12 @@ function collect(
           const frame = buf.slice(0, idx);
           buf = buf.slice(idx + 2);
           if (frame.startsWith(":")) continue;
+          // Named frames are not transcript events: `live` marks the end of the replay.
+          const named = /^event: (\w+)$/m.exec(frame);
+          if (named) {
+            if (named[1] === "live") liveAfter = events.length;
+            continue;
+          }
           const id = /^id: (\d+)$/m.exec(frame);
           const data = /^data: (.*)$/m.exec(frame);
           if (!data) continue;
@@ -100,7 +110,7 @@ function collect(
           if (until(event, events)) return finish();
         }
       });
-      res.on("end", () => resolve({ events, ids }));
+      res.on("end", () => resolve({ events, ids, liveAfter }));
       res.on("error", reject);
     });
     req.on("error", reject);
@@ -173,6 +183,10 @@ describe("session routes (F-24, F-25, F-29)", () => {
     const perm = first.events.at(-1) as Extract<SessionEvent, { type: "permission" }>;
     expect((await api("POST", `/__crt/sessions/${id}/permission`, { id: perm.id, behavior: "allow" })).status).toBe(200);
     const rest = await collect(`/__crt/sessions/${id}/events?after=${first.ids.at(-1)}`, isState("idle"));
+    // F-66: the `live` frame separates the replay from live events on every connection.
+    expect(first.liveAfter).toBe(1); // the first user message was recorded before the stream connected
+    expect(rest.liveAfter).toBeGreaterThanOrEqual(0);
+    expect(rest.liveAfter).toBeLessThan(rest.events.length);
     expect(rest.events.find((e) => e.type === "permission_resolved")).toMatchObject({ behavior: "allow", by: "user" });
     expect(rest.events.find((e) => e.type === "tool_use" && e.name === "Bash")).toMatchObject({ label: "Bash npm test" });
     expect(rest.events.find((e) => e.type === "tool_result" && e.summary === "12 passing")).toBeDefined();

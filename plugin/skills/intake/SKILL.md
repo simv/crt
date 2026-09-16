@@ -10,7 +10,7 @@ The capture lives at `$ARGUMENTS` (a directory containing `capture.json` and PNG
 
 ## Steps
 
-1. **Read the capture.** Open `capture.json`. Look at every screenshot (attached to the first message, or the PNG files next to `capture.json`). Note the URL, route, viewport, each annotation's note, selector, component chain, source file hints, outer HTML, and any console errors.
+1. **Read the capture.** Open `capture.json`. Look at every screenshot (attached to the first message, or the PNG files next to `capture.json`). Note the URL, route, viewport, each annotation's note, selector, component chain, source file hints, outer HTML, and any console errors. A capture with **no annotations** and a `Developer's message:` line is a page-level chat (PRD F-68): the developer is asking about the page as a whole, so start from the route, the screenshot and the message instead of an element.
 
 2. **Locate the code.** Using the component names, source hints, selectors, class names and visible text, find the file(s) that render each annotated element and the code that produces the observed state. Read enough surrounding code to explain *why* the page shows what it shows. Prefer your file search and read tools over running code; do not modify source.
 

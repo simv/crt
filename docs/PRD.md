@@ -5,8 +5,8 @@
 | **Status** | Draft v1.0 — approved for build |
 | **Owner** | Simon (simv) |
 | **Repo** | https://github.com/simv/crt |
-| **Last updated** | 2026-09-15 |
-| **Amended by** | [`docs/PRD-providers.md`](PRD-providers.md) — v0.2, provider-agnostic intake sessions (F-42…F-64, N-7…N-13, milestones M6–M11). Its §9 lists every statement below that it changes. |
+| **Last updated** | 2026-09-16 |
+| **Amended by** | [`docs/PRD-providers.md`](PRD-providers.md) — v0.2, provider-agnostic intake sessions (F-42…F-64, N-7…N-13, milestones M6–M11). Its §9 lists every statement below that it changes. §6.2a — v0.3, anchored threads (F-65…F-68), amends F-11, F-13, F-14 in place. |
 
 This document is the reference for every CRT build session. A build session should read this file, `CLAUDE.md`, and the task it is working on, and nothing else, to know what "correct" means. Changes to scope go through this document first.
 
@@ -120,6 +120,15 @@ Requirements are numbered for reference from tasks and PRs. **Must** = required 
 - **F-12 (Must)** Annotations survive in-page navigation within the SPA until sent or cleared; a full reload clears them (persisting across reloads via `sessionStorage` is a Should).
 - **F-13 (Must)** **Send to Claude** freezes the annotation set, runs capture (6.3), opens the chat panel, and starts an intake session.
 - **F-14 (Should)** A "quick note" path: one annotation + note + Send with no conversation; Claude writes the task without a chat unless it has a blocking question, in which case the panel opens.
+
+### 6.2a Anchored threads (v0.3 amendment, 2026-09-16)
+
+Dogfooding showed that the note panel and the chat living under the toolbar, far from the thing being pointed at, and one chat at a time, made the overlay feel like a form rather than a conversation about the page. This amendment moves the conversation to the element and lets several run at once. Where it conflicts with F-11, F-13 and F-14 above, this section wins; the tags stay.
+
+- **F-65 (Must) Anchored popover.** Each annotation owns one popover, positioned next to its element (right, else left, else below, else above the marker; inside the viewport; it follows the element on scroll). Creating an annotation opens its popover with the note textarea focused; clicking a marker's number badge toggles it. At most one popover is open at a time. The popover header shows the number and the F-8 label; its footer holds **Quick note** and the F-56 split **Send to <agent>** button — these no longer live in the toolbar. Sending from a popover captures that annotation alone by default; a checkbox "include the N other unsent annotations" is offered when others exist, so several annotations can still form one capture (F-11).
+- **F-66 (Must) Chat in place.** After Send the same popover becomes that thread's chat panel (F-25…F-29, unchanged inside), titled with the annotation's number and label. Closing it hides the popover; the session keeps running. **Discard** (the former "New session") closes the server session and removes the annotation. A reload re-attaches every thread (sessionStorage), so the markers and their states come back.
+- **F-67 (Must) Markers persist with state.** Sending no longer clears annotations. A sent annotation keeps its marker; the number badge takes the session state (`starting` / `running` / `waiting` / `idle` / `task` / `error` / `ended`) as a colour, and a pill next to it shows the label (`thinking…`, `needs permission`, `your turn`, the task ID, `error`). Clicking the pill opens the thread. Threads are independent: a second annotation can be sent while the first is still running, and each marker reports its own session. **Clear** removes every annotation and popover but closes no session (they remain in the F-30 list).
+- **F-68 (Must) Page-level chat.** A **Chat** toolbar button opens a popover docked above the toolbar with a textarea "Ask <agent> about this page…" and the same Send controls. Sending runs the normal capture with zero annotations and the message as the bundle's `note`; the first message carries it as `Developer's message:` and the intake proceeds unchanged (the agent has the page, console, network and screenshot but no element). The Chat button shows the latest page-level thread's state as a dot; older ones are reachable from the session list, which opens any session in a docked popover.
 
 ### 6.3 Capture
 

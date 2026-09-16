@@ -191,10 +191,16 @@ test.describe("launcher and tools (F-7…F-12)", () => {
     await page.keyboard.press("Enter");
 
     const anns = await page.evaluate(() => window.__crt.annotations());
-    expect(anns).toEqual([{ n: 1, kind: "select", note: "", label: "article:nth-of-type(1) > h2", detached: false }]);
+    expect(anns).toEqual([{ n: 1, kind: "select", note: "", label: "article:nth-of-type(1) > h2", detached: false, sessionId: null }]);
     await expect(shadow(page, ".layer")).toBeHidden();
     await expect(shadow(page, ".num-badge")).toHaveText("1");
-    await expect(shadow(page, ".item textarea")).toBeFocused();
+    // F-65: the popover opens beside the element with the note focused.
+    await expect(shadow(page, '.pop[data-n="1"]')).toBeVisible();
+    await expect(shadow(page, '.pop[data-n="1"] textarea')).toBeFocused();
+    const popBox = (await shadow(page, '.pop[data-n="1"]').boundingBox())!;
+    const titleBox = (await page.locator("[data-testid=card-1] h2.title").boundingBox())!;
+    expect(popBox.x).toBeGreaterThan(titleBox.x + titleBox.width);
+    expect(Math.abs(popBox.y - titleBox.y)).toBeLessThan(3);
     // The click never reached the page.
     expect(await page.evaluate(() => (window as unknown as { __fixture: string }).__fixture)).toBe("app");
   });
@@ -246,13 +252,16 @@ test.describe("launcher and tools (F-7…F-12)", () => {
     });
     await expect(shadow(page, ".num-badge")).toHaveCount(3);
     await expect(shadow(page, ".launcher .count")).toHaveText("3");
-    // Type a note into the second item through the real textarea.
-    await page.evaluate(() => window.__crt.toggle(true));
-    const note2 = shadow(page, '.item[data-n="2"] textarea');
+    // Type a note into the second popover through the real textarea (F-65: one popover open at a time).
+    await page.evaluate(() => window.__crt.togglePop(2, true));
+    await expect(shadow(page, '.pop[data-n="1"]')).toBeHidden();
+    const note2 = shadow(page, '.pop[data-n="2"] textarea');
     await note2.fill("something is missing here");
     expect((await page.evaluate(() => window.__crt.annotations()))[1]!.note).toBe("something is missing here");
-    // Delete the first: the rest renumber.
-    await shadow(page, '.item[data-n="1"] .del').click();
+    // Delete the first from its popover: the rest renumber.
+    await page.evaluate(() => window.__crt.togglePop(1, true));
+    await expect(shadow(page, '.pop[data-n="2"]')).toBeHidden();
+    await shadow(page, '.pop[data-n="1"] [data-action=delete]').click();
     const anns = await page.evaluate(() => window.__crt.annotations());
     expect(anns.map((a) => [a.n, a.kind, a.note])).toEqual([
       [1, "pin", "something is missing here"],
@@ -275,7 +284,7 @@ test.describe("launcher and tools (F-7…F-12)", () => {
     await page.reload();
     await expect(shadow(page, ".num-badge")).toHaveCount(1);
     expect(await page.evaluate(() => window.__crt.annotations())).toEqual([
-      { n: 1, kind: "select", note: "keep me", label: "#heading", detached: false },
+      { n: 1, kind: "select", note: "keep me", label: "#heading", detached: false, sessionId: null },
     ]);
   });
 });
@@ -293,12 +302,17 @@ test.describe("capture and send (F-13, F-15…F-20, F-22, F-23)", () => {
       h.setNote(2, "cards look cramped");
     });
     await shadow(page, ".launcher").click();
-    const sent = await page.evaluate(() => window.__crt.send());
+    // F-65: one annotation per send by default; `include` groups the other unsent ones into the same capture (F-11).
+    const sent = await page.evaluate(() => window.__crt.send({ n: 1, include: true }));
     expect(sent.id).toMatch(/^\d{8}-\d{6}-[a-f0-9]{4}$/);
     expect(sent.dir).toBe(join(await projectRoot(page), ".crt", "captures", sent.id));
     await expect(shadow(page, ".status")).toContainText(sent.dir);
-    // Sent annotations are cleared; the page is ready for the next round.
-    expect(await page.evaluate(() => window.__crt.annotations())).toEqual([]);
+    // F-67: sent annotations keep their markers and are bound to the same session.
+    const anns = await page.evaluate(() => window.__crt.annotations());
+    expect(anns.map((a) => a.n)).toEqual([1, 2]);
+    expect(anns[0]!.sessionId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(anns[1]!.sessionId).toBe(anns[0]!.sessionId);
+    await expect(shadow(page, ".num-badge")).toHaveCount(2);
 
     try {
       const bundle = JSON.parse(readFileSync(join(sent.dir, "capture.json"), "utf8")) as CaptureBundle;
