@@ -60,13 +60,16 @@ describe("claude profile (F-42, F-52)", () => {
     expect(claudeProfile.telemetryOptOut).toEqual([]);
   });
 
-  it("preflight finds the SDK's bundled binary, reports the SDK version and leaves login unknown (F-52)", async () => {
-    const p = claudePreflight();
-    expect(p).toMatchObject({ installed: true, loggedIn: "unknown", problem: null });
+  it("preflight finds the SDK's bundled binary, reports the SDK version and reads login from auth status (F-52, F-74)", async () => {
+    // The real binary: whatever it says, the shape holds and the profile's preflight agrees.
+    const p = await claudePreflight();
+    expect(p).toMatchObject({ installed: true });
+    expect([true, false, "unknown"]).toContain(p.loggedIn);
+    expect(p.problem === null || p.loggedIn === false).toBe(true);
     expect(p.version).toMatch(/^\d+\.\d+\.\d+/);
     expect(await claudeProfile.preflight()).toEqual(p);
-    // A platform the SDK has no binary package for: the N-6 reinstall line.
-    const missing = claudePreflight("sunos", "mips");
+    // A platform the SDK has no binary package for: the N-6 reinstall line, and no spawn.
+    const missing = await claudePreflight({ platform: "sunos", arch: "mips", run: () => Promise.reject(new Error("must not run")) });
     expect(missing).toMatchObject({ installed: false, loggedIn: "unknown" });
     expect(missing.problem).toContain("@anthropic-ai/claude-agent-sdk-sunos-mips");
   });

@@ -10,9 +10,13 @@
  *     /__crt/sessions routes (sessions.ts, F-24…F-30), /__crt/providers and /__crt/config
  *     (provider-routes.ts, F-57) are served here; anything else under /__crt/ is a 404 and never
  *     reaches the target (F-4).
- *   • /__crt/internal/* is for `crt mcp` only (F-49, N-8): a request carrying an `Origin` header
- *     — which every browser sends on a POST and the Node shim never does — is refused with 403
- *     before anything else happens, CORS included.
+ *   • /__crt/internal/* is for `crt mcp` (F-49) and `crt --replace` (PRD-setup F-79, the
+ *     shutdown route) only, never a page (N-8): a request carrying an `Origin` header — which
+ *     every browser sends on a POST and a Node process never does — is refused with 403 before
+ *     anything else happens, CORS included.
+ *   • /__crt/health is the whole story (PRD-setup F-78): version, start time, target, project,
+ *     tasks, provider and its login, open sessions, and the overlay counters (injected HTML
+ *     responses vs fetches of /__crt/overlay.js; F-80 fills in the rest).
  *   • Every other /__crt/ response carries CORS headers when the request's Origin is a localhost
  *     origin, so an app can load the overlay with a script tag instead of the proxy (F-6).
  * The caller binds the returned server to 127.0.0.1 (see serve.ts).
@@ -37,8 +41,9 @@ import { CaptureValidationError, writeCapture } from "./captures.js";
 import { applyCors, json, readJson } from "./http.js";
 import { decodeBody, EARLY_PATH, filterAcceptEncoding, injectOverlayTag, isHtml, OVERLAY_PATH, relaxCsp } from "./inject.js";
 import { handleProviderRoute } from "./provider-routes.js";
-import type { ProviderRegistry } from "./session.js";
+import { loginField, type ProviderRegistry } from "./session.js";
 import { handleInternalRoute, handleSessionRoute, INTERNAL_PREFIX, SESSIONS_PATH, type SessionRegistry } from "./sessions.js";
+import { countTaskFiles } from "./tasks.js";
 
 export interface ProxyOptions {
   /** Target origin, e.g. `http://localhost:3000`. */
@@ -51,7 +56,26 @@ export interface ProxyOptions {
   sessions?: SessionRegistry;
   /** Provider registry (F-57). Absent → /__crt/providers and /__crt/config answer 503, health has no provider. */
   providers?: ProviderRegistry;
+  /** F-78 health fields: the package version and when this server started (ISO-8601). */
+  version?: string;
+  startedAt?: string;
+  /** Absolute tasks directory; health counts its files. */
+  tasksDir?: string;
+  /** F-79: closes the server the way Ctrl+C does; absent → the shutdown route answers 503. */
+  shutdown?: () => Promise<void>;
+  /** Status lines (F-75 "overlay loaded"); silent by default. */
+  log?: (line: string) => void;
 }
+
+/** F-78/F-80: what health's `overlay` reports. */
+export interface OverlayStats {
+  /** HTML responses the proxy injected the overlay tag into. */
+  injected: number;
+  /** Requests for /__crt/overlay.js. */
+  fetched: number;
+}
+
+export const SHUTDOWN_PATH = "/__crt/internal/shutdown";
 
 export const CRT_PREFIX = "/__crt";
 export const CAPTURES_PATH = `${CRT_PREFIX}/captures`;
@@ -83,11 +107,12 @@ export function createProxyServer(opts: ProxyOptions): Server {
   const targetOrigins = new Set(
     ["localhost", "127.0.0.1", "[::1]", "0.0.0.0", target.hostname].map((h) => `${target.protocol}//${h}:${targetPort}`),
   );
+  const state: RouteState = { overlay: { injected: 0, fetched: 0 }, lastInjected: "/" };
 
   const server = createServer((req, res) => {
     const url = req.url ?? "/";
     if (url === CRT_PREFIX || url.startsWith(CRT_PREFIX + "/")) {
-      void handleCrtRoute(url, req, res, opts);
+      void handleCrtRoute(url, req, res, opts, state);
       return;
     }
     const crtOrigin = `http://${req.headers.host ?? "localhost"}`;
@@ -136,6 +161,8 @@ export function createProxyServer(opts: ProxyOptions): Server {
           }
           // latin1 round-trips every byte, so injection is safe for any charset.
           const body = Buffer.from(injectOverlayTag(decoded.toString("latin1")), "latin1");
+          state.overlay.injected++;
+          state.lastInjected = url;
           delete outHeaders["content-encoding"];
           outHeaders["content-length"] = String(body.length);
           const csp = outHeaders["content-security-policy"];
@@ -214,20 +241,43 @@ function responseHeaders(
   return out;
 }
 
+/** Per-server counters behind the health payload (one server = one browser session, F-80). */
+interface RouteState {
+  overlay: OverlayStats;
+  /** The last page the overlay tag went into, for the "overlay loaded" line. */
+  lastInjected: string;
+}
+
 async function handleCrtRoute(
   url: string,
   req: IncomingMessage,
   res: ServerResponse,
   opts: ProxyOptions,
+  state: RouteState,
 ): Promise<void> {
   const qs = url.indexOf("?");
   const path = qs === -1 ? url : url.slice(0, qs);
   const query = new URLSearchParams(qs === -1 ? "" : url.slice(qs + 1));
   if (path === INTERNAL_PREFIX || path.startsWith(INTERNAL_PREFIX + "/")) {
-    // F-49/N-8: the shim only. A browser always sends Origin on a POST; refuse before CORS or a body read.
+    // F-49/N-8: local processes only. A browser always sends Origin on a POST; refuse before CORS or a body read.
     if (req.headers.origin !== undefined) {
       res.writeHead(403);
       res.end();
+      return;
+    }
+    if (path === SHUTDOWN_PATH) {
+      // F-79: `crt --replace`. Answer first, then close the way Ctrl+C does.
+      if (req.method !== "POST") {
+        json(res, 405, { ok: false, error: "POST here to stop this CRT" });
+        return;
+      }
+      if (!opts.shutdown) {
+        json(res, 503, { ok: false, error: "this server cannot be stopped over HTTP" });
+        return;
+      }
+      json(res, 200, { ok: true });
+      const stop = opts.shutdown;
+      res.on("finish", () => void stop());
       return;
     }
     if (!opts.sessions) {
@@ -245,6 +295,11 @@ async function handleCrtRoute(
     return;
   }
   if (path === OVERLAY_PATH || path === EARLY_PATH) {
+    if (path === OVERLAY_PATH && req.method !== "HEAD") {
+      // F-75: the first fetch proves the injected tag reached a browser (F-80 reports the miss).
+      if (state.overlay.fetched === 0) opts.log?.(`crt: overlay loaded in the browser (GET ${state.lastInjected})`);
+      state.overlay.fetched++;
+    }
     try {
       const js = await readFile(path === OVERLAY_PATH ? opts.overlayPath : earlyPath(opts.overlayPath));
       res.writeHead(200, {
@@ -260,8 +315,7 @@ async function handleCrtRoute(
     return;
   }
   if (path === `${CRT_PREFIX}/health`) {
-    // F-57: `provider` is what a new session would run on right now (F-43 with no request value).
-    json(res, 200, { ok: true, target: opts.target, projectRoot: opts.projectRoot, provider: opts.providers?.resolve(null).provider ?? null });
+    json(res, 200, healthPayload(opts, state.overlay));
     return;
   }
   if (path === `${CRT_PREFIX}/providers` || path === `${CRT_PREFIX}/config`) {
@@ -303,6 +357,28 @@ async function handleCrtRoute(
     return;
   }
   json(res, 404, { ok: false, error: `no CRT route ${path}` });
+}
+
+/**
+ * F-78: `{ ok, version, startedAt, target, projectRoot, tasksDir, tasks, provider, login, sessions, overlay }`.
+ * `provider` is what a new session would run on right now (F-43 with no request value) and
+ * `login` its F-74 state; both are null / "unchecked" without a registry.
+ */
+export function healthPayload(opts: ProxyOptions, overlay: OverlayStats): Record<string, unknown> {
+  const resolution = opts.providers?.resolve(null) ?? null;
+  return {
+    ok: true,
+    version: opts.version ?? null,
+    startedAt: opts.startedAt ?? null,
+    target: opts.target,
+    projectRoot: opts.projectRoot,
+    tasksDir: opts.tasksDir ?? null,
+    tasks: opts.tasksDir ? countTaskFiles(opts.tasksDir) : 0,
+    provider: resolution?.provider ?? null,
+    login: resolution && opts.providers ? loginField(resolution, opts.providers) : "unchecked",
+    sessions: opts.sessions ? opts.sessions.list().filter((s) => s.state !== "ended" && s.state !== "error").length : 0,
+    overlay: { ...overlay },
+  };
 }
 
 /** early.js sits next to overlay.js in dist/. */

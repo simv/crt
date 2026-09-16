@@ -152,10 +152,30 @@ describe("reverse proxy (F-4)", () => {
 });
 
 describe("CRT routes (F-4)", () => {
-  it("serves /__crt/health with target, project root and the provider (null without a registry) (F-4, F-57)", async () => {
+  it("serves /__crt/health with the F-78 shape: target, project root, provider (null without a registry), login, sessions, overlay (F-4, F-57, F-78)", async () => {
     const r = await raw("/__crt/health");
     expect(r.status).toBe(200);
-    expect(JSON.parse(r.body.toString())).toEqual({ ok: true, target: fixture.url, projectRoot: tmp, provider: null });
+    const health = JSON.parse(r.body.toString()) as Record<string, unknown>;
+    expect(health).toMatchObject({ ok: true, target: fixture.url, projectRoot: tmp, provider: null, login: "unchecked", sessions: 0, tasks: 0 });
+    expect(Object.keys(health).sort()).toEqual(["login", "ok", "overlay", "projectRoot", "provider", "sessions", "startedAt", "target", "tasks", "tasksDir", "version"]);
+    // No version/startedAt/tasksDir were given to this bare proxy.
+    expect(health.version).toBeNull();
+    expect(health.startedAt).toBeNull();
+    // overlay counts injected HTML responses and overlay fetches made so far in this file.
+    const overlay = health.overlay as { injected: number; fetched: number };
+    expect(overlay.injected).toBeGreaterThan(0);
+    expect(overlay.fetched).toBeGreaterThanOrEqual(0);
+  });
+
+  it("counts overlay fetches and logs the first one; the shutdown route refuses Origin and needs a handler (F-75, F-78, F-79)", async () => {
+    const before = (JSON.parse((await raw("/__crt/health")).body.toString()) as { overlay: { fetched: number } }).overlay.fetched;
+    await raw("/__crt/overlay.js");
+    const after = (JSON.parse((await raw("/__crt/health")).body.toString()) as { overlay: { fetched: number } }).overlay.fetched;
+    expect(after).toBe(before + 1);
+    // N-8: a page cannot stop the server; without a shutdown handler a local process gets 503.
+    expect((await raw("/__crt/internal/shutdown", { method: "POST", headers: { origin: "http://localhost:4400" } })).status).toBe(403);
+    expect((await raw("/__crt/internal/shutdown", { method: "POST" })).status).toBe(503);
+    expect((await raw("/__crt/internal/shutdown")).status).toBe(405);
   });
 
   it("serves /__crt/overlay.js with no-cache headers", async () => {

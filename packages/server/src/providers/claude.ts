@@ -15,8 +15,18 @@
  * Messages consumed: system/init, stream_event (text deltas), assistant (tool_use blocks),
  * user (tool_result blocks), result, auth_status.
  *
- * Preflight (F-52): the SDK's bundled `claude` binary resolves → installed; login is only known
- * once a session starts (`loginProblem`), so `loggedIn` is "unknown"; the version is the SDK's.
+ * Preflight (F-52, amended by PRD-setup F-74): the SDK's bundled `claude` binary resolves →
+ * installed; the version is the SDK's. Login is read from that binary's `auth status --json`
+ * (spawned with `shell: false`, 5 s), whose `loggedIn` boolean is the only field CRT reads — the
+ * rest of the payload names the account and is never logged or stored. Anything but a clean JSON
+ * object with a boolean `loggedIn` leaves `"unknown"`, which never blocks (PRD-providers §12 rule 3).
+ *
+ * Observed on the bundled binary 2.1.270 (Agent SDK 0.3.270, Windows, 2026-09-16), ~0.8 s:
+ *   $ claude.exe auth status --json      → exit 0
+ *   { "loggedIn": true, "authMethod": "claude.ai", "apiProvider": "firstParty",
+ *     "analyticsDisabled": false, "projectsDirectory": "…", "configDirectory": "…",
+ *     "email": "…", "orgId": "…", "orgName": "…", "subscriptionType": "…" }
+ * A session start remains the fallback signal (`loginProblem` on the result/auth_status messages).
  */
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -36,6 +46,7 @@ import {
   tool,
 } from "@anthropic-ai/claude-agent-sdk";
 import { PERMISSION_TIMEOUT_MS } from "../permissions.js";
+import { findOnPath, runExecutable, type RunResult } from "./exec.js";
 import type {
   ProviderCapabilities,
   SessionDriver,
@@ -46,12 +57,19 @@ import type {
   WriteTaskRequest,
 } from "../session-events.js";
 import { CRT_MCP_SERVER, WRITE_TASK_DESCRIPTION, WRITE_TASK_TOOL, WRITE_TASK_TOOL_FULL, writeTaskShape } from "../write-task.js";
-import type { PreflightResult, ProviderProfile } from "./types.js";
+import type { PreflightOptions, PreflightResult, ProviderProfile } from "./types.js";
 
 export { CRT_MCP_SERVER, WRITE_TASK_TOOL, WRITE_TASK_TOOL_FULL } from "../write-task.js";
 
 const STDERR_TAIL_LINES = 30;
 const SDK_PACKAGE = "@anthropic-ai/claude-agent-sdk";
+/** F-74: `auth status` answers in well under a second; a hung binary must not delay the start. */
+export const AUTH_STATUS_TIMEOUT_MS = 5_000;
+
+/** N-6: the one line for a missing login, at start (F-74/F-75), on the ready line, and in the page. */
+export const CLAUDE_NOT_LOGGED_IN = "not logged in to Claude Code — run `claude` in a terminal and complete /login (or set CLAUDE_CODE_OAUTH_TOKEN), then send again";
+/** F-74: appended to the line above when `claude` is not on PATH, so the fix does not assume it is. */
+export const CLAUDE_INSTALL_HINT = "install Claude Code first: npm i -g @anthropic-ai/claude-code";
 
 /** F-46 reference values for Claude Code. */
 export const CLAUDE_CAPABILITIES: ProviderCapabilities = {
@@ -76,27 +94,50 @@ export const claudeProfile: ProviderProfile = {
   telemetryOptOut: [],
   // F-58: the Claude Code plugin is the distribution; `crt skills install --provider claude` is refused.
   skillsDirs: () => ({ project: null, user: null }),
-  preflight: async () => claudePreflight(),
+  preflight: (opts) => claudePreflight(opts),
   resumeCommand: (id) => `claude --resume ${id}`,
   start: startSession,
 };
 
+/** What `claudePreflight` may consult; tests inject fixture outputs instead of the binary. */
+export interface ClaudePreflightOptions extends PreflightOptions {
+  platform?: NodeJS.Platform;
+  arch?: string;
+  /** Runs the bundled binary with `args`; defaults to `runExecutable` (shell: false, 5 s). */
+  run?: (binary: string, args: string[], timeoutMs: number) => Promise<RunResult>;
+}
+
+/** The SDK package version, or null when it cannot be read. */
+export function sdkVersion(): string | null {
+  try {
+    const require = createRequire(import.meta.url);
+    const sdkMain = require.resolve(SDK_PACKAGE);
+    return (JSON.parse(readFileSync(join(dirname(sdkMain), "package.json"), "utf8")) as { version?: string }).version ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The SDK's bundled `claude` binary for this platform, or null when its package is missing. */
+export function bundledClaudeBinary(platform: NodeJS.Platform = process.platform, arch: string = process.arch): string | null {
+  try {
+    return createRequire(import.meta.url).resolve(`${SDK_PACKAGE}-${platform}-${arch}/claude${platform === "win32" ? ".exe" : ""}`);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * F-52: the SDK ships the CLI as `@anthropic-ai/claude-agent-sdk-<platform>-<arch>/claude[.exe]`;
  * if that package is missing the install is broken (the N-6 line `describeSessionError` prints).
+ * F-74: otherwise `auth status --json` decides `loggedIn` (see the module header).
  */
-export function claudePreflight(platform: NodeJS.Platform = process.platform, arch: string = process.arch): PreflightResult {
-  const require = createRequire(import.meta.url);
-  let version: string | null = null;
-  try {
-    const sdkMain = require.resolve(SDK_PACKAGE);
-    version = (JSON.parse(readFileSync(join(dirname(sdkMain), "package.json"), "utf8")) as { version?: string }).version ?? null;
-  } catch {
-    // resolution below reports the problem
-  }
-  try {
-    require.resolve(`${SDK_PACKAGE}-${platform}-${arch}/claude${platform === "win32" ? ".exe" : ""}`);
-  } catch {
+export async function claudePreflight(opts: ClaudePreflightOptions = {}): Promise<PreflightResult> {
+  const platform = opts.platform ?? process.platform;
+  const arch = opts.arch ?? process.arch;
+  const version = sdkVersion();
+  const binary = bundledClaudeBinary(platform, arch);
+  if (!binary) {
     return {
       installed: false,
       loggedIn: "unknown",
@@ -104,7 +145,32 @@ export function claudePreflight(platform: NodeJS.Platform = process.platform, ar
       problem: `Claude Code binary not found — reinstall claude-review-tool (\`npm install\`) so ${SDK_PACKAGE}-${platform}-${arch} is present`,
     };
   }
-  return { installed: true, loggedIn: "unknown", version, problem: null };
+  const run = opts.run ?? ((bin, args, timeoutMs) => runExecutable({ command: bin, args: [], via: "path", found: bin }, args, { timeoutMs, ...(opts.env ? { env: opts.env } : {}) }));
+  const loggedIn = parseAuthStatus(await run(binary, ["auth", "status", "--json"], AUTH_STATUS_TIMEOUT_MS));
+  if (loggedIn === false) {
+    const onPath = findOnPath("claude", platform, opts.env ?? process.env) !== null;
+    return { installed: true, loggedIn: false, version, problem: onPath ? CLAUDE_NOT_LOGGED_IN : `${CLAUDE_NOT_LOGGED_IN} (${CLAUDE_INSTALL_HINT})` };
+  }
+  return { installed: true, loggedIn, version, problem: null };
+}
+
+/**
+ * F-74: `loggedIn` from an `auth status --json` run — the boolean when the run exited 0 with a JSON
+ * object carrying one; `"unknown"` for a non-zero exit, a timeout, or anything unparseable.
+ * Nothing else in the payload is looked at.
+ */
+export function parseAuthStatus(r: RunResult): true | false | "unknown" {
+  if (r.status !== 0 || r.error !== null) return "unknown";
+  try {
+    const parsed = JSON.parse(r.stdout) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const v = (parsed as { loggedIn?: unknown }).loggedIn;
+      if (typeof v === "boolean") return v;
+    }
+  } catch {
+    // not JSON
+  }
+  return "unknown";
 }
 
 /** Streaming-input source for `query()`: a queue the panel pushes user messages into. */
@@ -463,7 +529,7 @@ function shortPath(p: string, cwd: string): string {
 /** N-6: the one-line message for "not logged in", or null when the text is something else. */
 export function loginProblem(text: string): string | null {
   if (/not logged in|please run \/login|\/login\b|invalid api key|authentication[_ ]error|oauth token|401\b|unauthori[sz]ed/i.test(text)) {
-    return "not logged in to Claude Code — run `claude` in a terminal and complete /login (or set CLAUDE_CODE_OAUTH_TOKEN), then send again";
+    return CLAUDE_NOT_LOGGED_IN;
   }
   return null;
 }

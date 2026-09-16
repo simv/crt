@@ -6,10 +6,11 @@
  *
  * Config is two files, read by `readConfig`: `.crt/config.json` (committed, per project) with
  * `.crt/config.local.json` (gitignored, per machine — what "Remember for this project on this
- * machine" writes, F-56/F-57) layered over it key by key.
+ * machine" writes, F-56/F-57, and where the guided start remembers the target, PRD-setup F-72)
+ * layered over it key by key: `target` and `port` local-over-project too (PRD-setup §5.3).
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 
 export const DEFAULT_PORT = 4400;
 export const CAPTURES_IGNORE = ".crt/captures/";
@@ -42,6 +43,8 @@ export interface CrtConfigFile {
 export interface CrtConfig {
   tasksDir: string;
   target: string | null;
+  /** Which file `target` came from (the local file wins); null when neither sets it. */
+  targetSource: "local" | "project" | null;
   port: number;
   provider: string | AcpProviderConfig | null;
   /** Which file `provider` came from (the local file wins); null when neither sets it. */
@@ -56,6 +59,7 @@ export const DEFAULT_CONFIG_FILE: CrtConfigFile = { tasksDir: ".crt/tasks", targ
 export const DEFAULT_CONFIG: CrtConfig = {
   tasksDir: ".crt/tasks",
   target: null,
+  targetSource: null,
   port: DEFAULT_PORT,
   provider: null,
   providerSource: null,
@@ -69,6 +73,8 @@ export interface InitResult {
   configPath: string;
   /** Paths this run created or modified; empty when everything was already in place. */
   created: string[];
+  /** The `.gitignore` lines this run added (PRD-setup F-75 names them). */
+  ignoreAdded: string[];
 }
 
 export function initProject(root: string): InitResult {
@@ -77,6 +83,7 @@ export function initProject(root: string): InitResult {
   const configPath = join(crtDir, CONFIG_FILE);
   const gitignorePath = join(root, ".gitignore");
   const created: string[] = [];
+  const ignoreAdded: string[] = [];
 
   if (!existsSync(tasksDir)) {
     mkdirSync(tasksDir, { recursive: true });
@@ -97,13 +104,38 @@ export function initProject(root: string): InitResult {
     if (lines.some(present)) continue;
     const sep = ignore === "" || ignore.endsWith("\n") ? "" : "\n";
     ignore = `${ignore}${sep}${line}\n`;
+    ignoreAdded.push(line);
     changed = true;
   }
   if (changed) {
     writeFileSync(gitignorePath, ignore, "utf8");
     created.push(gitignorePath);
   }
-  return { crtDir, tasksDir, configPath, created };
+  return { crtDir, tasksDir, configPath, created, ignoreAdded };
+}
+
+/**
+ * PRD-setup F-75: the first-init line, or null when nothing was created:
+ * `crt init: created .crt/tasks, .crt/config.json; added .crt/captures/ and .crt/config.local.json to .gitignore — commit .crt/`
+ */
+export function describeInit(root: string, r: InitResult): string | null {
+  if (!r.created.length) return null;
+  const made = r.created.filter((p) => p !== join(root, ".gitignore")).map((p) => relative(root, p).split(sep).join("/"));
+  const parts: string[] = [];
+  if (made.length) parts.push(`created ${made.join(", ")}`);
+  if (r.ignoreAdded.length) parts.push(`added ${r.ignoreAdded.join(" and ")} to .gitignore`);
+  return `crt init: ${parts.join("; ")} — commit .crt/`;
+}
+
+/** `crt doctor` (PRD-setup F-76): are both `.gitignore` entries (or a whole-`.crt/` ignore) present? */
+export function ignoreEntriesPresent(root: string): boolean {
+  let lines: string[];
+  try {
+    lines = readFileSync(join(root, ".gitignore"), "utf8").split(/\r?\n/);
+  } catch {
+    return false;
+  }
+  return lines.some(isCapturesIgnore) && lines.some(isLocalConfigIgnore);
 }
 
 function ignoresWholeCrt(t: string): boolean {
@@ -135,10 +167,15 @@ export function readConfig(root: string): CrtConfig {
   };
   const localProvider = providerOf(local);
   const projectProvider = providerOf(project);
+  const targetOf = (f: CrtConfigFile): string | null => (typeof f.target === "string" && f.target.trim() ? f.target.trim() : null);
+  const portOf = (f: CrtConfigFile): number | null => (typeof f.port === "number" && Number.isInteger(f.port) && f.port > 0 && f.port <= 65535 ? f.port : null);
+  const localTarget = targetOf(local);
+  const projectTarget = targetOf(project);
   return {
     tasksDir: typeof project.tasksDir === "string" && project.tasksDir ? project.tasksDir : DEFAULT_CONFIG.tasksDir,
-    target: typeof project.target === "string" && project.target ? project.target : null,
-    port: typeof project.port === "number" && Number.isInteger(project.port) && project.port > 0 ? project.port : DEFAULT_PORT,
+    target: localTarget ?? projectTarget,
+    targetSource: localTarget ? "local" : projectTarget ? "project" : null,
+    port: portOf(local) ?? portOf(project) ?? DEFAULT_PORT,
     provider: localProvider ?? projectProvider,
     providerSource: localProvider ? "local" : projectProvider ? "project" : null,
     models: { ...modelsOf(project), ...modelsOf(local) },
@@ -149,13 +186,15 @@ export function readConfig(root: string): CrtConfig {
 /**
  * F-57 `PUT /__crt/config`: merge `provider` and/or `models` into `.crt/config.local.json`
  * (creating it), leaving every other key of the file as it was. The route has validated the
- * values; this only writes the machine-local file, never `.crt/config.json` (N-8).
+ * values; this only writes the machine-local file, never `.crt/config.json` (N-8). The guided
+ * start writes `target` the same way (PRD-setup F-72).
  */
-export function writeLocalConfig(root: string, patch: { provider?: string; models?: Record<string, string> }): string {
+export function writeLocalConfig(root: string, patch: { provider?: string; models?: Record<string, string>; target?: string }): string {
   const path = join(root, ".crt", LOCAL_CONFIG_FILE);
   const current = readConfigFile(path);
   const next: CrtConfigFile = { ...current };
   if (patch.provider !== undefined) next.provider = patch.provider;
+  if (patch.target !== undefined) next.target = patch.target;
   if (patch.models !== undefined) next.models = { ...(current.models && typeof current.models === "object" ? current.models : {}), ...patch.models };
   mkdirSync(join(root, ".crt"), { recursive: true });
   writeFileSync(path, JSON.stringify(next, null, 2) + "\n", "utf8");

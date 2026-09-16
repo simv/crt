@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type CrtConfig, DEFAULT_CONFIG } from "../../src/init.js";
-import { claudeProfile } from "../../src/providers/claude.js";
+import { CLAUDE_NOT_LOGGED_IN, claudeProfile } from "../../src/providers/claude.js";
 import { CODEX_NOT_FOUND, CODEX_NOT_LOGGED_IN, codexProfile, codexTooOld } from "../../src/providers/codex.js";
 import { detectProvider, formatDecision, scanMarkers } from "../../src/providers/detect.js";
 import { stubProfile } from "../../src/providers/stub.js";
@@ -114,6 +114,17 @@ describe("auto-detection (F-44)", () => {
   it("this repo → `→ claude — .claude/, CLAUDE.md`, the M7 DoD line (F-44, F-45)", () => {
     expect(detect(REPO_ROOT, both)).toBe("claude — .claude/, CLAUDE.md");
   });
+
+  it("a logged-out Claude is demoted when another provider is usable, and stays the default otherwise (PRD-setup F-74, F-60 rows)", () => {
+    const claudeOut: PreflightResult = { installed: true, loggedIn: false, version: "0.3.270", problem: CLAUDE_NOT_LOGGED_IN };
+    expect(detect(root(), { claude: claudeOut, codex: CODEX_OK })).toBe("codex — claude not logged in");
+    expect(detect(root("AGENTS.md"), { claude: claudeOut, codex: CODEX_OK })).toBe("codex — AGENTS.md, no Claude markers; codex 0.154.0 logged in; claude not logged in");
+    // The project points at Claude, but Claude cannot be used: Codex, with the reason naming both.
+    expect(detect(root(".claude/", "CLAUDE.md"), { claude: claudeOut, codex: CODEX_OK })).toBe("codex — project looks like claude (.claude/, CLAUDE.md) but claude is not logged in");
+    // Nothing else usable: claude by default, with the reason.
+    expect(detect(root(), { claude: claudeOut, codex: CODEX_NOT_ON_PATH })).toBe("claude — claude not logged in; codex not on PATH");
+    expect(detect(root(), { claude: claudeOut, codex: CODEX_LOGGED_OUT })).toBe("claude — claude not logged in; codex not logged in");
+  });
 });
 
 describe("resolution order (F-43)", () => {
@@ -217,7 +228,7 @@ describe("crt providers (F-45, F-57)", () => {
     const r = await registry({ root: root(".claude/", "CLAUDE.md", "AGENTS.md"), profiles: profiles({ ...CLAUDE_OK, version: null }, CODEX_NOT_ON_PATH) });
     expect(renderProviders(r.status(), r.detection())).toBe(
       [
-        "claude   ready        Claude Code (Agent SDK)    login: unknown until a session starts    markers: .claude/, CLAUDE.md, AGENTS.md",
+        "claude   ready        Claude Code (Agent SDK)    login unknown                            markers: .claude/, CLAUDE.md, AGENTS.md",
         "codex    not on PATH  Codex CLI                  install: npm i -g @openai/codex          markers: AGENTS.md",
         "→ claude — .claude/, CLAUDE.md, AGENTS.md; codex not on PATH",
       ].join("\n"),
@@ -226,14 +237,14 @@ describe("crt providers (F-45, F-57)", () => {
     const states = await registry({ root: root(), profiles: profiles(CLAUDE_OK, CODEX_LOGGED_OUT) });
     expect(renderProviders(states.status(), states.detection())).toBe(
       [
-        "claude   ready          Claude Code (Agent SDK) 0.3.270  login: unknown until a session starts    markers: none",
-        "codex    not logged in  Codex CLI 0.154.0                login: codex login                       markers: none",
+        "claude   ready          Claude Code (Agent SDK) 0.3.270  login unknown                            markers: none",
+        "codex    not logged in  Codex CLI 0.154.0                not logged in — codex login              markers: none",
         "→ claude — codex not logged in",
       ].join("\n"),
     );
     const old = await registry({ root: root(), profiles: profiles(ok("0.3.270", true), CODEX_TOO_OLD) });
     const lines = renderProviders(old.status(), old.detection()).split("\n");
-    expect(lines[0]).toMatch(/^claude   ready        Claude Code \(Agent SDK\) 0\.3\.270  login: ok\s+markers: none$/);
+    expect(lines[0]).toMatch(/^claude   ready        Claude Code \(Agent SDK\) 0\.3\.270  logged in\s+markers: none$/);
     expect(lines[1]).toMatch(new RegExp(`^codex    too old      Codex CLI 0\\.100\\.0                ${codexTooOld("0.100.0").replace(/[.()@]/g, "\\$&")}  markers: none$`));
     expect(lines[0]!.indexOf("markers:")).toBe(lines[1]!.indexOf("markers:"));
     expect(lines[2]).toBe("→ claude — codex too old (0.100.0)");

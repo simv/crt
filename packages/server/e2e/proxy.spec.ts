@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 
 // Everything here goes through `crt serve` in front of the fixture (see playwright.config.ts).
@@ -53,13 +56,27 @@ test("WebSocket from the page echoes through the proxy (F-3)", async ({ page }) 
   expect(echoed).toBe("hmr-style message");
 });
 
-test("/__crt/health reports target and project root (F-4)", async ({ request }) => {
+test("/__crt/health reports target, project root and the rest of the F-78 story (F-4, F-78)", async ({ page, request }) => {
+  await page.goto("/");
+  await expect(page.locator("#crt-host .launcher")).toBeVisible();
   const res = await request.get("/__crt/health");
   expect(res.status()).toBe(200);
-  const body = (await res.json()) as { ok: boolean; target: string; projectRoot: string };
+  const body = (await res.json()) as { ok: boolean; target: string; projectRoot: string; version: string; startedAt: string; tasksDir: string; tasks: number; provider: string; login: string; sessions: number; overlay: { injected: number; fetched: number } };
   expect(body.ok).toBe(true);
   expect(body.target).toBe("http://localhost:3999");
   expect(body.projectRoot.length).toBeGreaterThan(0);
+  expect(body.version).toMatch(/^\d+\.\d+\.\d+/);
+  expect(Date.parse(body.startedAt)).toBeGreaterThan(0);
+  expect(body.tasksDir.length).toBeGreaterThan(0);
+  expect(body.tasks).toBeGreaterThanOrEqual(0);
+  expect(body.provider).toBe("stub");
+  expect(body.login).toBe("unchecked");
+  expect(body.sessions).toBeGreaterThanOrEqual(0);
+  expect(body.overlay.injected).toBeGreaterThan(0);
+  expect(body.overlay.fetched).toBeGreaterThan(0);
+  // F-75: the server said so on its first overlay fetch (crt.mjs mirrors stdout into crt-serve.log).
+  const log = readFileSync(join(dirname(fileURLToPath(import.meta.url)), ".project", "crt-serve.log"), "utf8");
+  expect(log).toMatch(/^crt: overlay loaded in the browser \(GET \/.*\)$/m);
 });
 
 test("absolute redirects to the target are rewritten to the CRT origin (F-4)", async ({ page }) => {

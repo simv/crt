@@ -6,7 +6,9 @@
  *   2. candidates — built-in profiles whose preflight passes; only the default one → default;
  *   3. project markers in the root only (names, never contents): private markers are worth 2,
  *      the shared AGENTS.md 2 for non-default candidates when no default marker is present, else
- *      1 for every candidate that reads it; a strict maximum wins, ties and all-zero → default;
+ *      1 for every candidate that reads it; a strict maximum wins, ties and all-zero → default —
+ *      or, when the default itself is unusable (a logged-out Claude, PRD-setup F-74), the first
+ *      usable candidate, with the default's problem as the reason;
  *   4. an unusable agent the project points at is named in the reason.
  *
  * The decision always carries its reason (Goal 3); `formatDecision` renders it the way the
@@ -80,6 +82,8 @@ export function detectProvider(input: DetectInput): Decision {
     return p.id === DEFAULT_PROVIDER || defaultMarked ? names.join(", ") : `${names.join(", ")}, no Claude markers`;
   };
   if (candidates.every((p) => p.id === DEFAULT_PROVIDER)) return decide(DEFAULT_PROVIDER, defaultProfile ? markerPart(defaultProfile) : null);
+  // F-74: the default is demoted only when it cannot be used and something else can.
+  const fallback = candidates.some((p) => p.id === DEFAULT_PROVIDER) ? DEFAULT_PROVIDER : candidates[0]!.id;
 
   // 3. Project markers, scored for candidates only.
   const scores = candidates.map((p) => {
@@ -89,9 +93,9 @@ export function detectProvider(input: DetectInput): Decision {
   });
   const top = Math.max(...scores.map((s) => s.score));
   const leaders = scores.filter((s) => s.score === top);
-  if (top === 0) return decide(DEFAULT_PROVIDER);
+  if (top === 0) return decide(fallback);
   if (leaders.length > 1) {
-    return decide(DEFAULT_PROVIDER, `tie between ${leaders.map((s) => `${s.p.id} (${(markers[s.p.id] ?? []).join(", ")})`).join(" and ")}`);
+    return decide(fallback, `tie between ${leaders.map((s) => `${s.p.id} (${(markers[s.p.id] ?? []).join(", ")})`).join(" and ")}`);
   }
   const winner = leaders[0]!.p;
   if (winner.id === DEFAULT_PROVIDER) return decide(winner.id, markerPart(winner));

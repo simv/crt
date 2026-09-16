@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_CONFIG, DEFAULT_CONFIG_FILE, initProject, readConfig } from "../src/init.js";
+import { DEFAULT_CONFIG, DEFAULT_CONFIG_FILE, describeInit, initProject, readConfig, writeLocalConfig } from "../src/init.js";
 import { findProjectRoot } from "../src/project.js";
 
 let tmp: string;
@@ -79,7 +79,44 @@ describe("readConfig (F-1)", () => {
   it("reads target and port, ignoring junk values", () => {
     mkdirSync(join(tmp, ".crt"));
     writeFileSync(join(tmp, ".crt", "config.json"), '{"target":"http://localhost:5173","port":"nope"}');
-    expect(readConfig(tmp)).toEqual({ ...DEFAULT_CONFIG, target: "http://localhost:5173" });
+    expect(readConfig(tmp)).toEqual({ ...DEFAULT_CONFIG, target: "http://localhost:5173", targetSource: "project" });
+  });
+
+  it("layers target and port from config.local.json over config.json (PRD-setup F-72, §5.3)", () => {
+    mkdirSync(join(tmp, ".crt"));
+    writeFileSync(join(tmp, ".crt", "config.json"), '{"target":"http://localhost:3000","port":4400}');
+    writeFileSync(join(tmp, ".crt", "config.local.json"), '{"target":"http://localhost:3100","port":4411}');
+    expect(readConfig(tmp)).toMatchObject({ target: "http://localhost:3100", targetSource: "local", port: 4411 });
+    // A junk or empty local value falls through to the project file.
+    writeFileSync(join(tmp, ".crt", "config.local.json"), '{"target":"  ","port":"x"}');
+    expect(readConfig(tmp)).toMatchObject({ target: "http://localhost:3000", targetSource: "project", port: 4400 });
+    // Only the local file sets it → local; neither → null.
+    writeFileSync(join(tmp, ".crt", "config.json"), "{}");
+    writeFileSync(join(tmp, ".crt", "config.local.json"), '{"target":"3100"}');
+    expect(readConfig(tmp)).toMatchObject({ target: "3100", targetSource: "local", port: 4400 });
+    writeFileSync(join(tmp, ".crt", "config.local.json"), "{}");
+    expect(readConfig(tmp)).toMatchObject({ target: null, targetSource: null });
+  });
+
+  it("writeLocalConfig remembers a target next to the provider keys, touching nothing else (F-72)", () => {
+    mkdirSync(join(tmp, ".crt"));
+    writeFileSync(join(tmp, ".crt", "config.local.json"), '{"provider":"claude","models":{"claude":"m"}}');
+    writeLocalConfig(tmp, { target: "http://localhost:3100" });
+    expect(JSON.parse(readFileSync(join(tmp, ".crt", "config.local.json"), "utf8"))).toEqual({ provider: "claude", models: { claude: "m" }, target: "http://localhost:3100" });
+    expect(readConfig(tmp)).toMatchObject({ target: "http://localhost:3100", targetSource: "local" });
+    // Creating the file when absent.
+    rmSync(join(tmp, ".crt", "config.local.json"));
+    writeLocalConfig(tmp, { target: "http://localhost:5173" });
+    expect(JSON.parse(readFileSync(join(tmp, ".crt", "config.local.json"), "utf8"))).toEqual({ target: "http://localhost:5173" });
+  });
+
+  it("describeInit prints the F-75 first-init line, and nothing when nothing was created (PRD-setup F-75)", () => {
+    const first = initProject(tmp);
+    expect(describeInit(tmp, first)).toBe("crt init: created .crt/tasks, .crt/config.json; added .crt/captures/ and .crt/config.local.json to .gitignore — commit .crt/");
+    expect(describeInit(tmp, initProject(tmp))).toBeNull();
+    // Only the second ignore line missing (a v0.1 checkout): named alone.
+    writeFileSync(join(tmp, ".gitignore"), ".crt/captures/\n");
+    expect(describeInit(tmp, initProject(tmp))).toBe("crt init: added .crt/config.local.json to .gitignore — commit .crt/");
   });
 });
 
