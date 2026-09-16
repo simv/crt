@@ -140,6 +140,37 @@ test.describe("chat panel (F-24, F-25, F-26, F-28, F-29)", () => {
     }
   });
 
+  test("the Accept button appears when the proposal ends on the accept line, sends 'Accept', and disappears once the task is written (F-27)", async ({ page }) => {
+    await sendAndWaitForPermission(page);
+    // Nothing to accept while the agent is still working or waiting on a permission.
+    await expect(shadow(page, ".chat-accept")).toBeHidden();
+    await shadow(page, ".perm button.deny").click();
+    await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
+    await expect(shadow(page, ".msg.assistant").nth(1)).toContainText("Accept as-is, or tell me what to change, and I'll write the task.");
+    await expect(shadow(page, ".chat-accept")).toBeVisible();
+
+    // A reload replays the transcript and reaches the same idle-on-proposal state (F-25).
+    await page.reload();
+    await expect(shadow(page, ".chat")).toBeVisible();
+    await expect(shadow(page, ".chat-accept")).toBeVisible();
+
+    await shadow(page, ".chat-accept button").click();
+    await expect(shadow(page, ".chat-accept")).toBeHidden();
+    await expect(shadow(page, ".msg.user").nth(1)).toHaveText("Accept");
+    await expect(shadow(page, ".chat-task")).toBeVisible();
+    await expect(shadow(page, ".chat-task b")).toHaveText(/^CRT-\d{4}$/);
+    await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
+    await expect(shadow(page, ".chat-accept")).toBeHidden(); // the confirmation turn does not end on the line
+
+    const snap = await page.evaluate(() => window.__crt.chat.snapshot());
+    const written = snap.events.find((e) => e.type === "task_written") as Extract<SessionEvent, { type: "task_written" }>;
+    const root = await projectRoot(page);
+    const tasksDir = join(root, ".crt", "tasks");
+    rmSync(join(root, written.path), { force: true });
+    rmSync(join(tasksDir, "assets", written.id), { recursive: true, force: true });
+    writeIndex(tasksDir);
+  });
+
   test("Quick note: the chat stays hidden, Claude writes the task, the status line shows the id (F-14)", async ({ page }) => {
     await page.goto("/app");
     await shadow(page, ".launcher").click();
