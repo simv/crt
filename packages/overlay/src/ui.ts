@@ -47,12 +47,13 @@ const CSS = `
                      background: ${ACCENT}; color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
   .launcher .count.on { display: inline-block; }
   .dock { position: fixed; pointer-events: auto; display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
-          width: min(360px, calc(100vw - 32px)); }
+          width: min(440px, calc(100vw - 32px)); }
   .dock[hidden] { display: none; }
   .dock.chat-open { width: min(520px, calc(100vw - 32px)); }
   .toolbar { display: flex; gap: 4px; align-items: center; padding: 6px; border-radius: 12px; background: #fff;
-             box-shadow: 0 8px 28px rgba(0,0,0,.22); border: 1px solid rgba(0,0,0,.08); }
-  .toolbar button { padding: 6px 10px; border-radius: 8px; font-weight: 500; }
+             box-shadow: 0 8px 28px rgba(0,0,0,.22); border: 1px solid rgba(0,0,0,.08);
+             width: max-content; max-width: calc(100vw - 32px); overflow-x: auto; }
+  .toolbar button { padding: 6px 10px; border-radius: 8px; font-weight: 500; white-space: nowrap; }
   .toolbar button:hover { background: #f0f0f0; }
   .toolbar button.active { background: #111; color: #fff; }
   .toolbar button.primary { background: ${ACCENT}; color: #fff; font-weight: 600; }
