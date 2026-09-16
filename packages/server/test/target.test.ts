@@ -1,14 +1,19 @@
 import { createServer, type Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { CrtError } from "../src/errors.js";
-import { isReachable, normalizeTarget, resolveTarget } from "../src/target.js";
+import { isReachable, looksLikeTarget, normalizeTarget, parseTargetAnswer, probeAll, probeOrigin, shortTarget, titleOf } from "../src/target.js";
 
 let server: Server;
 let port: number;
 let freePort: number;
 
 beforeAll(async () => {
-  server = createServer((_req, res) => {
+  server = createServer((req, res) => {
+    if (req.url === "/") {
+      res.writeHead(200, { "content-type": "text/html", "x-powered-by": "Fixture" });
+      res.end("<!doctype html><html><head><title>  Trial\n app </title></head><body></body></html>");
+      return;
+    }
     res.writeHead(404); // any HTTP answer counts as "up"
     res.end();
   });
@@ -42,32 +47,42 @@ describe("isReachable (F-1)", () => {
   });
 });
 
-describe("resolveTarget (F-1)", () => {
-  it("uses the flag first, then config, and verifies reachability", async () => {
-    expect(await resolveTarget({ flag: `127.0.0.1:${port}`, configTarget: "http://localhost:1" })).toEqual({
-      origin: `http://127.0.0.1:${port}`,
-      source: "flag",
-    });
-    expect(await resolveTarget({ configTarget: `http://127.0.0.1:${port}` })).toEqual({
-      origin: `http://127.0.0.1:${port}`,
-      source: "config",
-    });
+describe("probeAll / probeOrigin (PRD-setup F-71)", () => {
+  it("labels a responder with its <title> (whitespace collapsed), falling back to X-Powered-By", async () => {
+    expect(await probeOrigin(`http://127.0.0.1:${port}`)).toEqual({ up: true, label: "Trial app" });
+    expect(await probeOrigin(`http://127.0.0.1:${freePort}`, 500)).toEqual({ up: false, label: null });
+    expect(titleOf("<html><head><TITLE>x</TITLE>")).toBe("x");
+    expect(titleOf("<html><title></title>")).toBeNull();
+    expect(titleOf("no title here")).toBeNull();
+    expect(titleOf(`<title>${"a".repeat(80)}</title>`)).toHaveLength(58);
   });
 
-  it("probes ports in order and reports the first that answers", async () => {
-    const r = await resolveTarget({ ports: [freePort, port], host: "127.0.0.1" });
-    expect(r).toEqual({ origin: `http://127.0.0.1:${port}`, source: "probe" });
+  it("collects every responder in probe order and skips closed ports", async () => {
+    expect(await probeAll({ ports: [freePort, port], host: "127.0.0.1", timeoutMs: 500 })).toEqual([{ origin: `http://127.0.0.1:${port}`, label: "Trial app" }]);
+    expect(await probeAll({ ports: [freePort], host: "127.0.0.1", timeoutMs: 500 })).toEqual([]);
+  });
+});
+
+describe("looksLikeTarget / parseTargetAnswer / shortTarget (PRD-setup F-69, F-71)", () => {
+  it("recognises bare digits, host:port and URLs as a positional target, nothing else", () => {
+    for (const t of ["3000", "3100", "localhost:3000", "127.0.0.1:8080", "[::1]:3000", "http://localhost:3000", "https://app.local/x", "my-host.dev:5173/path"]) {
+      expect(looksLikeTarget(t), t).toBe(true);
+    }
+    for (const t of ["", "doctor", "serve", "-h", "--yes", "abc", "localhost", "CRT-0001", "3000x"]) expect(looksLikeTarget(t), t).toBe(false);
   });
 
-  it("fails with one actionable line when the explicit target is down (N-6)", async () => {
-    await expect(resolveTarget({ flag: `http://127.0.0.1:${freePort}` })).rejects.toThrow(
-      `target http://127.0.0.1:${freePort} is not responding — start your dev server there or pass --target <url>`,
-    );
+  it("turns a valid prompt answer into an origin and rejects the rest (F-71 validation)", () => {
+    expect(parseTargetAnswer(" 3100 ")).toBe("http://localhost:3100");
+    expect(parseTargetAnswer("localhost:3000")).toBe("http://localhost:3000");
+    expect(parseTargetAnswer("http://127.0.0.1:8080/x")).toBe("http://127.0.0.1:8080");
+    expect(parseTargetAnswer("abc")).toBeNull();
+    expect(parseTargetAnswer("")).toBeNull();
+    expect(parseTargetAnswer("ftp://x:1")).toBeNull();
   });
 
-  it("fails with one actionable line when nothing is found (N-6)", async () => {
-    await expect(resolveTarget({ ports: [freePort], host: "127.0.0.1" })).rejects.toThrow(
-      `no dev server found on ports ${freePort} — start it, or pass --target <url>`,
-    );
+  it("shortens a localhost origin to its port for the crt <port> hints", () => {
+    expect(shortTarget("http://localhost:3000")).toBe("3000");
+    expect(shortTarget("http://127.0.0.1:3000")).toBe("http://127.0.0.1:3000");
+    expect(shortTarget("https://localhost:8443")).toBe("https://localhost:8443");
   });
 });

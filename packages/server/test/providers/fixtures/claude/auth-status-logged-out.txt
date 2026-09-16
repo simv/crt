@@ -1,0 +1,11 @@
+# claude 2.1.270 (Claude Code): the logged-in shape with loggedIn false — synthesised, no logged-out account was available to record; PRD-setup §12 rule 1 applies when the real shape differs
+# command: claude.exe auth status --json
+# exit: 0
+{
+  "loggedIn": false,
+  "authMethod": null,
+  "apiProvider": "firstParty",
+  "analyticsDisabled": false,
+  "projectsDirectory": "C:\\Users\\dev\\.claude\\projects",
+  "configDirectory": "C:\\Users\\dev\\.claude"
+}

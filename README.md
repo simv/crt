@@ -49,20 +49,26 @@ claude                       # your normal Claude Code session in the project
 
 `/crt:next` claims the task (`status: in_progress`, log entry, branch `crt/CRT-0007-<slug>`), implements the **Ask**, ticks each **Definition of Done** item it verified, runs the project's tests/lint/build, sets `status: review`, commits, pushes and opens a PR whose body is the task's Summary + DoD + a link to the task file. It never asks you anything: if the task file is not enough to proceed it sets `status: blocked` with the question in the **Log** — answer it under **Notes** and run `/crt:next CRT-0007` again. Merging is yours.
 
-### `crt serve` flags
+### `crt` flags
 
 ```
-crt serve [--target <url>] [--port <n>] [--open] [--provider <id>]
+crt [target] [--port <n>] [--open | --no-open] [--yes] [--replace] [--provider <id>]
+crt serve [target] [--target <url>] …          # the same command under its explicit name
+crt doctor                                     # checklist: node, project, .crt, target, port, providers, plugin
+crt --version                                  # crt <version> (agent sdk <version>)
 ```
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--target <url>` | auto | Dev server to proxy. Accepts `3000`, `localhost:3000` or a full URL. Without it, CRT reads `target` from `.crt/config.json`, then probes ports 3000, 5173, 8080, 4200, 8000, 3001 and takes the first that answers. |
-| `--port <n>` | `4400` (or `port` in `.crt/config.json`) | Port CRT listens on. Always bound to `127.0.0.1`. |
-| `--open` | off | Open the CRT URL in your default browser once ready. |
+| `[target]` | auto | Dev server to proxy, as a positional: `3000`, `localhost:3000` or a full URL. Remembered in `.crt/config.local.json` once it responds; `crt <port>` switches it. |
+| `--target <url>` | auto | The same, as a flag (what scripts and the skills pass); never remembered. Without either, CRT reads `target` from `.crt/config.local.json`, then `.crt/config.json`, then probes ports 3000, 5173, 8080, 4200, 8000, 3001. On a terminal it asks when there are several or none and waits for the one you name. |
+| `--port <n>` | `4400` (or `port` in `.crt/config.local.json` / `.crt/config.json`) | Port CRT listens on. Always bound to `127.0.0.1`. Never stepped around; without it a held port falls back to 4401…4409. |
+| `--open` / `--no-open` | on for a terminal, off otherwise | Open the CRT URL in your default browser once ready. |
+| `--yes` | off | Never prompt: every question takes its default or fails with one `crt:` line (also the behaviour off a terminal or with `CI` set). |
+| `--replace` | off | Stop a CRT already holding the port (through its `POST /__crt/internal/shutdown`, which any local process may call) and take it over. |
 | `--provider <id>` | auto | The agent behind the chat: `claude` (default) or `codex`. See [Providers](#providers). |
 
-On success it prints one line — `CRT ready at http://localhost:4400 → http://localhost:3000 (project: C:\my-app, 3 tasks)` — and keeps running until Ctrl+C. `crt serve` first runs `crt init`, which creates `.crt/tasks/`, `.crt/config.json` and adds `.crt/captures/` to `.gitignore` (idempotent). Every failure is a single `crt: …` line on stderr and a non-zero exit — see [Troubleshooting](#troubleshooting) for what each one means.
+On success it prints one line — `CRT ready at http://localhost:4400 → http://localhost:3000 (project: C:\my-app, 3 tasks in .crt\tasks, provider: claude (default), login: ok)` — and keeps running until Ctrl+C (`Stopping CRT … 1 session ended; written task files are kept.`). When a CRT from an earlier session already serves the same project and target on the port, `crt` says `CRT <version> is already serving … — opened it.` and exits 0; when it serves something else, or the port is held by something that is not CRT, `crt` takes the next free port and says so (`crt: port 4400 is held by another CRT (→ <target>, project <root>); using 4401` / `crt: port 4400 is in use by a process that is not CRT; using 4401`). `crt` first runs `crt init`, which creates `.crt/tasks/`, `.crt/config.json` and adds `.crt/captures/` and `.crt/config.local.json` to `.gitignore` (idempotent; the first run prints `crt init: created … — commit .crt/`). Every failure is a single `crt: …` line on stderr and a non-zero exit — run `crt doctor` first, then see [Troubleshooting](#troubleshooting) for what each one means.
 
 ### What Claude gets
 
@@ -213,18 +219,18 @@ Each `crt serve` failure is one line on stderr, prefixed `crt: `, followed by a 
 ### No dev server found
 
 ```
-crt: no dev server found on ports 3000, 5173, 8080, 4200, 8000, 3001 — start it, or pass --target <url>
+crt: no dev server found on ports 3000, 5173, 8080, 4200, 8000, 3001 — start it, or run `crt <port>`
 ```
 
-You ran `crt serve` without `--target` and without `target` in `.crt/config.json`, and nothing answered HTTP on any of the probed ports. Start your dev server first, or point CRT at it explicitly with `--target <url>` (or set `target` in `.crt/config.json`).
+You ran `crt` off a terminal (or with `--yes`) without a target, without `target` in either config file, and nothing answered HTTP on any of the probed ports. Start your dev server first, or name it: `crt 3100` (remembered per machine in `.crt/config.local.json`), `--target <url>`, or `target` in `.crt/config.json`. On a terminal `crt` asks for the URL or port instead and waits for it to come up; with several dev servers up it lists them (off a terminal: `crt: found N dev servers (…); using <first> — run `crt <port>` to pick another`).
 
 ### Target unreachable
 
 ```
-crt: target <origin> is not responding — start your dev server there or pass --target <url>
+crt: target <origin> is not responding — start your dev server there, or run `crt <port>`
 ```
 
-CRT had an explicit target — from `--target` or from `.crt/config.json` — but the connection was refused or timed out after 1.5s. Check the dev server really is up on that host and port (any HTTP status counts as up, so a 404 is fine) and that the port is not a typo.
+CRT had an explicit target — positional, `--target`, or from a config file — but the connection was refused or timed out after 1.5s. Check the dev server really is up on that host and port (any HTTP status counts as up, so a 404 is fine) and that the port is not a typo. On a terminal `crt` waits for it instead, re-probing every 2 s, and offers another dev server it found.
 
 ### Target not a valid URL
 
@@ -238,18 +244,22 @@ The `--target` value (or `target` in `.crt/config.json`) could not be parsed as 
 ### Port in use
 
 ```
-crt: port <port> is already in use — stop the other process or pass --port <n>
+crt: port <port> is already in use by CRT <version> (→ <target>, project <root>) — stop the other process, run `crt --replace`, or pass --port <n>
+crt: port <port> is already in use by a process that is not CRT — stop the other process or pass --port <n>
+crt: could not stop the CRT on port <port> (<reason>) — stop it yourself, or run `crt --port <n>`
+crt: ports <port>–<port+9> are all in use — run `crt --port <n>`
 ```
 
-Something else — usually a `crt serve` you left running — already holds CRT's listen port on `127.0.0.1`. Stop that process, or run CRT on another port with `--port <n>` (or set `port` in `.crt/config.json`); any other bind failure prints `crt: cannot listen on 127.0.0.1:<port> (<code>)` instead.
+The first two appear only with an explicit `--port`, which is never stepped around: without it `crt` reuses a CRT that serves the same project and target, and otherwise takes the next free port (see the flags table). `--replace` asks the other CRT to stop; the third line means it did not. Any other bind failure prints `crt: cannot listen on 127.0.0.1:<port> (<code>)` instead. `crt doctor` shows who holds the port.
 
-### No Claude login (shown in the page, not on the CLI)
+### No Claude login
 
 ```
-not logged in to Claude Code — run `claude` in a terminal and complete /login (or set CLAUDE_CODE_OAUTH_TOKEN), then send again
+crt: not logged in to Claude Code — run `claude` in a terminal and complete /login (or set CLAUDE_CODE_OAUTH_TOKEN), then send again
+crt: not logged in to Claude Code — run `claude` in a terminal and complete /login (or set CLAUDE_CODE_OAUTH_TOKEN), then send again (install Claude Code first: npm i -g @anthropic-ai/claude-code)
 ```
 
-The proxy started fine, but the Claude Code session behind **Send to Claude** has no usable credentials, so the error arrives in the in-page chat. Run `claude` in a terminal and complete `/login` (or set `CLAUDE_CODE_OAUTH_TOKEN`), then send your note again — no need to restart `crt serve`.
+CRT asks the bundled Claude Code binary `auth status --json` at start (reading only its `loggedIn` flag) and prints this right after the ready line, whose `login:` field says `missing`; the second form appears when `claude` is not on your PATH. `crt providers` and `crt doctor` show the same state. Run `claude` in a terminal and complete `/login` (or set `CLAUDE_CODE_OAUTH_TOKEN`), then send your note — no need to restart `crt`; the page re-checks. When Codex is installed and logged in, a logged-out Claude is stepped over: the ready line reads `provider: codex — claude not logged in`.
 
 ### No `.git` in the project
 

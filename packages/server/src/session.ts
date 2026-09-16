@@ -265,20 +265,22 @@ export function describeResolution(r: Resolution): string {
 /**
  * F-45 human layout, exactly:
  *
- *   claude   ready        Claude Code (Agent SDK)    login: unknown until a session starts    markers: .claude/, CLAUDE.md
+ *   claude   ready        Claude Code (Agent SDK)    logged in                                markers: .claude/, CLAUDE.md
  *   codex    not on PATH  Codex CLI                  install: npm i -g @openai/codex          markers: AGENTS.md
  *   → claude — .claude/, CLAUDE.md; codex not on PATH
+ *
+ * The login cell is `logged in` / `not logged in` / `login unknown` (PRD-setup F-74 amends F-45).
  */
 export function renderProviders(rows: ProviderStatus[], decision: Decision): string {
   const cells = rows.map((r) => {
     const name = r.version ? `${r.agentName} ${r.version}` : r.agentName;
     const hint =
       r.state === "ready"
-        ? `login: ${r.loggedIn === true ? "ok" : "unknown until a session starts"}`
+        ? loginWord(r.loggedIn)
         : r.state === "not on PATH"
           ? `install: ${r.hints.install}`
           : r.state === "not logged in"
-            ? `login: ${r.hints.login}`
+            ? `not logged in — ${r.hints.login}`
             : (r.problem ?? r.state);
     return [r.id, r.state, name, hint, `markers: ${r.markers.length ? r.markers.join(", ") : "none"}`];
   });
@@ -287,4 +289,15 @@ export function renderProviders(rows: ProviderStatus[], decision: Decision): str
   const lines = cells.map((c) => c.map((cell, i) => (i < widths.length ? cell.padEnd(widths[i]!) : cell)).join(""));
   lines.push(`→ ${formatDecision(decision)}`);
   return lines.join("\n");
+}
+
+/** F-74: the three words for a login state, as `crt providers` and `crt doctor` print them. */
+export function loginWord(loggedIn: LoggedIn): "logged in" | "not logged in" | "login unknown" {
+  return loggedIn === true ? "logged in" : loggedIn === false ? "not logged in" : "login unknown";
+}
+
+/** F-75/F-78: the `login:` field of the ready line and the health payload for the resolved provider. */
+export function loginField(r: Pick<Resolution, "provider">, providers: ProviderRegistry): "ok" | "missing" | "unchecked" {
+  const l = providers.preflight(r.provider).loggedIn;
+  return l === true ? "ok" : l === false ? "missing" : "unchecked";
 }

@@ -2,14 +2,17 @@
 /**
  * CRT command-line entry point.
  *
- * Commands (see docs/PRD.md §6 and docs/PRD-providers.md §6):
- *   crt serve [--target <url>] [--port <n>] [--open] [--provider <id>]   F-1, F-5, F-43
+ * Commands (see docs/PRD.md §6, docs/PRD-providers.md §6 and docs/PRD-setup.md §6.1):
+ *   crt [target] [--port <n>] [--open|--no-open] [--yes] [--replace] [--provider <id>]   F-69…F-73 (the guided start)
+ *   crt serve [target] [--target <url>] …                                the same under its explicit name (F-1, F-5, F-43)
+ *   crt doctor                                                           F-76
  *   crt init                                                             F-35
  *   crt tasks [--json]                                                   F-33 (also refreshes the README index, F-34)
  *   crt task <ID> [--validate]                                           F-33 (F-32 format check)
  *   crt providers [--json] [--refresh]                                   F-45 (every provider's state + the F-44 decision)
  *   crt mcp                                                              F-49 (stdio write_task server; spawned by an agent, not by hand)
  *   crt skills install [--provider <id>] [--global] [--dir <path>]       F-58 (the plugin's skills as portable Agent Skills)
+ *   crt help | --help | -h, crt --version                                F-69
  *
  * Every failure is one `crt: <message>` line on stderr and a non-zero exit (N-6). The server
  * and provider modules (and with them the Agent SDK) are imported only by the commands that
@@ -20,24 +23,59 @@ import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "./args.js";
 import { CrtError } from "./errors.js";
-import { initProject, readConfig } from "./init.js";
+import { describeInit, initProject, readConfig } from "./init.js";
 import { findProjectRoot } from "./project.js";
+import { looksLikeTarget } from "./target.js";
 import { findTaskFile, listTasks, validateTaskText, writeIndex } from "./tasks.js";
+import { packageVersion } from "./version.js";
 
 const USAGE = [
   "crt — Claude Review Tool",
   "",
   "Usage:",
-  "  crt serve [--target <url>] [--port <n>] [--open] [--provider <id>]",
+  "  crt [target]            start: find the dev server (or ask once), open http://localhost:4400",
+  "  crt serve [target]      the same, under its explicit name",
+  "      [--target <url>] [--port <n>] [--open | --no-open] [--yes] [--replace] [--provider <id>]",
+  "  crt doctor              check node, project, .crt, target, port, providers, plugin",
   "  crt init",
   "  crt tasks [--json]",
   "  crt task <ID> [--validate]",
   "  crt providers [--json] [--refresh]",
-  "  crt mcp    (stdio write_task server for agents; needs CRT_MCP_TOKEN and CRT_MCP_PORT)",
+  "  crt mcp                 (stdio write_task server for agents; needs CRT_MCP_TOKEN and CRT_MCP_PORT)",
+  "  crt --version",
+  "",
+  "A target is a port (3000), host:port (localhost:3000) or a URL. `crt` remembers the one you",
+  "typed or picked in .crt/config.local.json; `crt <port>` switches it.",
 ].join("\n");
 
+const COMMANDS = new Set(["serve", "doctor", "init", "tasks", "task", "providers", "mcp", "skills", "help"]);
+
+/** F-77: a second Ctrl+C within this window exits at once. */
+const FORCE_EXIT_MS = 2_000;
+
 async function main(argv: string[]): Promise<number> {
-  const { command, positionals, flags } = parseArgs(argv);
+  const parsed = parseArgs(argv);
+  let { command, positionals } = parsed;
+  const { flags } = parsed;
+
+  // F-69: `crt --version`, `crt help` / `--help` / `-h`.
+  if (command === undefined && flags.version === true) {
+    const { sdkVersion } = await import("./providers/claude.js");
+    console.log(`crt ${packageVersion()} (agent sdk ${sdkVersion() ?? "not installed"})`);
+    return 0;
+  }
+  if (command === "help" || command === "-h" || flags.help === true || flags.h === true) {
+    console.log(USAGE);
+    return 0;
+  }
+  // F-69: bare `crt` and `crt <target>` start.
+  if (command === undefined || looksLikeTarget(command)) {
+    positionals = command === undefined ? [] : [command, ...positionals];
+    command = "serve";
+  } else if (!COMMANDS.has(command)) {
+    throw new CrtError(`unknown command "${command}" — a target is a port, host:port or URL; \`crt help\` lists commands`, 2);
+  }
+
   switch (command) {
     case "mcp": {
       // F-49: stdout is the MCP transport from here on; nothing else may write to it.
@@ -45,30 +83,54 @@ async function main(argv: string[]): Promise<number> {
       return runMcpStdio({ input: process.stdin, output: process.stdout, env: process.env });
     }
     case "serve": {
+      const positional = positionals[0];
+      if (positional !== undefined && !looksLikeTarget(positional)) {
+        throw new CrtError(`target "${positional}" is not a port, host:port or URL — try 3000, localhost:3000 or http://…`, 2);
+      }
+      if (positionals.length > 1) throw new CrtError(`unexpected argument "${positionals[1]}" — \`crt help\` lists commands`, 2);
+      const { isInteractive, createTerminalPrompter } = await import("./prompt.js");
+      const interactive = isInteractive({ yes: flags.yes === true });
+      // §5.2: the browser opens by default on a terminal (`--no-open` suppresses) and only with `--open` otherwise.
+      const open = flags["no-open"] === true ? false : flags.open === true || interactive;
       const { serve } = await import("./serve.js");
-      const handle = await serve({
+      const result = await serve({
+        positional,
         target: stringFlag(flags.target, "--target <url>"),
         port: portFlag(flags.port),
-        open: flags.open === true,
+        open,
+        replace: flags.replace === true,
         provider: stringFlag(flags.provider, "--provider <id>"),
+        interactive,
+        ...(interactive ? { prompt: createTerminalPrompter({ input: process.stdin, output: process.stdout }) } : {}),
         overlayPath: fileURLToPath(new URL("./overlay.js", import.meta.url)),
         intakePromptPath: fileURLToPath(new URL("./intake.md", import.meta.url)),
       });
+      if (result.kind === "reused") return 0;
+      const { handle } = result;
+      // F-77: Ctrl+C / SIGTERM close cleanly and exit 0; a second Ctrl+C within 2 s exits at once.
+      let stopping = false;
       const stop = () => {
+        if (stopping) process.exit(0);
+        stopping = true;
+        const n = handle.openSessions();
+        console.log(`Stopping CRT … ${n} session${n === 1 ? "" : "s"} ended; written task files are kept.`);
         void handle.close().then(() => process.exit(0));
+        setTimeout(() => process.exit(0), FORCE_EXIT_MS).unref();
       };
-      process.once("SIGINT", stop);
-      process.once("SIGTERM", stop);
+      process.on("SIGINT", stop);
+      process.on("SIGTERM", stop);
       return -1; // keep running
+    }
+    case "doctor": {
+      const { runDoctor } = await import("./doctor.js");
+      const r = await runDoctor({ version: packageVersion() });
+      console.log(r.text);
+      return r.exitCode;
     }
     case "init": {
       const root = findProjectRoot();
       const r = initProject(root);
-      console.log(
-        r.created.length
-          ? `crt init: created ${r.created.join(", ")}`
-          : `crt init: ${root} already initialised`,
-      );
+      console.log(describeInit(root, r) ?? `crt init: ${root} already initialised`);
       return 0;
     }
     case "tasks": {
@@ -150,12 +212,9 @@ async function main(argv: string[]): Promise<number> {
       console.log(r.written.length ? `crt skills: ${r.written.length} skill${r.written.length === 1 ? "" : "s"} installed in ${r.dir}` : `crt skills: ${r.dir} already up to date (${r.unchanged.length} skills)`);
       return 0;
     }
-    case undefined:
+    default:
       console.log(USAGE);
       return 0;
-    default:
-      console.error(`crt: unknown command "${command}"\n\n${USAGE}`);
-      return 1;
   }
 }
 

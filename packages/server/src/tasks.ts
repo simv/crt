@@ -385,6 +385,11 @@ export function findTaskFile(tasksDir: string, id: string): string | null {
   return null;
 }
 
+/** How many task files the directory holds (the ready line's "N tasks", F-5; health's `tasks`, F-78). */
+export function countTaskFiles(tasksDir: string): number {
+  return safeReaddir(tasksDir).filter((name) => TASK_FILE_RE.test(name)).length;
+}
+
 /** F-33: every well-formed task in the directory, sorted by id. Malformed files are skipped. */
 export function listTasks(tasksDir: string): TaskSummary[] {
   const out: TaskSummary[] = [];

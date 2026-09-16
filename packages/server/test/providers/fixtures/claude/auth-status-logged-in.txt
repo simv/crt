@@ -1,0 +1,15 @@
+# claude 2.1.270 (Claude Code), the Agent SDK 0.3.270 bundled binary, Windows, 2026-09-16 (account values replaced)
+# command: claude.exe auth status --json
+# exit: 0
+{
+  "loggedIn": true,
+  "authMethod": "claude.ai",
+  "apiProvider": "firstParty",
+  "analyticsDisabled": false,
+  "projectsDirectory": "C:\\Users\\dev\\.claude\\projects",
+  "configDirectory": "C:\\Users\\dev\\.claude",
+  "email": "dev@example.com",
+  "orgId": "00000000-0000-4000-8000-000000000000",
+  "orgName": "dev@example.com's Organization",
+  "subscriptionType": "max"
+}
