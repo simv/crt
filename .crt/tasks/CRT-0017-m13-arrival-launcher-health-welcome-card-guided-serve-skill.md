@@ -1,10 +1,10 @@
 ---
 id: CRT-0017
 title: M13 — Arrival: launcher health dot, welcome card, overlay-missing detection, guided /crt:serve
-status: backlog
+status: in_progress
 priority: high
 created: 2026-09-16T14:50:00+08:00
-updated: 2026-09-16T14:50:00+08:00
+updated: 2026-09-16T20:13:00+08:00
 url: http://localhost:4400/
 route: /
 session: null
@@ -43,3 +43,4 @@ Health polling is forbidden (PRD-setup §3); the dot updates only on the three t
 
 ## Log
 - 2026-09-16T14:50+08:00 — created from docs/PRD-setup.md milestone M13 by the planning session that wrote it.
+- 2026-09-16T20:13+08:00 — claimed by /crt:next, session 40443fbf-ef15-4b38-9e2a-774cdba2ba4a, branch crt/CRT-0017-m13-arrival-launcher-health-welcome-card-guided-serve-skill
