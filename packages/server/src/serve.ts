@@ -79,9 +79,10 @@ export async function serve(opts: ServeOptions): Promise<ServeHandle> {
     tasksDir,
     intakePrompt: loadIntakePrompt(opts.intakePromptPath),
     providers,
+    port, // F-49: where `crt mcp` posts write_task back to
     log,
   });
-  const server = createProxyServer({ target: target.origin, projectRoot, overlayPath: opts.overlayPath, sessions });
+  const server = createProxyServer({ target: target.origin, projectRoot, overlayPath: opts.overlayPath, sessions, providers });
   await listen(server, port);
 
   const url = `http://localhost:${port}`;

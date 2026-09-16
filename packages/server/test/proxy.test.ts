@@ -152,10 +152,10 @@ describe("reverse proxy (F-4)", () => {
 });
 
 describe("CRT routes (F-4)", () => {
-  it("serves /__crt/health with target and project root", async () => {
+  it("serves /__crt/health with target, project root and the provider (null without a registry) (F-4, F-57)", async () => {
     const r = await raw("/__crt/health");
     expect(r.status).toBe(200);
-    expect(JSON.parse(r.body.toString())).toEqual({ ok: true, target: fixture.url, projectRoot: tmp });
+    expect(JSON.parse(r.body.toString())).toEqual({ ok: true, target: fixture.url, projectRoot: tmp, provider: null });
   });
 
   it("serves /__crt/overlay.js with no-cache headers", async () => {

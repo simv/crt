@@ -5,10 +5,12 @@ import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { startFixture, type Fixture } from "../e2e/fixture/server.mjs";
 import { writeCapture } from "../src/captures.js";
+import { FIRST_MESSAGE_HEADING, QUICK_NOTE_INSTRUCTIONS } from "../src/intake-message.js";
+import { INTERNAL_WRITE_TASK_PATH } from "../src/mcp-stdio.js";
 import { createProxyServer } from "../src/proxy.js";
-import { stubProfile } from "../src/providers/stub.js";
+import { makeStubProfile, stubProfile } from "../src/providers/stub.js";
 import { ProviderRegistry } from "../src/session.js";
-import type { SessionEvent } from "../src/session-events.js";
+import type { SessionEvent, WriteTaskRequest } from "../src/session-events.js";
 import { SessionRegistry } from "../src/sessions.js";
 import { parseTask, validateTaskText } from "../src/tasks.js";
 import { samplePost } from "./helpers/sample-capture.js";
@@ -38,9 +40,10 @@ beforeAll(async () => {
     permissionTimeoutMs: 400,
     log: (l) => logs.push(l),
   });
-  proxy = createProxyServer({ target: fixture.url, projectRoot: root, overlayPath: join(root, "overlay.js"), sessions: registry });
+  proxy = createProxyServer({ target: fixture.url, projectRoot: root, overlayPath: join(root, "overlay.js"), sessions: registry, providers });
   await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
-  crt = `http://localhost:${(proxy.address() as { port: number }).port}`;
+  registry.mcpPort = (proxy.address() as { port: number }).port;
+  crt = `http://localhost:${registry.mcpPort}`;
 });
 
 afterAll(async () => {
@@ -293,6 +296,89 @@ provider: stub
     expect(strict.list().map((s) => s.id)).toContain(info.id);
     expect(strict.send(info.id, "hi")).toBe(false);
     strict.closeAll();
+  });
+
+  it("the same write_task request yields the same file through the in-process tool and the stdio route (§5.3, F-49)", async () => {
+    // In-process: the stub calls its `writeTask` option when told to write (the Claude driver's path).
+    const capA = writeCapture(root, samplePost());
+    const a = (await api("POST", "/__crt/sessions", { captureId: capA.id })).json as { id: string };
+    await collect(`/__crt/sessions/${a.id}/events`, (e) => e.type === "permission");
+    await api("POST", `/__crt/sessions/${a.id}/messages`, { text: "write" });
+    const viaTool = await collect(`/__crt/sessions/${a.id}/events`, (e) => e.type === "task_written");
+    const wroteA = viaTool.events.find((e) => e.type === "task_written") as Extract<SessionEvent, { type: "task_written" }>;
+    // Over stdio: `crt mcp` POSTs the same arguments with the session's bearer token (the stub's fixed request).
+    const capB = writeCapture(root, samplePost());
+    const b = (await api("POST", "/__crt/sessions", { captureId: capB.id })).json as { id: string };
+    await collect(`/__crt/sessions/${b.id}/events`, (e) => e.type === "init");
+    const request: WriteTaskRequest = {
+      title: "Cart total excludes applied discount",
+      summary: "The cart total ignores the SAVE10 promo that the page shows as applied.",
+      context: "Reproduce: open /cart?promo=SAVE10. `CartSummary` (src/components/Cart.tsx:88) renders `subtotal` instead of `total`.",
+      ask: "Render the discounted total and cover it with a unit test.",
+      definitionOfDone: ["Cart total applies the promo discount", "Unit test covers the discounted total"],
+      notes: "Stub intake; nothing was read from disk.",
+      tags: ["cart", "pricing"],
+      files: ["src/components/Cart.tsx"],
+    };
+    const res = await fetch(crt + INTERNAL_WRITE_TASK_PATH, {
+      method: "POST",
+      headers: { authorization: `Bearer ${registry.tokenOf(b.id)!}`, "content-type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    expect(res.status).toBe(201);
+    const wroteB = (await res.json()) as { ok: boolean; id: string; path: string };
+    expect(wroteB).toEqual({ ok: true, id: "CRT-0002", path: ".crt/tasks/CRT-0002-cart-total-excludes-applied-discount.md" });
+    // The route emitted task_written like the in-process tool does, and the registry learned the id.
+    const viaRoute = await collect(`/__crt/sessions/${b.id}/events`, (e) => e.type === "task_written");
+    expect(viaRoute.events.find((e) => e.type === "task_written")).toEqual({ type: "task_written", id: "CRT-0002", path: wroteB.path });
+    expect(registry.get(b.id)?.taskId).toBe("CRT-0002");
+    // Same file apart from the id, the session, the capture id and the timestamps.
+    const normalise = (text: string, id: string, session: string, capture: string) =>
+      text.split(id).join("CRT-NNNN").split(session).join("SESSION").split(capture).join("CAPTURE").replace(/\d{4}-\d{2}-\d{2}T[\d:+.-]+/g, "TIME");
+    const fileA = normalise(readFileSync(join(root, wroteA.path), "utf8"), wroteA.id, a.id, capA.id);
+    const fileB = normalise(readFileSync(join(root, wroteB.path), "utf8"), wroteB.id, b.id, capB.id);
+    expect(fileB).toBe(fileA);
+    expect(fileB).toContain("provider: stub");
+    // Bad arguments are a 400 with the first problem named; a stale token a bare 404.
+    const bad = await fetch(crt + INTERNAL_WRITE_TASK_PATH, { method: "POST", headers: { authorization: `Bearer ${registry.tokenOf(b.id)!}`, "content-type": "application/json" }, body: JSON.stringify({ title: "x" }) });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: string }).error).toMatch(/^title: /);
+    registry.close(a.id);
+    registry.close(b.id);
+    const stale = await fetch(crt + INTERNAL_WRITE_TASK_PATH, { method: "POST", headers: { authorization: `Bearer ${registry.tokenOf(b.id)!}` }, body: "{}" });
+    expect(stale.status).toBe(404);
+    expect(await stale.text()).toBe("");
+  });
+
+  it("first-message providers get the instructions above the capture with the quick-note sentinel still last; sandboxed ones get images by path and no cards (F-46, F-50, F-51)", async () => {
+    const sandboxed = new ProviderRegistry({ root, env: { CRT_SESSION_STUB: "sandboxed" }, profiles: [makeStubProfile("sandboxed")], log: () => undefined });
+    await sandboxed.refresh();
+    const reg = new SessionRegistry({ projectRoot: root, tasksDir: join(root, ".crt", "tasks"), intakePrompt: "INTAKE for $ARGUMENTS", providers: sandboxed, permissionTimeoutMs: 200 });
+    const cap = writeCapture(root, samplePost());
+    const info = reg.create(cap.id, { quick: true });
+    expect(info.provider).toBe("stub");
+    const events: SessionEvent[] = [];
+    reg.subscribe(info.id, 0, (_s, e) => events.push(e));
+    await new Promise<void>((resolve) => {
+      const tick = () => (events.some((e) => e.type === "state" && e.state === "idle") ? resolve() : setTimeout(tick, 10));
+      tick();
+    });
+    const first = events[0] as Extract<SessionEvent, { type: "user" }>;
+    expect(first.text.startsWith(`${FIRST_MESSAGE_HEADING}\n\nINTAKE for the capture directory named in the first message\n\n---\n\nCRT intake for capture ${cap.id}.`)).toBe(true);
+    expect(first.text.trim().split(/\n{2,}/).at(-1)).toBe(QUICK_NOTE_INSTRUCTIONS);
+    expect(first.images).toEqual(["viewport (annotated)", "annotation 1", "annotation 2"]);
+    // The variant's own checks (heading, no system prompt, no base64) all passed: no error events.
+    expect(events.filter((e) => e.type === "error")).toEqual([]);
+    expect(events.some((e) => e.type === "permission")).toBe(false);
+    expect(events.find((e) => e.type === "init")).toMatchObject({ capabilities: { permissions: "sandboxed", images: "path", instructions: "first-message" } });
+    expect(events.find((e) => e.type === "task_written")).toBeDefined();
+    // The same registry with the default stub keeps the instructions out of the message (F-51 `system`).
+    const capD = writeCapture(root, samplePost());
+    const d = (await api("POST", "/__crt/sessions", { captureId: capD.id })).json as { id: string };
+    const plain = await collect(`/__crt/sessions/${d.id}/events`, (e) => e.type === "init");
+    expect((plain.events[0] as { text: string }).text.startsWith(`CRT intake for capture ${capD.id}.`)).toBe(true);
+    reg.closeAll();
+    registry.close(d.id);
   });
 
   it("answers 503 when the server has no session registry", async () => {

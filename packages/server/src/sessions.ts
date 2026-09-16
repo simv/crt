@@ -1,7 +1,8 @@
 /**
- * Session registry and its HTTP routes (PRD F-14, F-24, F-25, F-28, F-29, F-30).
+ * Session registry and its HTTP routes (PRD F-14, F-24, F-25, F-28, F-29, F-30; PRD-providers
+ * F-43, F-47, F-49, F-50, F-51, F-57).
  *
- *   POST   /__crt/sessions                  { captureId?, quick? } → 201 { id } start intake
+ *   POST   /__crt/sessions                  { captureId?, quick?, provider? } → 201 { id } start intake
  *   POST   /__crt/sessions/<id>/capture     { captureId }        → 200          first message (warm start)
  *   GET    /__crt/sessions                                        → { sessions: SessionInfo[] }
  *   GET    /__crt/sessions/<id>/events      SSE; `Last-Event-ID` or `?after=<seq>` replays
@@ -9,29 +10,44 @@
  *   POST   /__crt/sessions/<id>/interrupt                        → 202
  *   POST   /__crt/sessions/<id>/permission  { id, behavior }     → 200 | 404 | 409
  *   DELETE /__crt/sessions/<id>                                  → 200   close ("New session")
+ *   POST   /__crt/internal/write-task       Authorization: Bearer <session token> → 201 { id, path }
  *
  * Every event a driver emits is numbered and kept in memory for the life of the server, so a
  * panel that reloads the page (or the developer opening the session list) can rebuild the
  * transcript by replaying from 0. The driver behind each session comes from the provider the
- * `ProviderRegistry` resolves for it (session.ts, PRD-providers F-43): Claude on the Agent SDK
- * by default, the scripted stub under `CRT_SESSION_STUB=1`, Codex from CRT-0012.
+ * `ProviderRegistry` resolves for it (session.ts, F-43): Claude on the Agent SDK by default,
+ * the scripted stub under `CRT_SESSION_STUB=1`, Codex from CRT-0012.
+ *
+ * The provider's capabilities (F-46) shape the first message: images by path or inline (F-50)
+ * and the intake instructions in the system prompt or prepended to the message (F-51).
+ *
+ * `write_task` (§5.3, F-49): every session gets a random bearer token. The Claude driver calls
+ * `writeTask` in-process; every other agent spawns `crt mcp`, which POSTs to the internal route
+ * above with that token. Both call the same function, so the file is the same either way. The
+ * token lives only in this process's memory and the shim's environment: it is never in a
+ * `SessionInfo`, an event, a log line or a URL (N-8). A wrong or expired token answers 404 with an
+ * empty body (one local log line explains it), and any request carrying `Origin` — a browser,
+ * never the shim — is refused with 403 before it is read.
  *
  * Warm start (N-2): the overlay may POST /__crt/sessions with no capture as soon as Send is
  * clicked, so the agent process boots while the page is still being rasterised; the capture is
  * attached with POST …/capture once it is saved, which sends the first message.
  */
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
 import { capturesDir } from "./captures.js";
 import { json, readJson } from "./http.js";
-import { buildIntakeMessage, readCaptureBundle, summarizeCapture } from "./intake-message.js";
+import { buildIntakeMessage, prependInstructions, readCaptureBundle, summarizeCapture } from "./intake-message.js";
+import { INTERNAL_WRITE_TASK_PATH, mcpLaunch, STALE_TOKEN_LINE } from "./mcp-stdio.js";
 import { decidePermission } from "./permissions.js";
 import { describeResolution, type ProviderRegistry } from "./session.js";
-import type { SessionDriver, SessionEvent, SessionInfo, SessionState, UserInput, WriteTaskRequest } from "./session-events.js";
-import { createTask, displayPath } from "./tasks.js";
+import type { ProviderCapabilities, SessionDriver, SessionEvent, SessionInfo, SessionState, UserInput, WriteTaskRequest } from "./session-events.js";
+import { createTask, displayPath, TaskFormatError } from "./tasks.js";
+import { parseWriteTaskRequest } from "./write-task.js";
 
 export const SESSIONS_PATH = "/__crt/sessions";
+export const INTERNAL_PREFIX = "/__crt/internal";
 const MAX_BODY = 1024 * 1024;
 const KEEPALIVE_MS = 15_000;
 
@@ -42,6 +58,8 @@ export interface RegistryOptions {
   intakePrompt: string;
   /** Resolves the provider (and so the driver) for every new session (F-43). */
   providers: ProviderRegistry;
+  /** The port CRT listens on, for `crt mcp` to call back (F-49). May be set later via `mcpPort`. */
+  port?: number;
   permissionTimeoutMs?: number;
   log?: (line: string) => void;
 }
@@ -49,13 +67,24 @@ export interface RegistryOptions {
 interface Entry {
   info: SessionInfo;
   driver: SessionDriver;
+  /** The provider's F-46 matrix; null when the session failed before a driver existed. */
+  capabilities: ProviderCapabilities | null;
+  /** F-49 bearer token for `POST /__crt/internal/write-task`; valid while the session is live. */
+  token: string;
+  /** The one write path (§5.3): what the in-process tool and the internal route both call. */
+  writeTask: (request: WriteTaskRequest) => Promise<{ id: string; path: string }>;
   events: SessionEvent[];
   subscribers: Set<(seq: number, event: SessionEvent) => void>;
 }
 
 export class SessionRegistry {
   private readonly entries = new Map<string, Entry>();
-  constructor(private readonly opts: RegistryOptions) {}
+  /** F-49: the port `crt mcp` posts back to; the server sets it once it listens. */
+  mcpPort: number;
+
+  constructor(private readonly opts: RegistryOptions) {
+    this.mcpPort = opts.port ?? 0;
+  }
 
   /**
    * F-24: start an intake session. With a capture id the first message is sent immediately;
@@ -69,6 +98,7 @@ export class SessionRegistry {
     const quick = opts.quick === true;
     const id = randomUUID();
     const resolution = this.opts.providers.resolve(opts.provider ?? null);
+    const profile = resolution.problem === null ? this.opts.providers.get(resolution.provider) : null;
     const entry: Entry = {
       info: {
         id,
@@ -83,25 +113,8 @@ export class SessionRegistry {
         url: null,
       },
       driver: undefined as unknown as SessionDriver,
-      events: [],
-      subscribers: new Set(),
-    };
-    const first = captureId ? this.firstMessage(entry, captureId) : undefined;
-    this.entries.set(id, entry);
-    const profile = resolution.problem === null ? this.opts.providers.get(resolution.provider) : null;
-    if (!profile) {
-      const problem = resolution.problem ?? `provider "${resolution.provider}" is not available`;
-      entry.driver = failedDriver(id, problem);
-      entry.driver.onEvent((event) => this.record(entry, event));
-      this.opts.log?.(`crt: ${quick ? "quick-note" : "intake"} session ${id} could not start — ${describeResolution(resolution)}`);
-      return { ...entry.info };
-    }
-    const driverOpts = {
-      id,
-      cwd: this.opts.projectRoot,
-      systemPromptAppend: this.opts.intakePrompt.split("$ARGUMENTS").join("the capture directory named in the first message"),
-      ...(first ? { first } : {}),
-      decide: (toolName: string, input: Record<string, unknown>) => decidePermission(toolName, input, this.opts.projectRoot),
+      capabilities: profile?.capabilities ?? null,
+      token: randomBytes(32).toString("base64url"),
       writeTask: async (request: WriteTaskRequest) => {
         // F-48: `session:` is the provider's own id (§5.4); null until the driver reported it.
         const created = createTask(this.opts.projectRoot, this.opts.tasksDir, {
@@ -113,6 +126,28 @@ export class SessionRegistry {
         entry.info.taskId = created.id;
         return { id: created.id, path: displayPath(this.opts.projectRoot, created.path) };
       },
+      events: [],
+      subscribers: new Set(),
+    };
+    const first = captureId ? this.firstMessage(entry, captureId) : undefined;
+    this.entries.set(id, entry);
+    if (!profile) {
+      const problem = resolution.problem ?? `provider "${resolution.provider}" is not available`;
+      entry.driver = failedDriver(id, problem);
+      entry.driver.onEvent((event) => this.record(entry, event));
+      this.opts.log?.(`crt: ${quick ? "quick-note" : "intake"} session ${id} could not start — ${describeResolution(resolution)}`);
+      return { ...entry.info };
+    }
+    const driverOpts = {
+      id,
+      cwd: this.opts.projectRoot,
+      // F-51: `system` gets the instructions here; `first-message` already has them in `first`.
+      systemPromptAppend: profile.capabilities.instructions === "system" ? this.intakeText() : "",
+      ...(first ? { first } : {}),
+      decide: (toolName: string, input: Record<string, unknown>) => decidePermission(toolName, input, this.opts.projectRoot),
+      writeTask: entry.writeTask,
+      mcp: mcpLaunch(entry.token, this.mcpPort),
+      model: this.opts.providers.modelFor(profile.id),
       log: this.opts.log,
       ...(this.opts.permissionTimeoutMs !== undefined ? { permissionTimeoutMs: this.opts.permissionTimeoutMs } : {}),
     };
@@ -134,13 +169,23 @@ export class SessionRegistry {
     return "ok";
   }
 
-  /** Build the F-24 first message and fill the F-30 list fields from the same bundle. */
+  /** The intake instructions with `$ARGUMENTS` pointed at the first message (F-24). */
+  private intakeText(): string {
+    return this.opts.intakePrompt.split("$ARGUMENTS").join("the capture directory named in the first message");
+  }
+
+  /**
+   * Build the F-24 first message for the session's provider — images per F-50, instructions
+   * per F-51 — and fill the F-30 list fields from the same bundle.
+   */
   private firstMessage(entry: Entry, captureId: string): UserInput {
     const dir = join(capturesDir(this.opts.projectRoot), captureId);
     const bundle = readCaptureBundle(dir);
     entry.info.summary = summarizeCapture(bundle);
     entry.info.url = bundle.page.url;
-    return buildIntakeMessage(dir, bundle, { quick: entry.info.quick });
+    const caps = entry.capabilities;
+    const message = buildIntakeMessage(dir, bundle, { quick: entry.info.quick, images: caps?.images ?? "inline" });
+    return caps?.instructions === "first-message" ? prependInstructions(message, this.intakeText()) : message;
   }
 
   private record(entry: Entry, event: SessionEvent): void {
@@ -160,6 +205,11 @@ export class SessionRegistry {
   get(id: string): SessionInfo | null {
     const e = this.entries.get(id);
     return e ? { ...e.info } : null;
+  }
+
+  /** Ids `POST /__crt/sessions { provider }` may name (F-42: `stub` only under `CRT_SESSION_STUB`). */
+  providerIds(): string[] {
+    return this.opts.providers.ids();
   }
 
   /** F-30: newest first. */
@@ -205,6 +255,41 @@ export class SessionRegistry {
 
   closeAll(): void {
     for (const e of this.entries.values()) e.driver.close();
+  }
+
+  // ---- F-49: the stdio write path -----------------------------------------------------------------
+
+  /** The F-49 token of a session (tests and drivers' fixtures only; never a route). */
+  tokenOf(id: string): string | null {
+    return this.entries.get(id)?.token ?? null;
+  }
+
+  /** The live session a bearer token belongs to, compared in constant time; null when none. */
+  sessionForToken(token: string): string | null {
+    const given = Buffer.from(token);
+    for (const e of this.entries.values()) {
+      const own = Buffer.from(e.token);
+      if (own.length === given.length && timingSafeEqual(own, given) && !isOver(e.info.state)) return e.info.id;
+    }
+    return null;
+  }
+
+  /**
+   * §5.3: perform a session's `write_task` on the server (the stdio path), emit `task_written`
+   * as the in-process tool does, and return what the agent reads back.
+   */
+  async writeTaskFor(id: string, request: WriteTaskRequest): Promise<{ id: string; path: string }> {
+    const e = this.entries.get(id);
+    if (!e || isOver(e.info.state)) throw new Error(STALE_TOKEN_LINE);
+    const written = await e.writeTask(request);
+    this.record(e, { type: "task_written", id: written.id, path: written.path });
+    this.opts.log?.(`crt: task ${written.id} written to ${written.path}`);
+    return written;
+  }
+
+  /** N-7: one local log line for a rejected token (the token itself is never logged). */
+  rejectToken(): void {
+    this.opts.log?.(`crt: ${STALE_TOKEN_LINE}`);
   }
 }
 
@@ -257,7 +342,7 @@ export async function handleSessionRoute(
       return true;
     }
     if (method !== "POST") {
-      json(res, 405, { ok: false, error: "GET lists sessions; POST { captureId?, quick? } starts one" });
+      json(res, 405, { ok: false, error: "GET lists sessions; POST { captureId?, quick?, provider? } starts one" });
       return true;
     }
     const body = await readJson(req, MAX_BODY);
@@ -265,7 +350,7 @@ export async function handleSessionRoute(
       json(res, body.status, { ok: false, error: body.error });
       return true;
     }
-    const { captureId, quick } = body.value as { captureId?: unknown; quick?: unknown };
+    const { captureId, quick, provider } = body.value as { captureId?: unknown; quick?: unknown; provider?: unknown };
     if (captureId !== undefined && captureId !== null && !isCaptureId(captureId)) {
       json(res, 400, { ok: false, error: "captureId must be a capture id string (or omitted for a warm start)" });
       return true;
@@ -274,8 +359,19 @@ export async function handleSessionRoute(
       json(res, 400, { ok: false, error: "quick must be a boolean" });
       return true;
     }
+    // F-57/N-8: `provider` is a listed string id or nothing; objects and unknown ids never reach the registry.
+    if (provider !== undefined && provider !== null) {
+      const named = providerId(provider, registry);
+      if (named === null) {
+        json(res, 400, { ok: false, error: `provider must be one of ${registry.providerIds().join(", ")}` });
+        return true;
+      }
+    }
     try {
-      const info = registry.create(isCaptureId(captureId) ? captureId : null, { quick: quick === true });
+      const info = registry.create(isCaptureId(captureId) ? captureId : null, {
+        quick: quick === true,
+        ...(typeof provider === "string" ? { provider: provider.trim() } : {}),
+      });
       json(res, 201, { ok: true, id: info.id, session: info });
     } catch (err) {
       const message = (err as Error).message;
@@ -352,6 +448,62 @@ export async function handleSessionRoute(
       json(res, 404, { ok: false, error: `no session action ${action}` });
       return true;
   }
+}
+
+/** A listed provider id from a request body, or null when the value is not one (F-57). */
+function providerId(value: unknown, registry: SessionRegistry): string | null {
+  if (typeof value !== "string") return null;
+  const id = value.trim();
+  return registry.providerIds().includes(id) ? id : null;
+}
+
+/**
+ * F-49: `POST /__crt/internal/write-task` — the stdio shim's call. Bearer token → session; a
+ * wrong or expired token is a 404 with an empty body and one log line; the request body is the
+ * `write_task` arguments. Returns false when the path is not an internal route. The caller has
+ * already refused anything carrying an `Origin` header (proxy.ts).
+ */
+export async function handleInternalRoute(path: string, req: IncomingMessage, res: ServerResponse, registry: SessionRegistry): Promise<boolean> {
+  if (path !== INTERNAL_WRITE_TASK_PATH && !path.startsWith(INTERNAL_PREFIX + "/")) return false;
+  if (path !== INTERNAL_WRITE_TASK_PATH) {
+    json(res, 404, { ok: false, error: `no CRT route ${path}` });
+    return true;
+  }
+  if (req.method !== "POST") {
+    json(res, 405, { ok: false, error: "POST write_task arguments here with the session's bearer token" });
+    return true;
+  }
+  const auth = req.headers.authorization ?? "";
+  const token = /^Bearer\s+(\S+)$/i.exec(auth)?.[1] ?? "";
+  const id = token ? registry.sessionForToken(token) : null;
+  if (!id) {
+    registry.rejectToken();
+    res.writeHead(404);
+    res.end();
+    return true;
+  }
+  const body = await readJson(req, MAX_BODY);
+  if (!body.ok) {
+    json(res, body.status, { ok: false, error: body.error });
+    return true;
+  }
+  const parsed = parseWriteTaskRequest(body.value);
+  if (!parsed.ok) {
+    json(res, 400, { ok: false, error: parsed.error });
+    return true;
+  }
+  try {
+    const written = await registry.writeTaskFor(id, parsed.value);
+    json(res, 201, { ok: true, id: written.id, path: written.path });
+  } catch (err) {
+    if (err instanceof TaskFormatError) json(res, 400, { ok: false, error: err.message, errors: err.errors });
+    else if ((err as Error).message === STALE_TOKEN_LINE) {
+      registry.rejectToken();
+      res.writeHead(404);
+      res.end();
+    } else json(res, 500, { ok: false, error: `could not write the task: ${(err as Error).message}` });
+  }
+  return true;
 }
 
 /** SSE: `id:` is the event sequence number, so EventSource reconnects resume via Last-Event-ID. */

@@ -8,8 +8,11 @@
  *   crt tasks [--json]                                                   F-33 (also refreshes the README index, F-34)
  *   crt task <ID> [--validate]                                           F-33 (F-32 format check)
  *   crt providers [--json] [--refresh]                                   F-45 (every provider's state + the F-44 decision)
+ *   crt mcp                                                              F-49 (stdio write_task server; spawned by an agent, not by hand)
  *
- * Every failure is one `crt: <message>` line on stderr and a non-zero exit (N-6).
+ * Every failure is one `crt: <message>` line on stderr and a non-zero exit (N-6). The server
+ * and provider modules (and with them the Agent SDK) are imported only by the commands that
+ * need them, so `crt mcp` starts fast and prints nothing but protocol frames on stdout.
  */
 import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
@@ -18,8 +21,6 @@ import { parseArgs } from "./args.js";
 import { CrtError } from "./errors.js";
 import { initProject, readConfig } from "./init.js";
 import { findProjectRoot } from "./project.js";
-import { serve } from "./serve.js";
-import { ProviderRegistry, renderProviders } from "./session.js";
 import { findTaskFile, listTasks, validateTaskText, writeIndex } from "./tasks.js";
 
 const USAGE = [
@@ -31,12 +32,19 @@ const USAGE = [
   "  crt tasks [--json]",
   "  crt task <ID> [--validate]",
   "  crt providers [--json] [--refresh]",
+  "  crt mcp    (stdio write_task server for agents; needs CRT_MCP_TOKEN and CRT_MCP_PORT)",
 ].join("\n");
 
 async function main(argv: string[]): Promise<number> {
   const { command, positionals, flags } = parseArgs(argv);
   switch (command) {
+    case "mcp": {
+      // F-49: stdout is the MCP transport from here on; nothing else may write to it.
+      const { runMcpStdio } = await import("./mcp-stdio.js");
+      return runMcpStdio({ input: process.stdin, output: process.stdout, env: process.env });
+    }
     case "serve": {
+      const { serve } = await import("./serve.js");
       const handle = await serve({
         target: stringFlag(flags.target, "--target <url>"),
         port: portFlag(flags.port),
@@ -109,6 +117,7 @@ async function main(argv: string[]): Promise<number> {
       // F-45: one row per built-in profile and the F-44 decision. A CLI run is always fresh, so
       // --refresh (which bypasses a running server's cache) is accepted and changes nothing here.
       const root = findProjectRoot();
+      const { ProviderRegistry, renderProviders } = await import("./session.js");
       const providers = new ProviderRegistry({ root, config: readConfig(root) });
       await providers.refresh();
       if (flags.json === true) {

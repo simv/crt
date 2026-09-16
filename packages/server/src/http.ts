@@ -20,7 +20,7 @@ export function isLocalOrigin(origin: string | undefined): origin is string {
   return host === "localhost" || host.endsWith(".localhost") || host === "127.0.0.1" || host === "[::1]";
 }
 
-export const CORS_METHODS = "GET, POST, DELETE, OPTIONS";
+export const CORS_METHODS = "GET, POST, PUT, DELETE, OPTIONS";
 export const CORS_HEADERS = "content-type, last-event-id";
 
 /**

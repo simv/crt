@@ -37,8 +37,10 @@
     "e2e": "playwright test"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@playwright/test": "^1.63.0",
     "@types/node": "^22.10.0",
+    "esbuild": "^0.25.12",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^5.7.0",

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeCapture } from "../src/captures.js";
-import { buildIntakeMessage, CaptureNotFoundError, QUICK_NOTE_INSTRUCTIONS, readCaptureBundle, renderIntakeText, summarizeCapture } from "../src/intake-message.js";
+import { buildIntakeMessage, CaptureNotFoundError, FIRST_MESSAGE_HEADING, prependInstructions, QUICK_NOTE_INSTRUCTIONS, readCaptureBundle, renderIntakeText, summarizeCapture } from "../src/intake-message.js";
 import { PNG_B64, sampleBundle, samplePost } from "./helpers/sample-capture.js";
 
 let root: string;
@@ -38,6 +38,38 @@ describe("first intake message (F-24)", () => {
       ["annotation 1", "image/png", true],
       ["annotation 2", "image/png", true],
     ]);
+    // F-50: the path is always there, absolute, inside the capture directory.
+    expect(msg.images?.map((i) => i.path)).toEqual(["viewport-annotated.png", "ann-1.png", "ann-2.png"].map((f) => join(written.dir, f)));
+  });
+
+  it("images by path skip the base64 work and `none` drops them, saying so in the text (F-50)", () => {
+    const written = writeCapture(root, samplePost());
+    const byPath = buildIntakeMessage(written.dir, undefined, { images: "path" });
+    expect(byPath.images).toHaveLength(3);
+    expect(byPath.images?.every((i) => i.data === undefined && i.path.startsWith(written.dir))).toBe(true);
+    expect(byPath.text).toContain("Attached images: viewport (annotated), annotation 1, annotation 2.");
+    const none = buildIntakeMessage(written.dir, undefined, { images: "none" });
+    expect(none.images).toEqual([]);
+    expect(none.text).toContain("Images not attached: this agent does not accept images; the screenshots are the PNG files next to capture.json.");
+    expect(none.text).not.toContain("Attached images");
+  });
+
+  it("keeps the quick-note sentinel as the last paragraph in both instruction channels (F-14, F-51)", () => {
+    const written = writeCapture(root, samplePost());
+    const quick = buildIntakeMessage(written.dir, undefined, { quick: true });
+    const last = (text: string) => text.trim().split(/\n{2,}/).at(-1)!;
+    // `system`: the message is sent as is; the sentinel paragraph is last.
+    expect(last(quick.text)).toBe(QUICK_NOTE_INSTRUCTIONS);
+    // `first-message`: instructions go above under the fixed heading; the sentinel is still last.
+    const prepended = prependInstructions(quick, "Do intake.\n\nWhen the first message ends with a paragraph starting `Quick note (F-14)`, skip the wait.");
+    expect(prepended.text.startsWith(`${FIRST_MESSAGE_HEADING}\n\nDo intake.\n\nWhen the first message ends`)).toBe(true);
+    expect(prepended.text).toContain("\n\n---\n\nCRT intake for capture ");
+    expect(last(prepended.text)).toBe(QUICK_NOTE_INSTRUCTIONS);
+    expect(prepended.images).toBe(quick.images);
+    // A plain (non-quick) message gains the heading and nothing after the capture text.
+    const plain = prependInstructions(buildIntakeMessage(written.dir), "Do intake.");
+    expect(plain.text.endsWith("Attached images: viewport (annotated), annotation 1, annotation 2.")).toBe(true);
+    expect(FIRST_MESSAGE_HEADING).toBe("# CRT intake instructions");
   });
 
   it("falls back to the clean viewport and mentions console errors", () => {
