@@ -1,10 +1,10 @@
 ---
 id: CRT-0012
 title: M9 — Codex driver (codex exec --json) and crt skills install
-status: backlog
+status: in_progress
 priority: normal
 created: 2026-09-15T17:30:00+08:00
-updated: 2026-09-15T17:30:00+08:00
+updated: 2026-09-16T09:30:00+08:00
 url: null
 route: null
 session: null
@@ -42,3 +42,4 @@ If the spike found MCP unreachable under `--sandbox read-only`, apply the fallba
 
 ## Log
 - 2026-09-15T17:30+08:00 — created from PRD-providers milestone M9 by the planning session that wrote docs/PRD-providers.md.
+- 2026-09-16T09:30:00+08:00 — claimed by worker session 96fa353a-d6a1-4fb7-b482-9e1397f2b3a7
