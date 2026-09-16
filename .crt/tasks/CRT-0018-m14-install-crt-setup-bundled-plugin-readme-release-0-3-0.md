@@ -1,10 +1,10 @@
 ---
 id: CRT-0018
 title: M14 — Install: plugin bundled in the package, crt setup, one version rule, README, release 0.3.0
-status: backlog
+status: in_progress
 priority: normal
 created: 2026-09-16T14:50:00+08:00
-updated: 2026-09-16T14:50:00+08:00
+updated: 2026-09-16T22:41:00+08:00
 url: null
 route: null
 session: null
@@ -43,3 +43,4 @@ Lead install is global (PRD-setup §13 decision 3); keep the GitHub marketplace 
 
 ## Log
 - 2026-09-16T14:50+08:00 — created from docs/PRD-setup.md milestone M14 by the planning session that wrote it.
+- 2026-09-16T22:41+08:00 — claimed by /crt:next, session 21c8bea3-fd0d-49d4-97aa-734d23658916, branch crt/CRT-0018-m14-install-crt-setup-bundled-plugin-readme-release-0-3-0
