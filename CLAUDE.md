@@ -1,6 +1,6 @@
 # CRT — Claude Review Tool
 
-Read `docs/PRD.md` and `docs/PRD-providers.md` before doing anything non-trivial. The first defines scope, requirement IDs (F-n, N-n), milestones (M1–M5) and the project definition of done; the second amends it for v0.2 (provider-agnostic intake: F-42…F-64, N-7…N-13, milestones M6–M11) and its §9 lists which v1.0 statements and CLAUDE.md lines change as each milestone lands. Requirement IDs are referenced in code comments, tests, commits and PRs.
+Read `docs/PRD.md`, `docs/PRD-providers.md` and `docs/PRD-setup.md` before doing anything non-trivial. The first defines scope, requirement IDs (F-n, N-n), milestones (M1–M5) and the project definition of done; the second amends it for v0.2 (provider-agnostic intake: F-42…F-64, N-7…N-13, milestones M6–M11) and its §9 lists which v1.0 statements and CLAUDE.md lines change as each milestone lands; the third amends both for v0.3 setup and first run (guided `crt [target]`, `crt doctor`, `crt setup`, login preflight, arrival UX: F-69…F-90, N-14…N-17, milestones M12–M14) with its own §9 list. Requirement IDs are referenced in code comments, tests, commits and PRs.
 
 ## What this is
 
