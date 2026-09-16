@@ -11,14 +11,23 @@
  * the right `provider:` and `session:`. The driver under test is started through its profile's
  * `start()` with the same `StartSessionOptions` the registry would build (F-50/F-51 per its
  * capabilities), and `writeTask` is the registry's own `createTask` call.
+ *
+ * `writePath: "stdio"` (Codex and every ACP agent) adds what the registry provides on that path:
+ * a per-session bearer token, `POST /__crt/internal/write-task` on 127.0.0.1 behind the real
+ * `handleInternalRoute`, and the `task_written` event the registry records when the route has
+ * written the file (`sessions.ts` `writeTaskFor`). The caller passes the `crt mcp` shim to spawn.
  */
+import { randomBytes } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 import { expect } from "vitest";
 import { buildIntakeMessage, prependInstructions } from "../../src/intake-message.js";
+import { MCP_PORT_ENV, MCP_TOKEN_ENV, STALE_TOKEN_LINE } from "../../src/mcp-stdio.js";
 import { decidePermission } from "../../src/permissions.js";
 import type { ProviderProfile } from "../../src/providers/types.js";
 import type { SessionEvent, StartSessionOptions, UserInput, WriteTaskRequest } from "../../src/session-events.js";
+import { handleInternalRoute, INTERNAL_PREFIX, type SessionRegistry } from "../../src/sessions.js";
 import { createTask, displayPath, parseTask, validateTaskText } from "../../src/tasks.js";
 
 export interface ConformanceInput {
@@ -32,6 +41,10 @@ export interface ConformanceInput {
   intake: string;
   /** Messages that make the driver (a) run a tool that needs permission again, (b) write the task, (c) start a turn to interrupt. */
   prompts: { permissionAgain: string; write: string; longTurn: string };
+  /** `stdio`: `write_task` arrives through `crt mcp` and the internal route (F-49); default in-process. */
+  writePath?: "in-process" | "stdio";
+  /** The `crt mcp` shim to hand the agent when `writePath` is `stdio` (`node <file>`). */
+  shim?: { command: string; args: string[] };
   timeoutMs?: number;
 }
 
@@ -48,27 +61,32 @@ export async function runConformance(input: ConformanceInput): Promise<Conforman
   const tasksDir = join(root, ".crt", "tasks");
   mkdirSync(tasksDir, { recursive: true });
   const timeoutMs = input.timeoutMs ?? 10_000;
+  const events: SessionEvent[] = [];
 
   // The registry's composition (sessions.ts): images per F-50, instructions per F-51.
   const message = buildIntakeMessage(input.captureDir, undefined, { images: caps.images });
   const first: UserInput = caps.instructions === "first-message" ? prependInstructions(message, input.intake) : message;
   let nativeSessionId: string | null = null;
+  const writeTask = async (request: WriteTaskRequest) => {
+    const created = createTask(root, tasksDir, { ...request, session: nativeSessionId, provider: profile.id, captureId: null });
+    return { id: created.id, path: displayPath(root, created.path) };
+  };
+  const stdio = input.writePath === "stdio" ? await internalRoute(id, writeTask, (e) => events.push(e)) : null;
   const options: StartSessionOptions = {
     id,
     cwd: root,
     systemPromptAppend: caps.instructions === "system" ? input.intake : "",
     first,
     decide: (tool, args) => decidePermission(tool, args, root),
-    writeTask: async (request: WriteTaskRequest) => {
-      const created = createTask(root, tasksDir, { ...request, session: nativeSessionId, provider: profile.id, captureId: null });
-      return { id: created.id, path: displayPath(root, created.path) };
-    },
-    mcp: { command: process.execPath, args: ["cli.js", "mcp"], env: { CRT_MCP_TOKEN: "conformance-token", CRT_MCP_PORT: "1" } },
+    writeTask,
+    mcp: stdio
+      ? { command: input.shim?.command ?? process.execPath, args: input.shim?.args ?? [], env: { [MCP_TOKEN_ENV]: stdio.token, [MCP_PORT_ENV]: String(stdio.port) } }
+      : { command: process.execPath, args: ["cli.js", "mcp"], env: { CRT_MCP_TOKEN: "conformance-token", CRT_MCP_PORT: "1" } },
     model: null,
+    agentVersion: "conformance",
     permissionTimeoutMs: timeoutMs,
   };
 
-  const events: SessionEvent[] = [];
   const driver = profile.start(options);
   driver.onEvent((e) => {
     events.push(e);
@@ -149,5 +167,50 @@ export async function runConformance(input: ConformanceInput): Promise<Conforman
   driver.close();
   await waitFor((e) => e.type === "state" && e.state === "ended");
   expect(errors()).toEqual([]);
+  await stdio?.close();
   return { events, init, taskFile: file, options };
+}
+
+/**
+ * The registry's side of F-49 for one session: a bearer token, the internal route on a random
+ * 127.0.0.1 port, and `task_written` recorded when the route has written the file — a minimal
+ * `SessionRegistry` duck for `handleInternalRoute`, which is the real route handler.
+ */
+async function internalRoute(
+  sessionId: string,
+  writeTask: (request: WriteTaskRequest) => Promise<{ id: string; path: string }>,
+  record: (e: SessionEvent) => void,
+): Promise<{ token: string; port: number; close: () => Promise<void> }> {
+  const token = randomBytes(32).toString("base64url");
+  let live = true;
+  const registry = {
+    sessionForToken: (given: string) => (live && given === token ? sessionId : null),
+    writeTaskFor: async (_id: string, request: WriteTaskRequest) => {
+      if (!live) throw new Error(STALE_TOKEN_LINE);
+      const written = await writeTask(request);
+      record({ type: "task_written", id: written.id, path: written.path });
+      return written;
+    },
+    rejectToken: () => undefined,
+  } as unknown as SessionRegistry;
+  const server: Server = createServer((req, res) => {
+    const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+    if (req.headers.origin !== undefined) {
+      res.writeHead(403);
+      res.end();
+      return;
+    }
+    void handleInternalRoute(path.startsWith(INTERNAL_PREFIX) ? path : INTERNAL_PREFIX + "/none", req, res, registry);
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const port = (server.address() as { port: number }).port;
+  return {
+    token,
+    port,
+    close: async () => {
+      live = false;
+      server.closeAllConnections();
+      await new Promise<void>((r) => server.close(() => r()));
+    },
+  };
 }

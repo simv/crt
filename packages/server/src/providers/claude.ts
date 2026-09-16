@@ -74,6 +74,8 @@ export const claudeProfile: ProviderProfile = {
   hints: { install: "reinstall claude-review-tool (npm install)", login: "run `claude` in a terminal and complete /login" },
   capabilities: CLAUDE_CAPABILITIES,
   telemetryOptOut: [],
+  // F-58: the Claude Code plugin is the distribution; `crt skills install --provider claude` is refused.
+  skillsDirs: () => ({ project: null, user: null }),
   preflight: async () => claudePreflight(),
   resumeCommand: (id) => `claude --resume ${id}`,
   start: startSession,

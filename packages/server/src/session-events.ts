@@ -1,7 +1,7 @@
 /**
  * The contract between an intake session and the chat panel (PRD F-25, F-26, F-28, F-29;
  * PRD-providers F-42, F-46, F-47). Every provider driver under `providers/` (Claude on the Agent
- * SDK, the scripted stub, Codex from CRT-0012) produces these events; `sessions.ts` numbers them
+ * SDK, the scripted stub, Codex over `codex exec --json`) produces these events; `sessions.ts` numbers them
  * and streams them over SSE; the overlay imports only the types. Nothing here depends on the SDK
  * or on any provider module, so this file is safe for the overlay bundle.
  */
@@ -99,7 +99,8 @@ export type SessionEvent =
       expiresAt: number;
     }
   | { type: "permission_resolved"; id: string; behavior: "allow" | "deny"; by: "user" | "timeout" | "session" }
-  | { type: "result"; ok: boolean; durationMs: number; costUsd: number; errors: string[] }
+  /** `detail` is the provider's own accounting when it has no cost (Codex token usage, F-53). */
+  | { type: "result"; ok: boolean; durationMs: number; costUsd: number; errors: string[]; detail?: string }
   | { type: "task_written"; id: string; path: string }
   | { type: "error"; message: string };
 
@@ -200,6 +201,13 @@ export interface StartSessionOptions {
   mcp: { command: string; args: string[]; env: Record<string, string> };
   /** F-57 `models.<id>`: the model the developer asked for, or null for the agent's default. */
   model: string | null;
+  /**
+   * F-53: `providers.<id>.command` from `.crt/config.json` — the executable (plus leading args)
+   * a CLI-driven provider runs instead of searching PATH. Ignored by in-process drivers.
+   */
+  command?: string[] | null;
+  /** The version preflight found (F-42), for the `init` event of drivers whose CLI does not report it per turn. */
+  agentVersion?: string | null;
   permissionTimeoutMs?: number;
   log?: (line: string) => void;
 }

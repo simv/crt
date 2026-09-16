@@ -61,6 +61,13 @@ export interface ProviderProfile {
   capabilities: ProviderCapabilities;
   /** Per-invocation flags that switch the agent's own telemetry off (N-12); may be empty. */
   telemetryOptOut: string[];
+  /**
+   * F-58: where `crt skills install` puts Agent Skills for this agent, as recorded for the tested
+   * version: `project` is relative to the project root, `user` absolute (it may depend on the
+   * environment, e.g. `$CODEX_HOME`). Null means "no known directory — `--dir` is required"
+   * (§12 rule 4); Claude has none because the plugin is its distribution.
+   */
+  skillsDirs(env?: NodeJS.ProcessEnv): { project: string | null; user: string | null };
   preflight(opts?: PreflightOptions): Promise<PreflightResult>;
   /** Terminal command that continues the session, or null when the agent has none (F-46). */
   resumeCommand(nativeSessionId: string): string | null;

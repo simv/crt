@@ -3,10 +3,11 @@ import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { FIRST_MESSAGE_HEADING } from "../src/intake-message.js";
 import { INTERNAL_WRITE_TASK_PATH, STALE_TOKEN_LINE } from "../src/mcp-stdio.js";
+import { CODEX_CAPABILITIES, codexProfile } from "../src/providers/codex.js";
 import { stubProfile } from "../src/providers/stub.js";
 import type { ProvidersPayload, SessionEvent } from "../src/session-events.js";
 import { parseTask, validateTaskText, writeIndex } from "../src/tasks.js";
-import { CRT_SANDBOXED_PORT } from "../playwright.config.js";
+import { CRT_CODEX_PORT, CRT_SANDBOXED_PORT } from "../playwright.config.js";
 
 // M3 (task CRT-0003 Ask 7): Send opens the chat panel on an intake session. The server runs
 // with CRT_SESSION_STUB=1 (e2e/fixture/crt.mjs), so the `stub` provider is resolved (F-43 step 0)
@@ -17,6 +18,11 @@ import { CRT_SANDBOXED_PORT } from "../playwright.config.js";
 // M8 (PRD-providers F-61, `stub` axis): the footer is rendered from the session's replayed init
 // event (F-47, F-56), the split Send button's per-send choice is spent on one send (F-56), and
 // the second describe block runs against the `sandboxed` stub (F-46): no Allow/Deny cards.
+//
+// M9 (F-61, `codex` axis): the last block runs against `--provider codex` on a fake `codex` CLI
+// (e2e/fixture/fake-codex.mjs, first on PATH; an npm-shaped `codex.cmd` shim on Windows) that
+// replays the M6 recordings and calls `write_task` through the real `crt mcp` shim, token and
+// internal route (F-49, F-53).
 
 type Snapshot = { sessionId: string | null; state: string | null; taskId: string | null; provider: string | null; events: SessionEvent[] };
 type Hooks = {
@@ -446,5 +452,109 @@ test.describe("sandboxed stub (F-46, F-50, F-51, F-61)", () => {
       rmSync(join(tasksDir, "assets", written.id), { recursive: true, force: true });
       writeIndex(tasksDir);
     }
+  });
+});
+
+test.describe("codex provider on the fake codex CLI (F-49, F-53, F-56, F-61)", () => {
+  test.use({ baseURL: `http://localhost:${CRT_CODEX_PORT}` });
+  test.afterEach(async ({ page }) => {
+    await page.evaluate(() => window.__crt.chat.discard()).catch(() => undefined);
+  });
+
+  test("Send to Codex: replayed text and tool lines, the read-only badge and no cards, a resumable thread id in the footer that survives a reload, write_task through crt mcp, Stop kills the turn (F-49, F-53, F-56, F-61)", async ({ page }) => {
+    // F-43 step 2 / F-57: the server runs on codex and says so.
+    const health = (await (await page.request.get("/__crt/health")).json()) as { provider: string };
+    expect(health.provider).toBe("codex");
+    const payload = (await (await page.request.get("/__crt/providers")).json()) as ProvidersPayload;
+    expect(payload.active).toBe("codex");
+    expect(payload.providers.find((p) => p.id === "codex")).toMatchObject({ installed: true, loggedIn: true, version: "0.154.0", problem: null, capabilities: CODEX_CAPABILITIES });
+    expect(payload.providers.map((p) => p.id)).toEqual(["claude", "codex"]); // no stub without CRT_SESSION_STUB (F-42)
+
+    await page.goto("/app");
+    await shadow(page, ".launcher").click();
+    await expect(shadow(page, "[data-action=send]")).toHaveText(`Send to ${codexProfile.displayName}`);
+    await page.evaluate(() => {
+      window.__crt.addSelect("[data-testid=card-1] .price");
+      window.__crt.setNote(1, "total excludes discount");
+    });
+    await page.evaluate(() => window.__crt.send());
+    await expect(shadow(page, ".chat")).toBeVisible();
+    // Turn 1 replays first-turn.jsonl: an MCP tool line, a command line, then the whole message.
+    await expect(shadow(page, ".tool summary").first()).toHaveText("crt/crt_ping");
+    await expect(shadow(page, ".tool .out").first()).toHaveText("listener replied 200: pong #5");
+    await expect(shadow(page, ".tool summary").nth(1)).toHaveText(/^Run /);
+    await expect(shadow(page, ".msg.assistant").first()).toContainText("listener replied 200: pong #5");
+    await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
+    await expect(shadow(page, ".perm")).toHaveCount(0);
+    await expect(shadow(page, ".chat-head .agent")).toHaveText("Codex");
+
+    const snap = await page.evaluate(() => window.__crt.chat.snapshot());
+    expect(snap.provider).toBe("codex");
+    expect(snap.events.some((e) => e.type === "permission")).toBe(false);
+    expect(snap.events.filter((e) => e.type === "error")).toEqual([]);
+    const init = snap.events.find((e) => e.type === "init") as Extract<SessionEvent, { type: "init" }>;
+    // §5.4: the native id is Codex's thread id (a UUID that is not CRT's), and the footer shows its resume command.
+    expect(init).toMatchObject({ provider: "codex", displayName: "Codex", model: null, agentVersion: "0.154.0", capabilities: CODEX_CAPABILITIES });
+    expect(init.nativeSessionId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(init.nativeSessionId).not.toBe(snap.sessionId);
+    expect(init.resumeCommand).toBe(codexProfile.resumeCommand(init.nativeSessionId));
+    const foot = shadow(page, ".chat-foot");
+    await expect(foot).toHaveText(`Codex · 0.154.0 · read-only sandbox · continue in a terminal: ${init.resumeCommand}`);
+    await expect(foot.locator(".badge")).toHaveText("read-only sandbox");
+    await expect(shadow(page, "[data-chat=interrupt]")).toBeVisible();
+    // F-51/F-50: instructions in the first message; images went by path (the fake checks the files exist).
+    const first = snap.events[0] as Extract<SessionEvent, { type: "user" }>;
+    expect(first.text.startsWith(`${FIRST_MESSAGE_HEADING}\n\n`)).toBe(true);
+    expect(first.images).toEqual(["viewport (annotated)", "annotation 1"]);
+    // F-53: no streaming — one text event per assistant message.
+    expect(snap.events.filter((e) => e.type === "text").length).toBe(snap.events.filter((e) => e.type === "assistant_start").length);
+
+    await page.reload();
+    await expect(shadow(page, ".chat")).toBeVisible();
+    await expect(foot).toHaveText(`Codex · 0.154.0 · read-only sandbox · continue in a terminal: ${init.resumeCommand}`);
+    await expect(shadow(page, ".chat-head .agent")).toHaveText("Codex");
+
+    // Turn 2 resumes the thread; the fake calls write_task through `crt mcp` → the internal route writes the file.
+    await shadow(page, ".chat-input textarea").fill("write");
+    await shadow(page, ".chat-input textarea").press("Enter");
+    await expect(shadow(page, ".chat-task b")).toHaveText(/^CRT-\d{4}$/);
+    await expect(shadow(page, ".tool summary").last()).toHaveText("Write task: Cart total excludes applied discount");
+    await expect(shadow(page, ".tool").last()).toHaveClass(/done/);
+    await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
+    const after = await page.evaluate(() => window.__crt.chat.snapshot());
+    const written = after.events.find((e) => e.type === "task_written") as Extract<SessionEvent, { type: "task_written" }>;
+    expect(after.events.filter((e) => e.type === "task_written")).toHaveLength(1);
+    expect(after.events.filter((e) => e.type === "init")).toHaveLength(1);
+    expect(after.events.filter((e) => e.type === "error")).toEqual([]);
+    const root = await projectRoot(page);
+    const tasksDir = join(root, ".crt", "tasks");
+    try {
+      const text = readFileSync(join(root, written.path), "utf8");
+      expect(validateTaskText(text, `${written.id}-cart-total-excludes-applied-discount.md`)).toEqual([]);
+      expect(parseTask(text).frontmatter).toMatchObject({ provider: "codex", session: init.nativeSessionId });
+      expect(text).toContain(`created by intake session ${init.nativeSessionId} (codex)`);
+      expect(readFileSync(join(tasksDir, "README.md"), "utf8")).toContain(`[${written.id}]`);
+      // F-49/N-8: the token (32 bytes base64url = exactly 43 chars) never reaches the log or the page.
+      const token = /(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/;
+      const log = readFileSync(join(root, "crt-serve.log"), "utf8");
+      expect(log).toContain("is Codex 0.154.0");
+      expect(log).not.toMatch(token);
+      expect(log).not.toMatch(/Bearer|CRT_MCP_TOKEN/);
+      expect(JSON.stringify(after.events)).not.toMatch(token);
+    } finally {
+      rmSync(join(root, written.path), { force: true });
+      rmSync(join(tasksDir, "assets", written.id), { recursive: true, force: true });
+      writeIndex(tasksDir);
+    }
+
+    // Turn 3: a slow turn, cut by Stop (process-tree kill); the session stays usable.
+    await shadow(page, ".chat-input textarea").fill("be slow please");
+    await shadow(page, ".chat-input textarea").press("Enter");
+    await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "running");
+    await shadow(page, "[data-chat=interrupt]").click();
+    await expect(shadow(page, ".sys").last()).toHaveText("interrupted");
+    await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
+    const list = await page.evaluate(() => window.__crt.sessions.list());
+    expect(list.find((s) => s.id === snap.sessionId)?.provider).toBe("codex");
   });
 });

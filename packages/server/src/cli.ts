@@ -9,6 +9,7 @@
  *   crt task <ID> [--validate]                                           F-33 (F-32 format check)
  *   crt providers [--json] [--refresh]                                   F-45 (every provider's state + the F-44 decision)
  *   crt mcp                                                              F-49 (stdio write_task server; spawned by an agent, not by hand)
+ *   crt skills install [--provider <id>] [--global] [--dir <path>]       F-58 (the plugin's skills as portable Agent Skills)
  *
  * Every failure is one `crt: <message>` line on stderr and a non-zero exit (N-6). The server
  * and provider modules (and with them the Agent SDK) are imported only by the commands that
@@ -125,6 +126,28 @@ async function main(argv: string[]): Promise<number> {
         return 0;
       }
       console.log(renderProviders(providers.status(), providers.detection()));
+      return 0;
+    }
+    case "skills": {
+      // F-58: the plugin's skills as Agent Skills for another agent; the sources ship in dist/skills.
+      if (positionals[0] !== "install") throw new CrtError("usage: crt skills install [--provider <id>] [--global] [--dir <path>]", 2);
+      const root = findProjectRoot();
+      const dir = stringFlag(flags.dir, "--dir <path>") ?? null;
+      const providerId = stringFlag(flags.provider, "--provider <id>");
+      const { ProviderRegistry } = await import("./session.js");
+      const { installSkills } = await import("./skills.js");
+      const providers = new ProviderRegistry({ root, config: readConfig(root) });
+      let profile = null;
+      if (providerId) {
+        profile = providers.get(providerId);
+        if (!profile) throw new CrtError(`--provider must be one of ${providers.ids().join(", ")} (got "${providerId}")`);
+      } else if (!dir) {
+        // No --provider and no --dir: the provider the project resolves to (F-43 layers 3–6).
+        profile = providers.get(providers.resolve(null).provider);
+      }
+      const r = installSkills({ sourceDir: fileURLToPath(new URL("./skills/", import.meta.url)), root, profile, global: flags.global === true, dir });
+      for (const p of r.written) console.log(`crt skills: wrote ${p}`);
+      console.log(r.written.length ? `crt skills: ${r.written.length} skill${r.written.length === 1 ? "" : "s"} installed in ${r.dir}` : `crt skills: ${r.dir} already up to date (${r.unchanged.length} skills)`);
       return 0;
     }
     case undefined:
