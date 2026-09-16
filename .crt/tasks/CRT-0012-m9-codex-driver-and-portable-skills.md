@@ -4,7 +4,7 @@ title: M9 — Codex driver (codex exec --json) and crt skills install
 status: review
 priority: normal
 created: 2026-09-15T17:30:00+08:00
-updated: 2026-09-16T10:05:00+08:00
+updated: 2026-09-16T10:25:00+08:00
 url: null
 route: null
 session: null
@@ -52,3 +52,4 @@ If the spike found MCP unreachable under `--sandbox read-only`, apply the fallba
 - 2026-09-16T10:05+08:00 — verified DoD 5: `npm run check` green (typecheck, 24 files / 232 tests, build); codex.ts header lists codex-cli 0.154.0, both command lines, every observed event name and the env_vars finding.
 - 2026-09-16T10:05+08:00 — extra verification on the real CLI (not a DoD item; Codex 0.154.0 is installed and logged in here): two-turn session through the built driver in C:ProjectsClaudecrt-codex-spike-repo — thread.started → init, resume kept the thread and remembered turn 1; a third session called write_task through the real `crt mcp` (token via env_vars) and the file passed `crt task --validate` with provider: codex and the thread id in session:. Scratch .crt/ removed afterwards.
 - 2026-09-16T10:05+08:00 — prd-reviewer: PR-READY WITH NOTES (test titles missing (F-n) tags — fixed; README index regenerated with `crt tasks`). Left unticked for Simon: the two Manual items (trial Next.js app end to end incl. `codex resume`; auto-detection `→ codex` on an AGENTS.md-only copy).
+- 2026-09-16T10:25+08:00 — DoD 2 ubuntu half confirmed: PR #25 CI run 35046177471 green on all four jobs — check (ubuntu, windows) and e2e (ubuntu 1m14s, windows 4m44s). One fix on the way: the preflight tests' synthetic PATH needed node's directory for the POSIX executable-script fake (`#!/usr/bin/env node`); Windows never hit it because the .cmd shim path runs process.execPath directly.
