@@ -25,7 +25,7 @@ claude                       # your normal Claude Code session in the project
 /crt:serve                   # proxies your app at http://localhost:4400 and opens it
 ```
 
-1. **Browse as usual** on `localhost:4400`. Hot reload keeps working. A **CRT** button sits in the bottom-right corner (drag it anywhere; `Ctrl/Cmd+Shift+.` toggles it).
+1. **Browse as usual** on `localhost:4400`. Hot reload keeps working. A **CRT** button sits in the bottom-right corner (drag it anywhere; `Ctrl/Cmd+Shift+.` toggles it). Its dot says how things stand — hover it: green is connected (which project, which agent, whether it is logged in), amber means the agent is not ready (the fix is in the tooltip), red means the CRT server stopped answering. On a project’s first visit a small card above the button says what is proxied, where tasks go and which agent will answer; **Got it** dismisses it for that project, **Show me** opens the toolbar with Select armed.
 2. **Point at the problem.** Open the toolbar and pick a tool:
    - **Select** — hover shows an outline and a label (tag, id/classes, and the React/Vue component name when detectable); click pins the element. `↑` moves to the parent, `↓` to the first child, `Enter` pins, `Esc` cancels.
    - **Box** — drag a rectangle; the elements inside it are recorded.
@@ -267,7 +267,11 @@ Not an error. CRT uses the nearest ancestor of the launch directory that contain
 
 ### Overlay does not appear
 
-Not a `crt: …` line: the proxy is up but the page has no CRT button. Check `view-source:` for `<script src="/__crt/overlay.js" defer>` — it is only injected into responses whose `Content-Type` is `text/html`. If your app renders the shell from JavaScript, redirects to its own absolute origin, or sends a `Content-Security-Policy` the relaxer cannot fix, use the [script-tag fallback](#script-tag-fallback). If the button is there but **Send** fails with `CRT server answered 0` or a CORS error in the console, the page is on a non-local origin, which script-tag mode does not allow.
+```
+crt: injected the overlay into GET / but the browser never fetched /__crt/overlay.js — a Content-Security-Policy or a JS-rendered shell is blocking it; see README › Overlay does not appear
+```
+
+The proxy is up, it put the overlay tag into the page, but ten seconds later the browser had still not asked for the script, so there is no CRT button (and no dot, no welcome card). The same finding shows in `/__crt/health` as `overlay.fetched: 0`, and `/crt:serve` repeats it in its reply. Two more lines name the cause when CRT can see it: `crt: GET / answered application/json, not text/html — CRT injects only into HTML; use the script-tag fallback (README)` and `crt: GET / sends a CSP with 'strict-dynamic' that CRT cannot relax — the overlay may be blocked; use the script-tag fallback` (also for a nonce, a `require-trusted-types-for` directive or a policy in a `<meta http-equiv>` tag). Check `view-source:` for `<script src="/__crt/overlay.js" defer>` — it is only injected into responses whose `Content-Type` is `text/html`. If your app renders the shell from JavaScript, redirects to its own absolute origin, or sends a `Content-Security-Policy` the relaxer cannot fix, use the [script-tag fallback](#script-tag-fallback). If the button is there but **Send** fails with `CRT server answered 0` or a CORS error in the console, the page is on a non-local origin, which script-tag mode does not allow.
 
 ## Repository
 

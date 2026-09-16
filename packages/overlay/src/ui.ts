@@ -20,17 +20,23 @@
  * spinner per row, unusable rows are disabled with the problem as tooltip, and "Remember for
  * this project on this machine" writes `.crt/config.local.json` through `PUT /__crt/config`.
  * Quick note uses the same choice. Product chrome (launcher, toolbar) stays "CRT" (F-64).
+ *
+ * Arrival (PRD-setup F-81, F-82): the launcher carries a health dot with a tooltip (health.ts —
+ * one fetch at mount, on `visibilitychange` and after any failed CRT request, never a timer) and
+ * on a project's first visit a welcome card sits above the launcher (welcome.ts).
  */
 import type { ProviderRow, ProvidersPayload, SessionInfo, SessionState } from "../../server/src/session-events.js";
 import { type Annotation, AnnotationStore, toViewportRect } from "./annotations.js";
-import { crtUrl } from "./base.js";
+import { crtUrl, SCRIPT_TAG_MODE } from "./base.js";
 import { capture, send, type SendResult } from "./capture.js";
 import { CHAT_CSS, ChatPanel, type QuietOutcome, type StartOptions } from "./chat.js";
 import { nearestComponentName } from "./component.js";
 import { labelOf } from "./element.js";
+import { CHECKING_TOOLTIP, crtPort, deriveHealth, fetchHealth, type HealthPayload, type HealthState, rememberServer } from "./health.js";
 import { placePopover } from "./popover.js";
 import { ACCENT } from "./screenshot.js";
 import { isOverlayNode } from "./selector.js";
+import { buildWelcome, markWelcomeSeen, shouldShowWelcome, WELCOME_CSS, welcomeCopy, welcomeSeen } from "./welcome.js";
 
 export type Tool = "select" | "box" | "pin";
 
@@ -50,7 +56,7 @@ const UNKNOWN_AGENT = "the agent";
 /** F-67: what a marker shows for a thread; `task` once the task file exists, else the session state. */
 export type ThreadState = SessionState | "task";
 
-const STYLE = `
+const STYLE = `${WELCOME_CSS}
   :host { all: initial; position: fixed; inset: 0; z-index: 2147483647; pointer-events: none;
           font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color: #111; display: block; }
   *, *::before, *::after { box-sizing: border-box; }
@@ -62,6 +68,13 @@ const STYLE = `
   .launcher .count { display: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
                      background: ${ACCENT}; color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
   .launcher .count.on { display: inline-block; }
+  .launcher .health { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #9a9a9a;
+                      box-shadow: 0 0 0 2px rgba(255,255,255,.25); }
+  .launcher[data-health="checking"] .health { animation: crt-pulse 1.2s ease-in-out infinite; }
+  .launcher[data-health="connected"] .health { background: #2e9e5b; }
+  .launcher[data-health="agent not ready"] .health, .launcher[data-health="different project"] .health { background: #e0a800; }
+  .launcher[data-health="unreachable"] .health { background: #d7263d; }
+  @keyframes crt-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
   .dock { position: fixed; pointer-events: auto; display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
           width: min(440px, calc(100vw - 32px)); }
   .dock[hidden] { display: none; }
@@ -268,6 +281,17 @@ export class OverlayUI {
   /** F-65: the one popover showing right now. */
   private openPop: HTMLElement | null = null;
 
+  /** F-81: the last health answer; null until the first one lands. */
+  private health: HealthPayload | "failed" | null = null;
+  /** F-81 Should: the project this tab first saw, from sessionStorage; null on the first load. */
+  private firstProjectRoot: string | null = null;
+  /** F-82: the card, once built. */
+  private welcomeEl: HTMLElement | null = null;
+  /** The mount-time provider load, so the welcome card can name the agent (F-56). */
+  private providersReady: Promise<unknown> = Promise.resolve();
+  /** F-82: threads or annotations came back from sessionStorage on this load (a mid-work reload). */
+  private readonly restored: boolean;
+
   private readonly launcher: HTMLElement;
   private readonly count: HTMLElement;
   private readonly dock: HTMLElement;
@@ -316,8 +340,8 @@ export class OverlayUI {
           <button type="button" data-action="chat" title="Chat with the agent about this page (F-68)">Chat<span class="dot" hidden></span></button>
         </div>
       </div>
-      <button type="button" class="launcher" aria-label="Toggle CRT (Ctrl/Cmd+Shift+.)">
-        CRT <span class="count">0</span>
+      <button type="button" class="launcher" aria-label="Toggle CRT (Ctrl/Cmd+Shift+.)" data-health="checking" title="${CHECKING_TOOLTIP}">
+        <span class="health"></span> CRT <span class="count">0</span>
       </button>
     `;
     const q = <T extends HTMLElement>(sel: string) => this.root.querySelector(sel) as T;
@@ -338,6 +362,7 @@ export class OverlayUI {
     this.pagePop = this.buildPagePop();
     this.pops.appendChild(this.pagePop);
 
+    this.restored = this.store.all().length > 0 || this.readPageThreads().length > 0;
     this.restoreLauncher();
     this.restorePendingProvider();
     this.wireLauncher();
@@ -350,7 +375,8 @@ export class OverlayUI {
     this.placeLauncher(); // needs the launcher's real height, so after mount
     this.render();
     void this.restoreThreads(); // a reload re-attaches every thread (F-66)
-    void this.loadProviders(false).catch(() => undefined); // F-56: label the Send buttons with the active agent
+    this.providersReady = this.loadProviders(false).catch(() => this.noteFailure()); // F-56: label the Send buttons with the active agent
+    this.wireHealth();
   }
 
   // ---- public surface (also exposed on window.__crt for tests) ------------------------------
@@ -365,6 +391,7 @@ export class OverlayUI {
     this.pops.hidden = !this.open;
     if (!this.open) this.setTool(null);
     this.render();
+    this.positionDocked();
   }
 
   currentTool(): Tool | null {
@@ -470,6 +497,7 @@ export class OverlayUI {
     } catch (err) {
       void warm.then((id) => (id ? ChatPanel.abandon(id) : undefined));
       this.showStatus(`Send failed: ${escapeHtml(err instanceof Error ? err.message : String(err))}`, true);
+      this.noteFailure();
       throw err;
     } finally {
       this.busy = false;
@@ -968,6 +996,7 @@ export class OverlayUI {
     if (!res.ok || !data.ok || !data.providers || !data.active) throw new Error(data.error ?? `CRT server answered ${res.status}`);
     this.providers = data as ProvidersPayload;
     this.render();
+    this.renderHealth(); // the tooltip names the agent and carries its N-7 line (F-81)
     return this.providers;
   }
 
@@ -994,6 +1023,7 @@ export class OverlayUI {
       const why = into.querySelector(".why");
       if (why) why.textContent = `Could not list agents: ${err instanceof Error ? err.message : String(err)}`;
       into.classList.remove("refreshing");
+      this.noteFailure();
     }
   }
 
@@ -1083,6 +1113,7 @@ export class OverlayUI {
       list = await ChatPanel.listSessions();
     } catch (err) {
       this.sessions.querySelector(".empty")!.textContent = `Could not list sessions: ${err instanceof Error ? err.message : String(err)}`;
+      this.noteFailure();
       return;
     }
     this.renderSessions(list);
@@ -1114,6 +1145,88 @@ export class OverlayUI {
       empty.textContent = "No sessions yet — annotate something and Send.";
       this.sessions.appendChild(empty);
     }
+  }
+
+  // ---- launcher health (F-81) and the welcome card (F-82) ---------------------------------------
+
+  /** F-81: the three triggers — mount, the tab becoming visible again, and a CRT request that failed. */
+  private wireHealth(): void {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") void this.checkHealth();
+    });
+    void Promise.all([this.checkHealth(), this.providersReady]).then(() => {
+      if (this.welcomeEl) return;
+      const gate = { health: this.health, scriptTagMode: SCRIPT_TAG_MODE, inIframe: window.top !== window, restored: this.restored, seen: welcomeSeen };
+      if (shouldShowWelcome(gate)) this.showWelcome();
+    });
+  }
+
+  /** A CRT request just failed: re-read health so the dot says whether the server is gone (F-81). */
+  private noteFailure(): void {
+    void this.checkHealth();
+  }
+
+  /** One `GET /__crt/health`; paints the dot from the answer and the last provider list. */
+  async checkHealth(): Promise<HealthPayload | "failed"> {
+    const h = await fetchHealth();
+    this.health = h;
+    if (h !== "failed" && this.firstProjectRoot === null) this.firstProjectRoot = rememberServer(h) ?? h.projectRoot;
+    this.renderHealth();
+    return h;
+  }
+
+  /** The dot's state as painted (tests). */
+  healthState(): HealthState {
+    return (this.launcher.dataset.health as HealthState | undefined) ?? "checking";
+  }
+
+  private renderHealth(): void {
+    const h = this.health;
+    const provider = h && h !== "failed" ? h.provider : null;
+    const row = provider ? this.providers?.providers.find((p) => p.id === provider) : undefined;
+    const view = deriveHealth({
+      health: h,
+      agentName: row?.displayName ?? null,
+      problem: row?.problem ?? null,
+      firstProjectRoot: this.firstProjectRoot,
+      port: crtPort(),
+    });
+    this.launcher.dataset.health = view.state;
+    this.launcher.title = view.tooltip;
+  }
+
+  /** F-82: show the card now, whatever the suppression rules say (`window.__crt.welcome()`). */
+  async welcome(): Promise<void> {
+    if (this.health === null || this.health === "failed") await this.checkHealth();
+    if (this.health === null || this.health === "failed") return;
+    if (!this.providers) await this.loadProviders(false).catch(() => undefined);
+    this.showWelcome();
+  }
+
+  private showWelcome(): void {
+    const h = this.health;
+    if (!h || h === "failed") return;
+    const row = h.provider ? this.providers?.providers.find((p) => p.id === h.provider) : undefined;
+    const copy = welcomeCopy(h, { name: row?.displayName ?? null, problem: row?.problem ?? null });
+    this.welcomeEl?.remove();
+    const el = buildWelcome(copy, {
+      gotIt: () => this.dismissWelcome(),
+      showMe: () => {
+        // Should: open the toolbar, arm Select, dismiss.
+        this.dismissWelcome();
+        this.toggle(true);
+        this.setTool("select");
+      },
+    });
+    this.welcomeEl = el;
+    this.root.appendChild(el);
+    this.positionDocked();
+  }
+
+  private dismissWelcome(): void {
+    if (this.health && this.health !== "failed") markWelcomeSeen(this.health.projectRoot);
+    this.welcomeEl?.remove();
+    this.welcomeEl = null;
   }
 
   // ---- launcher --------------------------------------------------------------------------------
@@ -1153,6 +1266,11 @@ export class OverlayUI {
       pop.style.right = `${this.launcherPos.right}px`;
       pop.style.bottom = `${bottom}px`;
       pop.style.maxHeight = `${Math.max(120, window.innerHeight - bottom - 8)}px`;
+    }
+    if (this.welcomeEl) {
+      // F-82: the card sits where a page-level popover would, so it never covers the launcher or the dock.
+      this.welcomeEl.style.right = `${this.launcherPos.right}px`;
+      this.welcomeEl.style.bottom = `${bottom}px`;
     }
   }
 
