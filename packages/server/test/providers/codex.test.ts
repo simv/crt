@@ -167,7 +167,7 @@ function replay(name: string, expected: string | null): { events: SessionEvent[]
 }
 
 describe("codex event mapping over the recorded fixtures (F-53, F-59)", () => {
-  it("first-turn.jsonl: init from thread.started, tool lines for mcp_tool_call and command_execution, whole text, result with usage", () => {
+  it("first-turn.jsonl: init from thread.started, tool lines for mcp_tool_call and command_execution, whole text, result with usage (F-47, F-53)", () => {
     const { events, outcomes } = replay("first-turn.jsonl", null);
     expect(outcomes[0]).toEqual({ kind: "thread", threadId: "01a0a4ca-1dff-7f52-b571-4aad430f5d30" });
     expect(events.map((e) => e.type)).toEqual(["init", "tool_use", "tool_result", "tool_use", "tool_result", "assistant_start", "text", "assistant_end", "result"]);
@@ -181,7 +181,7 @@ describe("codex event mapping over the recorded fixtures (F-53, F-59)", () => {
     expect(events[8]).toMatchObject({ type: "result", ok: true, costUsd: 0, errors: [], detail: "tokens: input 39688, cached input 34944, cache write input 0, output 297, reasoning output 15" });
   });
 
-  it("first-turn-mcp-approval-denied.jsonl: a failed MCP call is an error tool line, the turn still completes", () => {
+  it("first-turn-mcp-approval-denied.jsonl: a failed MCP call is an error tool line, the turn still completes (F-53)", () => {
     const { events } = replay("first-turn-mcp-approval-denied.jsonl", null);
     expect(events[2]).toMatchObject({ type: "tool_result", id: "t1-item_0", isError: true, summary: "MCP tool call requires approval, but approval policy is never" });
     expect(events[4]).toMatchObject({ type: "tool_result", id: "t1-item_1", isError: true });
@@ -189,7 +189,7 @@ describe("codex event mapping over the recorded fixtures (F-53, F-59)", () => {
     expect(events.at(-1)).toMatchObject({ type: "result", ok: true });
   });
 
-  it("resume.jsonl: the same thread id passes the assertion and emits no second init", () => {
+  it("resume.jsonl: the same thread id passes the assertion and emits no second init (F-53)", () => {
     const { events, outcomes } = replay("resume.jsonl", "01a0a4ca-1dff-7f52-b571-4aad430f5d30");
     expect(outcomes.every((o) => o === null)).toBe(true);
     expect(events.some((e) => e.type === "init")).toBe(false);
@@ -213,7 +213,7 @@ describe("codex event mapping over the recorded fixtures (F-53, F-59)", () => {
     }
   });
 
-  it("a killed turn maps nothing after turn.started and never ends (the process exit decides)", () => {
+  it("a killed turn maps nothing after turn.started and never ends; the process exit decides (F-53)", () => {
     for (const name of ["first-turn-killed.jsonl", "first-turn-killed-live.jsonl"]) {
       const { events, mapper } = replay(name, null);
       expect(events.map((e) => e.type), name).toEqual(["init"]);
@@ -238,18 +238,18 @@ describe("codex event mapping over the recorded fixtures (F-53, F-59)", () => {
 });
 
 describe("codex preflight against the npm-style fake (F-53, N-7, N-10)", () => {
-  it("not on PATH → the N-7 install line", async () => {
+  it("not on PATH → the N-7 install line (F-53, N-7)", async () => {
     expect(await codexPreflight({ env: { PATH: tmp, PATHEXT: ".COM;.EXE;.BAT;.CMD" } })).toEqual({ installed: false, loggedIn: "unknown", version: null, problem: CODEX_NOT_FOUND });
     expect(CODEX_NOT_FOUND).toBe("codex not found on PATH — npm i -g @openai/codex, or set providers.codex.command in .crt/config.json");
   });
 
-  it("found through the shim, versioned, logged in / not / unknown (§12 rule 3)", async () => {
+  it("found through the shim, versioned, logged in / not / unknown per §12 rule 3 (F-53, N-10)", async () => {
     expect(await codexPreflight({ env: env() })).toEqual({ installed: true, loggedIn: true, version: "0.154.0", problem: null });
     expect(await codexProfile.preflight({ env: env({ FAKE_CODEX_LOGIN: "1" }) })).toEqual({ installed: true, loggedIn: false, version: "0.154.0", problem: CODEX_NOT_LOGGED_IN });
     expect(await codexPreflight({ env: env({ FAKE_CODEX_LOGIN: "7" }) })).toMatchObject({ installed: true, loggedIn: "unknown", problem: null });
   });
 
-  it("too old, and a configured command that is not codex", async () => {
+  it("too old, and a configured command that is not codex (F-53, N-7)", async () => {
     expect(await codexPreflight({ env: env({ FAKE_CODEX_VERSION: "0.100.0" }) })).toEqual({ installed: true, loggedIn: "unknown", version: "0.100.0", problem: codexTooOld("0.100.0") });
     const notCodex = join(tmp, "not-codex.js");
     writeFileSync(notCodex, 'console.log("hello"); process.exit(0);\n');

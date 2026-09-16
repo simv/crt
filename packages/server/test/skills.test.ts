@@ -26,7 +26,7 @@ afterEach(() => {
 });
 
 describe("crt skills install (F-58)", () => {
-  it("--provider codex --dir <tmp> writes six SKILL.md files with no ${CLAUDE_ token and no AskUserQuestion; a second run changes nothing", () => {
+  it("--provider codex --dir <tmp> writes six SKILL.md files with no ${CLAUDE_ token and no AskUserQuestion; a second run changes nothing (F-58)", () => {
     const dir = join(root, "skills");
     const first = installSkills({ sourceDir: pluginSkills, root, profile: codexProfile, dir });
     expect(first.dir).toBe(dir);
@@ -53,7 +53,7 @@ describe("crt skills install (F-58)", () => {
     expect(SKILL_NAMES.map((n) => statSync(join(dir, n, "SKILL.md")).mtimeMs)).toEqual(stamps);
   });
 
-  it("rewrites the Claude-only tokens as F-58 lists them and keeps the rest verbatim", () => {
+  it("rewrites the Claude-only tokens as F-58 lists them and keeps the rest verbatim (F-58)", () => {
     const next = readFileSync(join(pluginSkills, "next", "SKILL.md"), "utf8");
     const out = rewriteSkill(next);
     expect(out).toContain("Project root: `the project root (your working directory)`. Your session ID: `your session id`.");
@@ -68,7 +68,7 @@ describe("crt skills install (F-58)", () => {
     expect(rewriteSkill("no frontmatter ${CLAUDE_PROJECT_DIR}")).toBe(`${INSTALLED_PARAGRAPH}\n\nno frontmatter the project root (your working directory)`);
   });
 
-  it("targets the profile's project dir, the user dir with --global, an explicit --dir, and demands --dir when the profile records none", () => {
+  it("targets the profile's project dir, the user dir with --global, an explicit --dir, and demands --dir when the profile records none (F-58, §12 rule 4)", () => {
     expect(skillsTargetDir({ root, profile: codexProfile })).toBe(join(root, ".agents", "skills"));
     expect(skillsTargetDir({ root, profile: codexProfile, global: true, env: { CODEX_HOME: join(root, "cx") } })).toBe(join(root, "cx", "skills"));
     expect(skillsTargetDir({ root, profile: codexProfile, dir: "elsewhere" })).toBe(join(root, "elsewhere"));
@@ -82,13 +82,13 @@ describe("crt skills install (F-58)", () => {
     expect(existsSync(join(root, ".agents"))).toBe(false);
   });
 
-  it("refuses --provider claude even with --dir, pointing at the plugin", () => {
+  it("refuses --provider claude even with --dir, pointing at the plugin (F-58)", () => {
     expect(() => installSkills({ sourceDir: pluginSkills, root, profile: claudeProfile, dir: join(root, "x") })).toThrow(CLAUDE_REFUSAL);
     expect(CLAUDE_REFUSAL).toContain("claude plugin install crt@crt");
     expect(existsSync(join(root, "x"))).toBe(false);
   });
 
-  it("the build ships every plugin skill under dist/skills, the source the CLI installs from", () => {
+  it("the build ships every plugin skill under dist/skills, the source the CLI installs from (F-58)", () => {
     execFileSync(process.execPath, [join(here, "..", "scripts", "copy-intake.mjs")], { stdio: "ignore" });
     for (const name of SKILL_NAMES) {
       expect(readFileSync(join(distSkills, name, "SKILL.md"), "utf8"), name).toBe(readFileSync(join(pluginSkills, name, "SKILL.md"), "utf8"));
