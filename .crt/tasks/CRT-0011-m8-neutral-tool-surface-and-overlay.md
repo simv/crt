@@ -1,10 +1,10 @@
 ---
 id: CRT-0011
 title: M8 — Neutral tool surface (crt mcp, capability matrix) and overlay provider UX
-status: backlog
+status: in_progress
 priority: normal
 created: 2026-09-15T17:30:00+08:00
-updated: 2026-09-15T17:30:00+08:00
+updated: 2026-09-16T08:11:52+08:00
 url: null
 route: null
 session: null
@@ -43,3 +43,4 @@ The Claude driver keeps its in-process `write_task`; the stdio path is for every
 
 ## Log
 - 2026-09-15T17:30+08:00 — created from PRD-providers milestone M8 by the planning session that wrote docs/PRD-providers.md.
+- 2026-09-16T08:11:52+08:00 — claimed by worker session 8de516ee-6ff7-4597-bd71-f7efacb5e4b6
