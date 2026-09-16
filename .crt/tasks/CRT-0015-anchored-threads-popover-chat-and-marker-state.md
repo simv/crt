@@ -4,7 +4,7 @@ title: Anchored threads — popover chat per annotation, marker state, page-leve
 status: review
 priority: high
 created: 2026-09-16T13:05:00+08:00
-updated: 2026-09-16T14:05:00+08:00
+updated: 2026-09-16T14:30:00+08:00
 url: http://localhost:4400/
 route: /
 session: null
@@ -45,3 +45,4 @@ One annotation = one capture = one thread by default; the "include the N other u
 - 2026-09-16T13:40+08:00 — server: `CaptureBundle.note` (optional) + `Developer's message:` line + zero-annotation wording; skill step 1 sentence; `capture-schema.test.ts` and `intake-message.test.ts` cover it (F-68). Overlay: `popover.ts` (pure placement, `popover.test.ts` 6 cases), `Annotation.sessionId`, `capture(store, { ids, note })`, `ChatPanel` per thread (static session helpers, `watch`, `onChange`/`onAttention`/`onDiscard`), `ui.ts` rewritten around popovers/threads/marker state, toolbar `Select · Box · Pin · count · Clear · Sessions · Agent · Chat`.
 - 2026-09-16T13:55+08:00 — found a reload race: every re-attached thread's replayed `permission` event called `show(true)`, so the last replay stole the popover. Fix: the SSE stream now ends its replay with a named `event: live` frame (plain `onmessage` never sees it), the panel only asks for attention on live permissions, and the UI opens the thread only when no other popover is in use (else marker pulses + status line). Markers now render above popovers so a badge under someone else's popover stays clickable. `sessions.test.ts` asserts the `live` frame.
 - 2026-09-16T14:00+08:00 — verified: `npm run check` exits 0 (typecheck, 249 unit tests, build; overlay 34 KB gzipped of the 150 KB N-3 budget); `npm run e2e` 40/40 three runs in a row (`focus.spec.ts` F-11/F-65; `capture.spec.ts` popover beside the element, grouped send keeps both markers bound to one session; `chat.spec.ts` new "anchored threads" block: two concurrent threads + reload + Clear, page-level Chat with `Developer's message` and the Chat-button state dot; existing F-14/F-27/F-29/F-30/F-56 tests moved to popover-scoped selectors). `claude plugin validate` passes for both manifests. Manual on the trial shop (:3100 behind the branch build on :4410, real Claude): popover beside the Brass pen card, Send → chat in place, amber `thinking…` pill, second thread on the cart total while the first ran, blue `your turn` on #1, both restored after a reload; page Chat compose docks above the toolbar. Ready for review.
+- 2026-09-16T14:30+08:00 — Simon: a selection outline drew over the popover. Popovers are topmost again (markers layer below `.pops`); the e2e thread test closes the open popover with × before clicking a badge under it. e2e 40/40; :4410 restarted on the new build.

@@ -144,7 +144,7 @@ const STYLE = `
                  max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hover-label b { color: #ffd166; font-weight: 600; }
   .drag { position: fixed; pointer-events: none; border: 2px dashed ${ACCENT}; background: rgba(255,61,113,.08); display: none; }
-  /* Markers sit above popovers so a badge under someone else's open popover stays clickable (F-67). */
+  /* Markers sit below popovers: an open popover is the topmost thing on the page (F-65); close it to reach a badge under it. */
   .markers { position: fixed; inset: 0; pointer-events: none; }
   .mark { position: fixed; border: 2px solid ${ACCENT}; border-radius: 2px; }
   .mark.box { border-style: dashed; }
@@ -297,8 +297,8 @@ export class OverlayUI {
         <div class="hover"></div><div class="hover-label"></div><div class="drag"></div>
       </div>
       <div class="hint" hidden></div>
-      <div class="pops" hidden></div>
       <div class="markers" part="markers"></div>
+      <div class="pops" hidden></div>
       <div class="dock" hidden>
         <div class="status" hidden></div>
         <div class="sessions" hidden></div>

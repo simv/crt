@@ -332,6 +332,9 @@ test.describe("anchored threads (F-65, F-66, F-67, F-68)", () => {
     await expect(shadow(page, '.pop[data-n="1"]')).toBeHidden();
     expect((await page.evaluate(() => window.__crt.threads())).map((t) => t.sessionId).sort()).toEqual(threads.map((t) => t.sessionId).sort());
 
+    // Popovers are topmost (F-65): close the open one with its ×, then the badge under it is clickable again.
+    await shadow(page, '.pop[data-n="2"] [data-chat=hide]').click();
+    await expect(shadow(page, '.pop[data-n="2"]')).toBeHidden();
     // Answer the first thread from its own popover (badge click): only its marker changes.
     await shadow(page, '.num-badge[data-n="1"]').click();
     await expect(shadow(page, '.pop[data-n="1"] .chat')).toBeVisible();
