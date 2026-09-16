@@ -36,7 +36,7 @@ No page capture: created from `docs/PRD-setup.md` milestone M12 by the planning 
 - [ ] `npm run check` green; every PRD-setup §6.1 transcript is a passing unit row, interactive and `--yes`.
 - [ ] Doctor unit rows: `FAIL` and exit 1 only for node too old, target down/unset, port held, resolved provider unusable; `warn` and exit 0 for another provider's problem and for the plugin row; the F-76 wordings verbatim.
 - [ ] `crt 3999` against the e2e fixture starts with no prompt and writes `target: "http://localhost:3999"` into the scratch project's `.crt/config.local.json`; a second run prints no `Remembered` line and its ready line still names 3999.
-- [ ] Busy-port e2e: reuse (same target/project → exit 0, reuse line, first server still serving) and non-CRT listener (→ 4401 with its line) pass on ubuntu in the PR run; the windows e2e run on `main` after merge is recorded in the Log.
+- [ ] Busy-port e2e: reuse (same target/project → exit 0, reuse line, first server still serving) and non-CRT listener (→ 4401 with its line) pass in the PR run (e2e runs on ubuntu only; the Windows unit job covers the shim path).
 - [ ] Manual (Simon): `crt doctor` on this repo exits 0, prints `ok` for node, project, `.crt` and claude (logged in), `warn` for codex if it is logged out, and ends with `→ claude — …`.
 - [ ] `claudePreflight` fixtures: `loggedIn` true/false/garbage/non-zero exit/timeout map to `true`/`false`/`"unknown"`/`"unknown"`/`"unknown"`; the false case carries the N-6 line; the payload's other fields never reach a log (test greps the fake log).
 - [ ] Ready line carries `login:`; `/__crt/health` matches the F-78 shape; existing health assertions still pass.
