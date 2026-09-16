@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { build } from "esbuild";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { installFakeCodex } from "../../e2e/fixture/fake-codex-install.mjs";
@@ -80,7 +80,8 @@ afterEach(() => {
   for (const k of Object.keys(savedEnv)) delete savedEnv[k];
 });
 
-const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({ PATH: bin, PATHEXT: ".COM;.EXE;.BAT;.CMD", ...extra });
+// A synthetic PATH: the fake's bin first; on POSIX the executable script's `#!/usr/bin/env node` needs node on it too.
+const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({ PATH: `${bin}${delimiter}${dirname(process.execPath)}`, PATHEXT: ".COM;.EXE;.BAT;.CMD", ...extra });
 
 describe("codex profile (F-42, F-53)", () => {
   it("declares the M6-verified markers, launch signal, capabilities, telemetry opt-out, skills dirs and resume command (F-42, F-46, F-53, F-58)", () => {
@@ -239,7 +240,7 @@ describe("codex event mapping over the recorded fixtures (F-53, F-59)", () => {
 
 describe("codex preflight against the npm-style fake (F-53, N-7, N-10)", () => {
   it("not on PATH → the N-7 install line (F-53, N-7)", async () => {
-    expect(await codexPreflight({ env: { PATH: tmp, PATHEXT: ".COM;.EXE;.BAT;.CMD" } })).toEqual({ installed: false, loggedIn: "unknown", version: null, problem: CODEX_NOT_FOUND });
+    expect(await codexPreflight({ env: { PATH: `${tmp}${delimiter}${dirname(process.execPath)}`, PATHEXT: ".COM;.EXE;.BAT;.CMD" } })).toEqual({ installed: false, loggedIn: "unknown", version: null, problem: CODEX_NOT_FOUND });
     expect(CODEX_NOT_FOUND).toBe("codex not found on PATH — npm i -g @openai/codex, or set providers.codex.command in .crt/config.json");
   });
 
