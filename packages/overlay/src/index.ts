@@ -9,7 +9,7 @@
  * debugging/test surface used by the Playwright specs to drive the tools without a real pointer.
  */
 import type { CaptureBundle } from "../../server/src/capture-schema.js";
-import type { SessionInfo } from "../../server/src/session-events.js";
+import type { ProvidersPayload, SessionInfo } from "../../server/src/session-events.js";
 import { type Annotation, AnnotationStore } from "./annotations.js";
 import { CRT_ORIGIN, SCRIPT_TAG_MODE } from "./base.js";
 import { capture, type SendResult } from "./capture.js";
@@ -39,9 +39,20 @@ export interface CrtTestHooks {
   remove(n: number): void;
   clear(): void;
   capture(): Promise<{ bundle: CaptureBundle; imageNames: string[] }>;
-  /** F-13 Send to Claude, or the F-14 quick note with `{ quick: true }`. */
+  /** F-13 Send, or the F-14 quick note with `{ quick: true }`; runs on `providers.sendProvider()`. */
   send(opts?: { quick?: boolean }): Promise<SendResult>;
   canQuickNote(): boolean;
+  /** F-56: the provider menu (split Send button / toolbar Agent button). */
+  providers: {
+    toggle(force?: boolean): Promise<void>;
+    load(refresh?: boolean): Promise<ProvidersPayload>;
+    /** The id the next send will ask for (per-send pick, else the server's active provider). */
+    sendProvider(): string | null;
+    /** Pick a provider for the next send only (null clears the pick). */
+    pick(id: string | null): void;
+    /** Pick and persist via PUT /__crt/config, as the "Remember" checkbox does. */
+    remember(id: string): Promise<void>;
+  };
   selectorFor(target: Element | string): string;
   xpathFor(target: Element | string): string;
   describe(target: Element | string): ReturnType<typeof describeElement>;
@@ -110,8 +121,15 @@ function mount(): void {
       const r = await capture(store);
       return { bundle: r.bundle, imageNames: Object.keys(r.images) };
     },
-    send: (opts) => ui.sendToClaude(opts),
+    send: (opts) => ui.sendToAgent(opts),
     canQuickNote: () => ui.canQuickNote(),
+    providers: {
+      toggle: (force) => ui.toggleProviders(force),
+      load: (refresh) => ui.loadProviders(refresh === true),
+      sendProvider: () => ui.sendProvider(),
+      pick: (id) => ui.setPendingProvider(id),
+      remember: (id) => ui.chooseProvider(id, true),
+    },
     selectorFor: (t) => selectorFor(resolve(t)),
     xpathFor: (t) => xpathFor(resolve(t)),
     describe: (t) => describeElement(resolve(t)),
