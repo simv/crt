@@ -4,7 +4,7 @@ title: M9 — Codex driver (codex exec --json) and crt skills install
 status: review
 priority: normal
 created: 2026-09-15T17:30:00+08:00
-updated: 2026-09-16T10:25:00+08:00
+updated: 2026-09-16T10:50:00+08:00
 url: null
 route: null
 session: null
@@ -34,8 +34,8 @@ No page capture: created from PRD-providers milestone M9.
 - [x] A resume whose `thread.started` id differs ends the session with the N-7 "could not resume" line (unit test).
 - [x] `crt skills install --provider codex --dir <tmp>` writes six `SKILL.md` files containing no `${CLAUDE_` and no `AskUserQuestion`; running it twice changes nothing.
 - [x] `npm run check` passes; the module header records the tested Codex version, exact command lines and observed event names.
-- [ ] Manual (Simon): on the trial Next.js app, `crt serve --provider codex` → annotate → Send to Codex → streamed text and tool lines, a task passing `crt task --validate`, and `codex resume <id>` continues the conversation in a terminal.
-- [ ] Manual (Simon): on a scratch copy of the trial app with `AGENTS.md` and no Claude markers, `crt serve` prints `→ codex` with its reason.
+- [x] Manual (Simon): on the trial Next.js app, `crt serve --provider codex` → annotate → Send to Codex → streamed text and tool lines, a task passing `crt task --validate`, and `codex resume <id>` continues the conversation in a terminal.
+- [x] Manual (Simon): on a scratch copy of the trial app with `AGENTS.md` and no Claude markers, `crt serve` prints `→ codex` with its reason.
 
 ## Notes
 If the spike found MCP unreachable under `--sandbox read-only`, apply the fallback the spike doc names and amend F-53 in `docs/PRD-providers.md` in this PR (PRD-providers §12 rule 2). Do not pass `--skip-git-repo-check`.
@@ -53,3 +53,4 @@ If the spike found MCP unreachable under `--sandbox read-only`, apply the fallba
 - 2026-09-16T10:05+08:00 — extra verification on the real CLI (not a DoD item; Codex 0.154.0 is installed and logged in here): two-turn session through the built driver in C:ProjectsClaudecrt-codex-spike-repo — thread.started → init, resume kept the thread and remembered turn 1; a third session called write_task through the real `crt mcp` (token via env_vars) and the file passed `crt task --validate` with provider: codex and the thread id in session:. Scratch .crt/ removed afterwards.
 - 2026-09-16T10:05+08:00 — prd-reviewer: PR-READY WITH NOTES (test titles missing (F-n) tags — fixed; README index regenerated with `crt tasks`). Left unticked for Simon: the two Manual items (trial Next.js app end to end incl. `codex resume`; auto-detection `→ codex` on an AGENTS.md-only copy).
 - 2026-09-16T10:25+08:00 — DoD 2 ubuntu half confirmed: PR #25 CI run 35046177471 green on all four jobs — check (ubuntu, windows) and e2e (ubuntu 1m14s, windows 4m44s). One fix on the way: the preflight tests' synthetic PATH needed node's directory for the POSIX executable-script fake (`#!/usr/bin/env node`); Windows never hit it because the .cmd shim path runs process.execPath directly.
+- 2026-09-16T10:50+08:00 — Manual items ticked on Simon's confirmation ("ive tested", 2026-09-16) against the new trial app C:ProjectsClaude	ool-validation (local-only Next 16 shop created this session; Apex is no longer used for trials). Merging PR #25 per the end-of-task rule.
