@@ -55,7 +55,8 @@ async function sendAndWaitForPermission(page: Page): Promise<string> {
     window.__crt.setNote(1, "total excludes discount");
   });
   const sent = await page.evaluate(() => window.__crt.send());
-  await expect(shadow(page, ".chat")).toBeVisible();
+  // F-66: the chat renders inside the annotation's own popover.
+  await expect(shadow(page, '.pop[data-n="1"] .chat')).toBeVisible();
   await expect(shadow(page, ".perm")).toBeVisible();
   return sent.id;
 }
@@ -80,6 +81,9 @@ test.describe("chat panel (F-24, F-25, F-26, F-28, F-29)", () => {
     await expect(shadow(page, ".perm .t")).toHaveText("Bash npm test");
     await expect(shadow(page, ".perm pre")).toHaveText("npm test");
     await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "waiting");
+    // F-67: the marker keeps its badge and reports the session state beside it.
+    await expect(shadow(page, ".num-badge")).toHaveAttribute("data-state", "waiting");
+    await expect(shadow(page, ".mark-state")).toHaveText("needs permission");
     // F-28/F-47: session id + the resume hint, which comes from the session's own init event (F-63: read from the profile).
     const snap = await page.evaluate(() => window.__crt.chat.snapshot());
     expect(snap.sessionId).toMatch(/^[0-9a-f-]{36}$/);
@@ -91,6 +95,7 @@ test.describe("chat panel (F-24, F-25, F-26, F-28, F-29)", () => {
     await expect(shadow(page, ".perm.resolved .done")).toHaveText("Denied");
     await expect(shadow(page, ".msg.assistant").nth(1)).toContainText("I won't run tests");
     await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
+    await expect(shadow(page, ".mark-state")).toHaveText("your turn");
     await expect(shadow(page, ".tool summary")).toHaveCount(1); // Bash never ran
     await expect(shadow(page, ".chat-input textarea")).toBeFocused();
   });
@@ -119,6 +124,9 @@ test.describe("chat panel (F-24, F-25, F-26, F-28, F-29)", () => {
     const snap = await page.evaluate(() => window.__crt.chat.snapshot());
     const written = snap.events.find((e) => e.type === "task_written") as Extract<SessionEvent, { type: "task_written" }>;
     expect(snap.taskId).toBe(written.id);
+    // F-67: the marker shows the task id once it is written.
+    await expect(shadow(page, ".mark-state")).toHaveText(written.id);
+    await expect(shadow(page, ".num-badge")).toHaveAttribute("data-state", "task");
     expect(written.path).toMatch(/^\.crt\/tasks\/CRT-\d{4}-cart-total-excludes-applied-discount\.md$/);
 
     // F-23 / F-32 / F-34 on disk (in the e2e scratch project, see e2e/fixture/crt.mjs).
@@ -175,15 +183,18 @@ test.describe("chat panel (F-24, F-25, F-26, F-28, F-29)", () => {
     await page.goto("/app");
     await shadow(page, ".launcher").click();
     await page.evaluate(() => window.__crt.addSelect("[data-testid=card-1] .price"));
+    await page.evaluate(() => window.__crt.togglePop(1, true));
+    const quick = shadow(page, '.pop[data-n="1"] [data-action=quick]');
     // No note, no quick note: there is no conversation to add the words later.
     expect(await page.evaluate(() => window.__crt.canQuickNote())).toBe(false);
-    await expect(shadow(page, "[data-action=quick]")).toBeDisabled();
+    await expect(quick).toBeDisabled();
     await page.evaluate(() => window.__crt.setNote(1, "total excludes discount"));
-    await expect(shadow(page, "[data-action=quick]")).toBeEnabled();
+    await expect(quick).toBeEnabled();
 
-    await shadow(page, "[data-action=quick]").click();
+    await quick.click();
     await expect(shadow(page, ".status")).toContainText(/Task CRT-\d{4} written to/);
     await expect(shadow(page, ".chat")).toBeHidden();
+    await expect(shadow(page, ".mark-state")).toHaveText(/^CRT-\d{4}$/);
     const snap = await page.evaluate(() => window.__crt.chat.snapshot());
     expect(snap.taskId).toMatch(/^CRT-\d{4}$/);
     expect(snap.quiet).toBe(false);
@@ -238,7 +249,7 @@ test.describe("chat panel (F-24, F-25, F-26, F-28, F-29)", () => {
     expect([...list].sort((a, b) => b.startedAt.localeCompare(a.startedAt)).map((s) => s.id)).toEqual(list.map((s) => s.id));
 
     await row.click();
-    await expect(shadow(page, ".chat")).toBeVisible();
+    await expect(shadow(page, '.pop[data-n="1"] .chat')).toBeVisible();
     await expect(shadow(page, ".sessions")).toBeHidden();
     expect((await page.evaluate(() => window.__crt.chat.snapshot())).sessionId).toBe(mine);
     await expect(shadow(page, ".perm")).toBeVisible();
@@ -267,8 +278,127 @@ test.describe("chat panel (F-24, F-25, F-26, F-28, F-29)", () => {
     await shadow(page, "[data-chat=new]").click();
     await expect(shadow(page, ".chat")).toBeHidden();
     expect((await page.evaluate(() => window.__crt.chat.snapshot())).sessionId).toBeNull();
+    // F-66: Discard is the one action that also removes the annotation.
+    expect(await page.evaluate(() => window.__crt.annotations())).toEqual([]);
+    await expect(shadow(page, ".num-badge")).toHaveCount(0);
     const res = await page.request.get(`/__crt/sessions/${before.sessionId}`);
     expect(((await res.json()) as { session: { state: string } }).session.state).toBe("ended");
+  });
+});
+
+test.describe("anchored threads (F-65, F-66, F-67, F-68)", () => {
+  test("two annotations run two threads at once, each marker reports its own state, and a reload re-attaches both (F-65, F-66, F-67)", async ({ page }) => {
+    await page.goto("/app");
+    await page.evaluate(() => {
+      window.__crt.addSelect("[data-testid=card-1] .price");
+      window.__crt.setNote(1, "total excludes discount");
+    });
+    await page.evaluate(() => window.__crt.send({ n: 1 }));
+    await expect(shadow(page, '.pop[data-n="1"] .chat')).toBeVisible();
+    await expect(shadow(page, '.mark-state[data-n="1"]')).toHaveText("needs permission");
+
+    // Start a second thread while the first is still waiting: its popover opens, the first closes but keeps going.
+    await page.evaluate(() => {
+      window.__crt.addSelect("#heading");
+      window.__crt.setNote(2, "wrong heading");
+    });
+    await page.evaluate(() => window.__crt.send({ n: 2 }));
+    await expect(shadow(page, '.pop[data-n="2"] .chat')).toBeVisible();
+    await expect(shadow(page, '.pop[data-n="1"]')).toBeHidden();
+    await expect(shadow(page, '.mark-state[data-n="2"]')).toHaveText("needs permission");
+    await expect(shadow(page, '.mark-state[data-n="1"]')).toHaveText("needs permission");
+    await expect(shadow(page, ".num-badge")).toHaveCount(2);
+    const threads = await page.evaluate(() => window.__crt.threads());
+    expect(threads.map((t) => [t.ns, t.state, t.open])).toEqual([
+      [[1], "waiting", false],
+      [[2], "waiting", true],
+    ]);
+    expect(threads[0]!.sessionId).not.toBe(threads[1]!.sessionId);
+    // Each popover holds its own transcript: two different captures.
+    const firstMessages = await page.evaluate(() => {
+      const root = document.getElementById("crt-host")!.shadowRoot!;
+      return [1, 2].map((n) => root.querySelector(`.pop[data-n="${n}"] .msg.user`)!.textContent!.split("\n")[0]);
+    });
+    expect(firstMessages[0]).toMatch(/^CRT intake for capture /);
+    expect(firstMessages[1]).toMatch(/^CRT intake for capture /);
+    expect(firstMessages[0]).not.toBe(firstMessages[1]);
+
+    // A reload re-attaches both threads: markers show their states, the popover that was open comes back.
+    await page.reload();
+    await expect(shadow(page, ".num-badge")).toHaveCount(2);
+    await expect(shadow(page, '.mark-state[data-n="1"]')).toHaveText("needs permission");
+    await expect(shadow(page, '.mark-state[data-n="2"]')).toHaveText("needs permission");
+    await expect(shadow(page, '.pop[data-n="2"] .chat')).toBeVisible();
+    await expect(shadow(page, '.pop[data-n="1"]')).toBeHidden();
+    expect((await page.evaluate(() => window.__crt.threads())).map((t) => t.sessionId).sort()).toEqual(threads.map((t) => t.sessionId).sort());
+
+    // Answer the first thread from its own popover (badge click): only its marker changes.
+    await shadow(page, '.num-badge[data-n="1"]').click();
+    await expect(shadow(page, '.pop[data-n="1"] .chat')).toBeVisible();
+    await expect(shadow(page, '.pop[data-n="2"]')).toBeHidden();
+    await shadow(page, '.pop[data-n="1"] .perm button.deny').click();
+    await expect(shadow(page, '.mark-state[data-n="1"]')).toHaveText("your turn");
+    await expect(shadow(page, '.num-badge[data-n="1"]')).toHaveAttribute("data-state", "idle");
+    await expect(shadow(page, '.mark-state[data-n="2"]')).toHaveText("needs permission");
+    await expect(shadow(page, '.pop[data-n="1"] .msg.assistant').nth(1)).toContainText("I won't run tests");
+    await expect(shadow(page, '.pop[data-n="2"] .msg.assistant')).toHaveCount(1);
+
+    // Clear forgets both locally; the sessions stay in the list (F-67).
+    await shadow(page, ".toolbar [data-action=clear]").click();
+    await expect(shadow(page, ".num-badge")).toHaveCount(0);
+    expect(await page.evaluate(() => window.__crt.threads())).toEqual([]);
+    const list = await page.evaluate(() => window.__crt.sessions.list());
+    for (const t of threads) {
+      expect(list.find((s) => s.id === t.sessionId)?.state).not.toBe("ended");
+      await page.request.delete(`/__crt/sessions/${t.sessionId}`);
+    }
+  });
+
+  test("Chat in the toolbar starts a page-level thread: a zero-annotation capture with the message as Developer's message, its state on the Chat button (F-68)", async ({ page }) => {
+    await page.goto("/app");
+    await shadow(page, ".launcher").click();
+    await shadow(page, ".toolbar [data-action=chat]").click();
+    const compose = shadow(page, ".pop.page[data-page=new]");
+    await expect(compose).toBeVisible();
+    await expect(compose.locator("textarea")).toBeFocused();
+    await expect(compose.locator("[data-action=send]")).toBeDisabled();
+    await compose.locator("textarea").fill("why is the cart total wrong on this page?");
+    await expect(compose.locator("[data-action=send]")).toBeEnabled();
+    const posted = page.waitForResponse((r) => r.request().method() === "POST" && r.url().endsWith("/__crt/captures"));
+    await compose.locator("[data-action=send]").click();
+    const captureId = ((await (await posted).json()) as { id: string }).id;
+
+    // The compose box closes; a docked popover opens with the thread.
+    await expect(compose).toBeHidden();
+    await expect(shadow(page, ".pop.page .chat")).toBeVisible();
+    await expect(shadow(page, ".chat-head .title")).toHaveText("Chat about this page");
+    await expect(shadow(page, ".msg.user").first()).toContainText(`Developer's message: "why is the cart total wrong on this page?"`);
+    await expect(shadow(page, ".msg.user").first()).toContainText("Annotations (0):");
+    await expect(shadow(page, ".perm")).toBeVisible();
+    await expect(shadow(page, ".toolbar [data-action=chat] .dot")).toHaveAttribute("data-state", "waiting");
+    expect(await page.evaluate(() => window.__crt.annotations())).toEqual([]);
+    const threads = await page.evaluate(() => window.__crt.threads());
+    expect(threads).toHaveLength(1);
+    expect(threads[0]).toMatchObject({ annotationIds: [], ns: [], state: "waiting", open: true });
+
+    const root = await projectRoot(page);
+    const dir = join(root, ".crt", "captures", captureId);
+    try {
+      const bundle = JSON.parse(readFileSync(join(dir, "capture.json"), "utf8")) as { annotations: unknown[]; note?: string };
+      expect(bundle.annotations).toEqual([]);
+      expect(bundle.note).toBe("why is the cart total wrong on this page?");
+
+      // A reload re-attaches the page thread and re-opens it.
+      await page.reload();
+      await expect(shadow(page, ".pop.page .chat")).toBeVisible();
+      await expect(shadow(page, ".toolbar [data-action=chat] .dot")).toHaveAttribute("data-state", "waiting");
+      expect((await page.evaluate(() => window.__crt.threads()))[0]!.sessionId).toBe(threads[0]!.sessionId);
+      await shadow(page, ".perm button.deny").click();
+      await expect(shadow(page, ".toolbar [data-action=chat] .dot")).toHaveAttribute("data-state", "idle");
+    } finally {
+      await page.evaluate(() => window.__crt.chat.discard()).catch(() => undefined);
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -286,7 +416,7 @@ test.describe("provider UX on the stub axis (F-46, F-47, F-49, F-56, F-57, F-61)
     // F-56: `provider · model · agent version · resume command`; the head names the agent, the panel stays "CRT" (F-64).
     const expected = `${init.displayName} · ${init.model} · ${init.agentVersion} · continue in a terminal: ${init.resumeCommand}`;
     await expect(foot).toHaveText(expected);
-    await expect(shadow(page, ".chat-head .title")).toHaveText("CRT");
+    await expect(shadow(page, ".chat-head .title")).toHaveText(/^#1 · /); // F-66: the thread's number and label
     await expect(shadow(page, ".chat-head .agent")).toHaveText(init.displayName);
     await expect(shadow(page, ".chat-input textarea")).toHaveAttribute("placeholder", `Reply to ${init.displayName}… (Enter to send, Shift+Enter for a new line)`);
     await expect(shadow(page, "[data-chat=interrupt]")).toBeVisible();
@@ -312,17 +442,18 @@ test.describe("provider UX on the stub axis (F-46, F-47, F-49, F-56, F-57, F-61)
       window.__crt.addSelect("[data-testid=card-1] .price");
       window.__crt.setNote(1, "total excludes discount");
     });
-    await shadow(page, ".launcher").click();
-    const sendBtn = shadow(page, "[data-action=send]");
+    await page.evaluate(() => window.__crt.togglePop(1, true));
+    const pop = shadow(page, '.pop[data-n="1"]');
+    const sendBtn = pop.locator("[data-action=send]");
     // F-43 step 0: with CRT_SESSION_STUB the server's active provider is the stub, which the button names.
     await expect(sendBtn).toHaveAttribute("data-provider", "stub");
     await expect(sendBtn).toHaveText(`Send to ${stubProfile.displayName}`);
 
-    // The caret opens the list, which refreshes the server's preflight (F-57 ?refresh=1) and shows a row per provider.
+    // The caret opens the list inside the popover (F-65), which refreshes the server's preflight (F-57 ?refresh=1) and shows a row per provider.
     const refreshed = page.waitForRequest((r) => r.url().includes("/__crt/providers?refresh=1"));
-    await shadow(page, "[data-action=agent].caret").click();
+    await pop.locator("[data-action=agent].caret").click();
     await refreshed;
-    const menu = shadow(page, ".providers");
+    const menu = pop.locator(".providers");
     await expect(menu).toBeVisible();
     await expect(menu.locator(".provider")).toHaveCount(3);
     await expect(menu.locator(".provider[data-provider=stub]")).toHaveClass(/active/);
@@ -339,7 +470,8 @@ test.describe("provider UX on the stub axis (F-46, F-47, F-49, F-56, F-57, F-61)
         await expect(row).toHaveAttribute("title", p.problem);
       } else await expect(row).toBeEnabled();
     }
-    await expect(menu).not.toHaveClass(/refreshing/);
+    // The refresh re-runs the real preflights (`codex --version`, `codex login status`), which is slow while the other specs load the machine.
+    await expect(menu).not.toHaveClass(/refreshing/, { timeout: 30_000 });
 
     // Pick claude for this send: the button says so, the request carries it, then the pick is spent.
     await menu.locator(".provider[data-provider=claude]").click();
@@ -349,35 +481,37 @@ test.describe("provider UX on the stub axis (F-46, F-47, F-49, F-56, F-57, F-61)
     expect(await page.evaluate(() => window.__crt.providers.sendProvider())).toBe("claude");
     await page.reload(); // per tab, survives a reload until used
     await shadow(page, ".launcher").click();
-    await expect(shadow(page, "[data-action=send]")).toHaveAttribute("data-provider", "claude");
+    await expect(shadow(page, ".pop.page [data-action=send]")).toHaveAttribute("data-provider", "claude");
     await page.evaluate(() => {
       window.__crt.addSelect("[data-testid=card-1] .price");
       window.__crt.setNote(1, "total excludes discount");
+      window.__crt.togglePop(1, true);
     });
     const created = page.waitForRequest((r) => r.method() === "POST" && r.url().endsWith("/__crt/sessions"));
-    await shadow(page, "[data-action=send]").click();
+    await shadow(page, '.pop[data-n="1"] [data-action=send]').click();
     expect((await created).postDataJSON()).toMatchObject({ provider: "claude" });
-    await expect(shadow(page, ".chat")).toBeVisible();
+    await expect(shadow(page, '.pop[data-n="1"] .chat')).toBeVisible();
     await expect(shadow(page, ".perm")).toBeVisible();
     // Honoured for that send only: the next one goes to the active provider with no `provider` in the body.
-    await expect(shadow(page, "[data-action=send]")).toHaveAttribute("data-provider", "stub");
+    await expect(shadow(page, ".pop.page [data-action=send]")).toHaveAttribute("data-provider", "stub");
     expect(await page.evaluate(() => window.__crt.providers.sendProvider())).toBe("stub");
     await page.evaluate(() => window.__crt.chat.discard());
     await page.evaluate(() => {
       window.__crt.addSelect("#heading");
       window.__crt.setNote(1, "again");
+      window.__crt.togglePop(1, true);
     });
     const second = page.waitForRequest((r) => r.method() === "POST" && r.url().endsWith("/__crt/sessions"));
-    await shadow(page, "[data-action=send]").click();
+    await shadow(page, '.pop[data-n="1"] [data-action=send]').click();
     expect((await second).postDataJSON()).not.toHaveProperty("provider");
-    await expect(shadow(page, ".chat")).toBeVisible();
+    await expect(shadow(page, '.pop[data-n="1"] .chat')).toBeVisible();
   });
 
   test("\"Remember for this project on this machine\" writes .crt/config.local.json through PUT /__crt/config (F-56, F-57)", async ({ page }) => {
     await page.goto("/app");
     await shadow(page, ".launcher").click();
-    await shadow(page, "[data-action=agent]").first().click();
-    const menu = shadow(page, ".providers");
+    await shadow(page, ".toolbar [data-action=agent]").click();
+    const menu = shadow(page, ".dock .providers");
     await expect(menu.locator(".provider")).toHaveCount(3);
     await menu.locator(".remember input").check();
     const put = page.waitForRequest((r) => r.method() === "PUT" && r.url().endsWith("/__crt/config"));
@@ -503,7 +637,7 @@ test.describe("codex provider on the fake codex CLI (F-49, F-53, F-56, F-61)", (
 
     await page.goto("/app");
     await shadow(page, ".launcher").click();
-    await expect(shadow(page, "[data-action=send]")).toHaveText(`Send to ${codexProfile.displayName}`);
+    await expect(shadow(page, ".pop.page [data-action=send]")).toHaveText(`Send to ${codexProfile.displayName}`);
     await page.evaluate(() => {
       window.__crt.addSelect("[data-testid=card-1] .price");
       window.__crt.setNote(1, "total excludes discount");

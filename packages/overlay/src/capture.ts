@@ -1,6 +1,8 @@
 /**
- * Capture engine (PRD F-13, F-15…F-22): freeze the annotation set into a CaptureBundle
- * with screenshots, then POST it to the CRT server, which writes `.crt/captures/<id>/`.
+ * Capture engine (PRD F-13, F-15…F-22; F-65, F-68): freeze an annotation set into a
+ * CaptureBundle with screenshots, then POST it to the CRT server, which writes
+ * `.crt/captures/<id>/`. F-65 sends one annotation (or a chosen subset) per capture, keeping the
+ * badge numbers the developer sees; F-68 sends no annotations and a page-level `note`.
  */
 import type { AnnotationInfo, CaptureBundle, CapturePost, ElementInfo, PageInfo } from "../../server/src/capture-schema.js";
 import { type Annotation, type AnnotationStore, toViewportRect } from "./annotations.js";
@@ -62,14 +64,22 @@ function viewportRectOf(el: Element) {
   return { x: r.left, y: r.top, width: r.width, height: r.height };
 }
 
-/** Build the bundle and images for the store's current annotations. Pure with respect to the store. */
-export async function capture(store: AnnotationStore): Promise<CaptureResult> {
+export interface CaptureOptions {
+  /** F-65: annotation ids to include; every annotation when omitted. */
+  ids?: string[];
+  /** F-68: the developer's message for a page-level chat (a capture with no annotations). */
+  note?: string;
+}
+
+/** Build the bundle and images for the store's annotations (or the chosen subset). Pure with respect to the store. */
+export async function capture(store: AnnotationStore, opts: CaptureOptions = {}): Promise<CaptureResult> {
   const started = new Date();
   // Snapshot the buffers before rasterising: the screenshot pass fetches stylesheets and images
   // itself, and those must not show up as the page's own failures (F-21).
   const consoleLog = consoleEntries();
   const network = networkEntries();
-  const annotations = store.resolve();
+  const all = store.resolve();
+  const annotations = opts.ids ? all.filter((a) => opts.ids!.includes(a.id)) : all;
   const markers = annotations.map(markerFor);
   const shots = await takeScreenshots(markers);
 
@@ -92,6 +102,7 @@ export async function capture(store: AnnotationStore): Promise<CaptureResult> {
     id: "",
     page: pageInfo(started),
     framework: detectFramework(),
+    ...(opts.note?.trim() ? { note: opts.note.trim() } : {}),
     annotations: captured,
     console: consoleLog,
     network,

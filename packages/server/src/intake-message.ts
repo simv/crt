@@ -87,7 +87,7 @@ export function prependInstructions(message: UserInput, instructions: string): U
 
 /** F-30: the one-line description of a capture shown in the session list. */
 export function summarizeCapture(bundle: CaptureBundle): string {
-  const note = bundle.annotations.map((a) => a.note.trim()).find(Boolean);
+  const note = bundle.note?.trim() || bundle.annotations.map((a) => a.note.trim()).find(Boolean);
   const where = bundle.page.pathname + bundle.page.query;
   return note ? truncate(note, 80) : `${bundle.annotations.length} annotation${bundle.annotations.length === 1 ? "" : "s"} on ${where}`;
 }
@@ -111,7 +111,10 @@ export function renderIntakeText(captureDir: string, b: CaptureBundle, attached:
     const what = first.status !== null ? `${first.status}` : (first.error ?? "failed");
     lines.push(`Failed network requests since load: ${b.network.length} — first: ${first.method} ${truncate(first.url, 120)} → ${what}`);
   }
+  // F-68: a page-level chat has no annotations; the developer's message stands in for the notes.
+  if (b.note?.trim()) lines.push("", `Developer's message: "${b.note.trim()}"`);
   lines.push("", `Annotations (${b.annotations.length}):`);
+  if (!b.annotations.length) lines.push("(none — the developer is asking about the page as a whole; the screenshot, console and network entries above are the context)");
   for (const a of b.annotations) lines.push(...describeAnnotation(a));
   lines.push("");
   // F-50: a provider that cannot take images is told where the PNGs are instead.

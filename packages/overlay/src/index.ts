@@ -13,13 +13,13 @@ import type { ProvidersPayload, SessionInfo } from "../../server/src/session-eve
 import { type Annotation, AnnotationStore } from "./annotations.js";
 import { CRT_ORIGIN, SCRIPT_TAG_MODE } from "./base.js";
 import { capture, type SendResult } from "./capture.js";
-import type { ChatSnapshot } from "./chat.js";
+import { ChatPanel, type ChatSnapshot } from "./chat.js";
 import { detectComponents, detectFramework } from "./component.js";
 import { clearConsoleEntries, consoleEntries, installConsoleHooks } from "./console-hook.js";
 import { describeElement } from "./element.js";
 import { clearNetworkEntries, installNetworkHooks, networkEntries } from "./network-hook.js";
 import { selectorFor, xpathFor } from "./selector.js";
-import { OverlayUI, type Tool } from "./ui.js";
+import { OverlayUI, type SendOptions, type ThreadSummary, type Tool } from "./ui.js";
 
 installConsoleHooks();
 installNetworkHooks();
@@ -31,7 +31,7 @@ export interface CrtTestHooks {
   setTool(tool: Tool | null): void;
   currentTool(): Tool | null;
   hoverAt(x: number, y: number): Element | null;
-  annotations(): Array<{ n: number; kind: string; note: string; label: string | null; detached: boolean }>;
+  annotations(): Array<{ n: number; kind: string; note: string; label: string | null; detached: boolean; sessionId: string | null }>;
   addSelect(target: Element | string): number;
   addBox(rect: { x: number; y: number; width: number; height: number }): number;
   addPin(x: number, y: number): number;
@@ -39,9 +39,19 @@ export interface CrtTestHooks {
   remove(n: number): void;
   clear(): void;
   capture(): Promise<{ bundle: CaptureBundle; imageNames: string[] }>;
-  /** F-13 Send, or the F-14 quick note with `{ quick: true }`; runs on `providers.sendProvider()`. */
-  send(opts?: { quick?: boolean }): Promise<SendResult>;
-  canQuickNote(): boolean;
+  /**
+   * F-13/F-65 Send annotation `n` (default: the most recent unsent one), the F-14 quick note with
+   * `{ quick: true }`, the F-11 grouping with `{ include: true }`, or the F-68 page-level chat with
+   * `{ message }`; runs on `providers.sendProvider()`.
+   */
+  send(opts?: SendOptions): Promise<SendResult>;
+  canQuickNote(n?: number): boolean;
+  /** F-66/F-67: every live thread with its annotations and state. */
+  threads(): ThreadSummary[];
+  /** F-65: open/close annotation `n`'s popover. */
+  togglePop(n: number, force?: boolean): void;
+  /** F-68: open/close the page-level compose box. */
+  togglePageChat(force?: boolean): void;
   /** F-56: the provider menu (split Send button / toolbar Agent button). */
   providers: {
     toggle(force?: boolean): Promise<void>;
@@ -70,7 +80,10 @@ export interface CrtTestHooks {
     toggle(force?: boolean): Promise<void>;
     list(): Promise<SessionInfo[]>;
   };
-  /** Chat panel (M3): drive and observe the intake session. */
+  /**
+   * Chat panel (M3): drive and observe the current thread — the one whose popover is open, else
+   * the most recent (F-66). `open` targets any session id; the rest act on the current thread.
+   */
   chat: {
     snapshot(): ChatSnapshot;
     isOpen(): boolean;
@@ -101,7 +114,10 @@ function mount(): void {
     note: a.note,
     label: a.elementInfo?.selector ?? null,
     detached: a.kind === "select" ? !a.element?.isConnected : false,
+    sessionId: a.sessionId,
   });
+  const empty: ChatSnapshot = { sessionId: null, state: null, taskId: null, provider: null, quiet: false, events: [] };
+  const current = () => ui.currentThread()?.chat ?? null;
 
   const hooks: CrtTestHooks = {
     version: 1,
@@ -122,7 +138,10 @@ function mount(): void {
       return { bundle: r.bundle, imageNames: Object.keys(r.images) };
     },
     send: (opts) => ui.sendToAgent(opts),
-    canQuickNote: () => ui.canQuickNote(),
+    canQuickNote: (n) => ui.canQuickNote(n),
+    threads: () => ui.threadSummaries(),
+    togglePop: (n, force) => ui.togglePop(n, force),
+    togglePageChat: (force) => ui.togglePageChat(force),
     providers: {
       toggle: (force) => ui.toggleProviders(force),
       load: (refresh) => ui.loadProviders(refresh === true),
@@ -143,17 +162,17 @@ function mount(): void {
     scriptTagMode: () => SCRIPT_TAG_MODE,
     sessions: {
       toggle: (force) => ui.toggleSessions(force),
-      list: () => ui.chat.listSessions(),
+      list: () => ChatPanel.listSessions(),
     },
     chat: {
-      snapshot: () => ui.chat.snapshot(),
-      isOpen: () => ui.chat.isOpen(),
-      open: (id) => ui.chat.open(id),
-      show: (open) => ui.chat.show(open),
-      send: (text) => ui.chat.send(text),
-      respond: (id, behavior) => ui.chat.respond(id, behavior),
-      interrupt: () => ui.chat.interrupt(),
-      discard: () => ui.chat.discard(),
+      snapshot: () => current()?.snapshot() ?? empty,
+      isOpen: () => current()?.isOpen() ?? false,
+      open: (id) => ui.openSession(id),
+      show: (open) => current()?.show(open),
+      send: (text) => current()?.send(text) ?? Promise.resolve(),
+      respond: (id, behavior) => current()?.respond(id, behavior) ?? Promise.resolve(),
+      interrupt: () => current()?.interrupt() ?? Promise.resolve(),
+      discard: () => current()?.discard() ?? Promise.resolve(),
     },
   };
   // Merge onto the object early.js may already have created (it holds the console buffer).

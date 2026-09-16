@@ -7,6 +7,9 @@
  * mirrored to `sessionStorage` so a full reload restores it (F-12 Should). Element references
  * are re-resolved from the stored selector after a reload or navigation; when that fails the
  * annotation-time snapshot is sent with `detached: true`.
+ *
+ * F-66/F-67: sending no longer removes an annotation. It keeps its marker and records the intake
+ * session it was sent to (`sessionId`), which is persisted too, so a reload re-attaches the thread.
  */
 import type { ElementInfo, Rect } from "../../server/src/capture-schema.js";
 import { describeElement } from "./element.js";
@@ -32,6 +35,8 @@ export interface Annotation {
   element: Element | null;
   elementInfo: ElementInfo | null;
   elements: BoxElement[];
+  /** F-66: the intake session this annotation was sent to; null while it is still being composed. */
+  sessionId: string | null;
 }
 
 type Persisted = Omit<Annotation, "element" | "elements"> & { elements: ElementInfo[] };
@@ -59,6 +64,15 @@ export class AnnotationStore {
 
   count(): number {
     return this.items.length;
+  }
+
+  byId(id: string): Annotation | undefined {
+    return this.items.find((a) => a.id === id);
+  }
+
+  /** F-65: annotations not yet sent to any session. */
+  unsent(): Annotation[] {
+    return this.items.filter((a) => a.sessionId === null);
   }
 
   subscribe(fn: Listener): () => void {
@@ -111,6 +125,18 @@ export class AnnotationStore {
     this.changed();
   }
 
+  /** F-66: bind (or, with null, unbind) annotations to the session they were sent to. */
+  setSession(ids: string[], sessionId: string | null): void {
+    let touched = false;
+    for (const a of this.items) {
+      if (ids.includes(a.id) && a.sessionId !== sessionId) {
+        a.sessionId = sessionId;
+        touched = true;
+      }
+    }
+    if (touched) this.changed();
+  }
+
   remove(n: number): void {
     const before = this.items.length;
     this.items = this.items.filter((a) => a.n !== n);
@@ -143,11 +169,12 @@ export class AnnotationStore {
     return this.all();
   }
 
-  private push(partial: Omit<Annotation, "id" | "n" | "note">): Annotation {
+  private push(partial: Omit<Annotation, "id" | "n" | "note" | "sessionId">): Annotation {
     const a: Annotation = {
       id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
       n: this.items.length + 1,
       note: "",
+      sessionId: null,
       ...partial,
     };
     this.items.push(a);
@@ -184,6 +211,7 @@ export class AnnotationStore {
       if (!Array.isArray(data)) return;
       this.items = data.map((p, i) => ({
         ...p,
+        sessionId: typeof p.sessionId === "string" ? p.sessionId : null,
         n: i + 1,
         element: resolveBySelector(p.elementInfo),
         elements: (p.elements ?? []).map((info) => ({ el: resolveBySelector(info), info })),
