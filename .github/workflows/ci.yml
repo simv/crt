@@ -44,17 +44,12 @@ jobs:
           npx -y @anthropic-ai/claude-code@latest plugin validate .
 
   e2e:
-    # Both runners on main: the fake-codex axis (PRD-providers F-61, N-10) exercises the npm .cmd shim on Windows.
-    # Job names are what the main ruleset requires: "e2e (ubuntu)" is a required status check.
-    # Windows e2e (~5 min, mostly the browser install) runs only on pushes to main: PRs get the
-    # ubuntu e2e plus the Windows unit job, which already drives the fake codex through the .cmd shim.
-    name: e2e (${{ matrix.name }})
-    runs-on: ${{ matrix.os }}
+    # Ubuntu only (Simon, 2026-09-16): the Windows e2e (~5 min, mostly the browser install) was dropped;
+    # the Windows unit job above still drives the fake codex through the npm .cmd shim (PRD-providers N-10).
+    # The job name is what the main ruleset requires: "e2e (ubuntu)" is a required status check.
+    name: e2e (ubuntu)
+    runs-on: ubuntu-latest
     needs: check
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJSON(github.event_name == 'push' && '[{"os":"ubuntu-latest","name":"ubuntu"},{"os":"windows-latest","name":"windows"}]' || '[{"os":"ubuntu-latest","name":"ubuntu"}]') }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
