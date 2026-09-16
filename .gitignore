@@ -11,3 +11,4 @@ playwright-report/
 packages/server/e2e/.project/
 packages/server/LICENSE
 .claude/settings.local.json
+.crt/config.local.json
