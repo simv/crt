@@ -25,6 +25,19 @@ const UNKNOWN_AGENT = "the agent";
 
 export type InitEvent = Extract<SessionEvent, { type: "init" }>;
 
+/**
+ * F-27 step 5: the intake skill ends its proposal with exactly this line; when a turn ends on it
+ * with no task written the panel shows an Accept button that replies `ACCEPT_REPLY`.
+ */
+export const ACCEPT_LINE = "Accept as-is, or tell me what to change, and I'll write the task.";
+export const ACCEPT_REPLY = "Accept";
+
+/** Whether an assistant message ends on `ACCEPT_LINE`, tolerating markdown emphasis, curly quotes and trailing whitespace. */
+export function endsWithAcceptLine(text: string): boolean {
+  const norm = (s: string) => s.replace(/[*_`]/g, "").replace(/[‘’]/g, "'").replace(/\s+/g, " ").trim().toLowerCase();
+  return norm(text).endsWith(norm(ACCEPT_LINE));
+}
+
 export const CHAT_CSS = `
   .chat { display: flex; flex-direction: column; width: 100%; height: min(72vh, 680px); border-radius: 12px; background: #fff;
           box-shadow: 0 8px 28px rgba(0,0,0,.22); border: 1px solid rgba(0,0,0,.08); overflow: hidden; }
@@ -82,6 +95,10 @@ export const CHAT_CSS = `
   .chat-task { padding: 8px 10px; background: #d9f5e3; color: #0a5b2b; font-size: 12px; border-top: 1px solid rgba(0,0,0,.06); }
   .chat-task[hidden] { display: none; }
   .chat-task code { font-family: ui-monospace, Menlo, Consolas, monospace; user-select: all; }
+  .chat-accept { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-top: 1px solid rgba(0,0,0,.08); background: #fafafa; font-size: 12px; color: #555; }
+  .chat-accept[hidden] { display: none; }
+  .chat-accept button { padding: 6px 16px; border-radius: 8px; background: #111; color: #fff; font-weight: 600; }
+  .chat-accept button:hover { background: #333; }
   .chat-input { display: flex; gap: 6px; padding: 8px; border-top: 1px solid rgba(0,0,0,.08); }
   .chat-input textarea { flex: 1; min-height: 38px; max-height: 120px; resize: vertical; font: inherit; padding: 8px; border-radius: 8px;
                          border: 1px solid rgba(0,0,0,.15); background: #fafafa; }
@@ -127,6 +144,7 @@ export class ChatPanel {
   private readonly log: HTMLElement;
   private readonly stateEl: HTMLElement;
   private readonly taskEl: HTMLElement;
+  private readonly acceptEl: HTMLElement;
   private readonly input: HTMLTextAreaElement;
   private readonly sendBtn: HTMLButtonElement;
   private readonly stopBtn: HTMLButtonElement;
@@ -137,6 +155,8 @@ export class ChatPanel {
   private taskId: string | null = null;
   private events: SessionEvent[] = [];
   private texts = new Map<string, string>();
+  /** The most recent assistant message id; its text decides whether the Accept bar shows (F-27). */
+  private lastMessageId: string | null = null;
   /** Placeholder shown between assistant_start and the first visible output (model thinking). */
   private thinking: HTMLElement | null = null;
   private lastSeq = 0;
@@ -163,6 +183,10 @@ export class ChatPanel {
       </div>
       <div class="chat-log" role="log" aria-live="polite"></div>
       <div class="chat-task" hidden></div>
+      <div class="chat-accept" hidden>
+        <button type="button" data-chat="accept" title="Accept the proposed definition of done as-is and write the task (F-27)">Accept</button>
+        <span>or reply below with what to change</span>
+      </div>
       <div class="chat-input">
         <textarea rows="1" placeholder="Reply… (Enter to send, Shift+Enter for a new line)"></textarea>
         <button type="button" data-chat="send">Send</button>
@@ -175,6 +199,7 @@ export class ChatPanel {
     this.agentEl = q(".chat-head .agent");
     this.stateEl = q(".chat-head .state");
     this.taskEl = q(".chat-task");
+    this.acceptEl = q(".chat-accept");
     this.input = q("textarea");
     this.sendBtn = q("[data-chat=send]");
     this.stopBtn = q("[data-chat=interrupt]");
@@ -357,6 +382,8 @@ export class ChatPanel {
     this.quiet = false;
     this.events = [];
     this.texts.clear();
+    this.lastMessageId = null;
+    this.acceptEl.hidden = true;
     this.log.replaceChildren();
     this.thinking = null;
     this.init = null;
@@ -412,6 +439,7 @@ export class ChatPanel {
         if (event.state === "ended" || event.state === "error") this.detach();
         if (event.state === "ended") this.system("Session ended");
         if (event.state === "idle" && this.isOpen()) this.input.focus();
+        this.renderAccept();
         // F-14: a quiet session that stops without a task has a question; one that fails needs eyes.
         if (this.quiet && event.state === "idle" && !this.taskId) this.attention(`${this.agentName()} has a question`);
         else if (this.quiet && event.state === "error") this.attention(event.detail ?? "the session failed");
@@ -424,18 +452,21 @@ export class ChatPanel {
         this.renderState();
         break;
       case "user":
+        this.acceptEl.hidden = true;
         this.append(userBubble(event.text, event.images));
         break;
       case "assistant_start":
         // The bubble is created on the first text delta: a message that only carries tool_use
         // blocks would otherwise leave an empty bubble above its tool lines.
         this.texts.set(event.messageId, "");
+        this.lastMessageId = event.messageId;
         this.showThinking();
         break;
       case "text": {
         this.hideThinking();
         const text = (this.texts.get(event.messageId) ?? "") + event.text;
         this.texts.set(event.messageId, text);
+        this.lastMessageId = event.messageId;
         let el = this.log.querySelector<HTMLElement>(`.msg.assistant[data-mid="${cssEscape(event.messageId)}"]`);
         if (!el) el = this.append(assistantBubble(event.messageId));
         el.innerHTML = renderMarkdown(text);
@@ -481,6 +512,7 @@ export class ChatPanel {
         this.taskId = event.id;
         this.taskEl.innerHTML = `Task <b>${escapeHtml(event.id)}</b> written to <code>${escapeHtml(event.path)}</code>`;
         this.taskEl.hidden = false;
+        this.acceptEl.hidden = true;
         if (this.quiet) {
           this.quiet = false;
           this.callbacks.onQuiet({ kind: "task", id: event.id, path: event.path });
@@ -538,6 +570,16 @@ export class ChatPanel {
   }
 
   /**
+   * F-27 step 5: the Accept bar is offered only while it is the developer's turn, no task has
+   * been written, and the agent's last message ends on `ACCEPT_LINE`. Any other state hides it;
+   * a `user` event hides it too, so a typed edit never leaves a stale button behind.
+   */
+  private renderAccept(): void {
+    const last = this.lastMessageId ? (this.texts.get(this.lastMessageId) ?? "") : "";
+    this.acceptEl.hidden = !(this.state === "idle" && !this.taskId && endsWithAcceptLine(last));
+  }
+
+  /**
    * F-47/F-56: everything that names the agent, from the session's own init event: the head,
    * the placeholder, and the footer `provider · model · agent version · resume command` (F-28),
    * with a "read-only sandbox" badge instead of Allow/Deny for sandboxed agents (F-46). Before
@@ -578,6 +620,10 @@ export class ChatPanel {
       switch (btn.dataset.chat) {
         case "send":
           this.submit();
+          break;
+        case "accept":
+          this.acceptEl.hidden = true;
+          void this.send(ACCEPT_REPLY);
           break;
         case "interrupt":
           void this.interrupt();

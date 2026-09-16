@@ -7,7 +7,7 @@
  *
  *   init → streamed text → a pre-allowed tool (Read) → a tool that needs permission (Bash npm test,
  *   through the real F-26 policy) → text depending on Allow/Deny → result.
- *   Next developer message containing "write" → `writeTask` → task_written → result.
+ *   Next developer message containing "accept" or "write" → `writeTask` → task_written → result.
  *   Any other message → echoed back → result. `interrupt()` cuts the current turn short.
  *   A first message carrying the F-14 quick-note instructions skips the permission prompt and the
  *   DoD wait: Read, then `writeTask` straight away (unless the note says "ask me", which makes
@@ -192,8 +192,8 @@ export function startStubSession(opts: StartSessionOptions, variant: StubVariant
     await say(
       t,
       ran
-        ? "Tests pass today, so the fix needs a new one.\n\nProposed definition of done:\n- [ ] Cart total applies the promo discount\n- [ ] Unit test covers the discounted total\n\nReply **write** to save the task, or tell me what to change."
-        : "Understood, I won't run tests.\n\nProposed definition of done:\n- [ ] Cart total applies the promo discount\n\nReply **write** to save the task, or tell me what to change.",
+        ? "Tests pass today, so the fix needs a new one.\n\nProposed definition of done:\n- [ ] Cart total applies the promo discount\n- [ ] Unit test covers the discounted total\n\nAccept as-is, or tell me what to change, and I'll write the task."
+        : "Understood, I won't run tests.\n\nProposed definition of done:\n- [ ] Cart total applies the promo discount\n\nAccept as-is, or tell me what to change, and I'll write the task.",
     );
     finish(t, true);
   };
@@ -243,7 +243,8 @@ export function startStubSession(opts: StartSessionOptions, variant: StubVariant
     setState("running");
     await sleep(TICK_MS);
     if (cancelled(t)) return;
-    if (/\bwrite\b/i.test(text)) {
+    // F-27 step 5: the panel's Accept button replies "Accept"; a typed "write" still works.
+    if (/\b(accept|write)\b/i.test(text)) {
       await writeStubTask(t);
     } else if (/\btests?\b/i.test(text)) {
       // A second permission round for the F-59 scenario (Allow on the first turn, Deny here).

@@ -16,7 +16,7 @@ The capture lives at `$ARGUMENTS` (a directory containing `capture.json` and PNG
 
 3. **Clarify only if necessary.** If the developer's ask or the definition of done cannot be pinned down from the notes plus the code, ask at most three short questions in one message and wait. Otherwise do not ask.
 
-4. **Propose the definition of done.** Reply with a one-paragraph restatement of the ask and a checklist of concrete, checkable DoD items (behavioural outcome, tests, no regressions). Wait for the developer to accept or edit.
+4. **Propose the definition of done.** Reply with a one-paragraph restatement of the ask and a checklist of concrete, checkable DoD items (behavioural outcome, tests, no regressions). End that message with exactly this line and nothing after it: `Accept as-is, or tell me what to change, and I'll write the task.` (the in-page chat turns it into an **Accept** button). Wait for the developer: a reply of `Accept` means go to step 5 with the proposal unchanged; anything else is an edit — apply it, propose again, and end with the same line.
 
    **Quick-note mode (PRD F-14).** When the first message ends with a paragraph starting `Quick note (F-14)`, the developer sent their notes without opening the chat and is not watching. Skip the wait in step 4 and go straight to step 5 with the DoD you decided. Only fall back to step 3 if the notes plus the code genuinely do not say what is wanted; a question opens the panel for the developer, and the task is written once they answer.
 
