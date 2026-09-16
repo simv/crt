@@ -1,10 +1,10 @@
 ---
 id: CRT-0012
 title: M9 — Codex driver (codex exec --json) and crt skills install
-status: review
+status: done
 priority: normal
 created: 2026-09-15T17:30:00+08:00
-updated: 2026-09-16T10:50:00+08:00
+updated: 2026-09-16T11:10:00+08:00
 url: null
 route: null
 session: null
@@ -54,3 +54,4 @@ If the spike found MCP unreachable under `--sandbox read-only`, apply the fallba
 - 2026-09-16T10:05+08:00 — prd-reviewer: PR-READY WITH NOTES (test titles missing (F-n) tags — fixed; README index regenerated with `crt tasks`). Left unticked for Simon: the two Manual items (trial Next.js app end to end incl. `codex resume`; auto-detection `→ codex` on an AGENTS.md-only copy).
 - 2026-09-16T10:25+08:00 — DoD 2 ubuntu half confirmed: PR #25 CI run 35046177471 green on all four jobs — check (ubuntu, windows) and e2e (ubuntu 1m14s, windows 4m44s). One fix on the way: the preflight tests' synthetic PATH needed node's directory for the POSIX executable-script fake (`#!/usr/bin/env node`); Windows never hit it because the .cmd shim path runs process.execPath directly.
 - 2026-09-16T10:50+08:00 — Manual items ticked on Simon's confirmation ("ive tested", 2026-09-16) against the new trial app C:ProjectsClaude	ool-validation (local-only Next 16 shop created this session; Apex is no longer used for trials). Merging PR #25 per the end-of-task rule.
+- 2026-09-16T11:10+08:00 — done; merged in https://github.com/simv/crt/pull/25
