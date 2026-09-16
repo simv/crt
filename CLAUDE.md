@@ -6,7 +6,7 @@ Read `docs/PRD.md` and `docs/PRD-providers.md` before doing anything non-trivial
 
 A local proxy + in-page overlay that lets a developer annotate their running site and talk to a coding agent in the page (Claude Code by default; the agent is a *provider*, resolved per PRD-providers F-43); the agent writes a self-contained task file to `.crt/tasks/` that any later session can complete with `/crt:next`. One repo, three deliverables: `packages/server` (npm `claude-review-tool`, bin `crt`), `packages/overlay` (bundled into the server), `plugin/` (Claude Code plugin, marketplace at repo root).
 
-Entry points: `packages/server/src/cli.ts` → `serve.ts` (wires `proxy.ts`, `inject.ts`, `captures.ts`, `session.ts` (the provider registry), `sessions.ts`, `tasks.ts`, `target.ts`); provider profiles and drivers under `packages/server/src/providers/` (`claude.ts`, `codex.ts`, `stub.ts`, plus `detect.ts`, `exec.ts`, `types.ts`); `packages/overlay/src/index.ts` (UI) and `early.ts` (console/network hooks, injected before the app's own scripts).
+Entry points: `packages/server/src/cli.ts` → `serve.ts` (wires `proxy.ts`, `inject.ts`, `captures.ts`, `session.ts` (the provider registry), `sessions.ts`, `provider-routes.ts`, `tasks.ts`, `target.ts`) and → `mcp-stdio.ts` (`crt mcp`, the stdio `write_task` server non-Claude agents spawn; `write-task.ts` holds the one tool schema); provider profiles and drivers under `packages/server/src/providers/` (`claude.ts`, `codex.ts`, `stub.ts`, plus `detect.ts`, `exec.ts`, `types.ts`); `packages/overlay/src/index.ts` (UI) and `early.ts` (console/network hooks, injected before the app's own scripts).
 
 ## Commands
 

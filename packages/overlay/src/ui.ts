@@ -1,14 +1,23 @@
 /**
- * Overlay UI (PRD F-7…F-14, F-30): launcher, toolbar, Select / Box / Pin tools, numbered markers,
- * the notes panel, the Send / Quick note flows, the session list, and the chat panel (chat.ts).
- * Everything renders inside the Shadow DOM host; the host itself is a fixed, pointer-transparent
- * full-viewport layer, and only the widgets opt back in to pointer events, so the page underneath
- * keeps working while CRT is idle.
+ * Overlay UI (PRD F-7…F-14, F-30; PRD-providers F-56): launcher, toolbar, Select / Box / Pin
+ * tools, numbered markers, the notes panel, the Send / Quick note flows, the session list, the
+ * provider menu, and the chat panel (chat.ts). Everything renders inside the Shadow DOM host;
+ * the host itself is a fixed, pointer-transparent full-viewport layer, and only the widgets opt
+ * back in to pointer events, so the page underneath keeps working while CRT is idle.
+ *
+ * F-56: **Send** is a split button. Its main half reads `Send to <agent>` — the server's active
+ * provider (`GET /__crt/providers`), or the one picked from the caret's list for this send only
+ * (kept in sessionStorage for the tab until that send happens). The same list opens from the
+ * toolbar's Agent button; opening it re-runs the server's preflight (`?refresh=1`) with a
+ * spinner per row, unusable rows are disabled with the problem as tooltip, and "Remember for
+ * this project on this machine" writes `.crt/config.local.json` through `PUT /__crt/config`.
+ * Quick note uses the same choice. Product chrome (launcher, toolbar) stays "CRT" (F-64).
  */
-import type { SessionInfo } from "../../server/src/session-events.js";
+import type { ProviderRow, ProvidersPayload, SessionInfo } from "../../server/src/session-events.js";
 import { type Annotation, AnnotationStore, toViewportRect } from "./annotations.js";
+import { crtUrl } from "./base.js";
 import { capture, send, type SendResult } from "./capture.js";
-import { CHAT_CSS, ChatPanel, type QuietOutcome } from "./chat.js";
+import { CHAT_CSS, ChatPanel, type QuietOutcome, type StartOptions } from "./chat.js";
 import { nearestComponentName } from "./component.js";
 import { labelOf } from "./element.js";
 import { ACCENT } from "./screenshot.js";
@@ -17,7 +26,13 @@ import { isOverlayNode } from "./selector.js";
 export type Tool = "select" | "box" | "pin";
 
 const LAUNCHER_KEY = "crt.launcher.v1";
+/** F-56: the per-send provider choice, per tab. */
+const PROVIDER_KEY = "crt.provider.v1";
+export const PROVIDERS_ENDPOINT = "/__crt/providers";
+export const CONFIG_ENDPOINT = "/__crt/config";
 const EDGE = 16;
+/** What the toolbar calls the agent before the server has said which one it is. */
+const UNKNOWN_AGENT = "the agent";
 
 const CSS = `
   :host { all: initial; position: fixed; inset: 0; z-index: 2147483647; pointer-events: none;
@@ -32,12 +47,13 @@ const CSS = `
                      background: ${ACCENT}; color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
   .launcher .count.on { display: inline-block; }
   .dock { position: fixed; pointer-events: auto; display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
-          width: min(360px, calc(100vw - 32px)); }
+          width: min(440px, calc(100vw - 32px)); }
   .dock[hidden] { display: none; }
   .dock.chat-open { width: min(520px, calc(100vw - 32px)); }
   .toolbar { display: flex; gap: 4px; align-items: center; padding: 6px; border-radius: 12px; background: #fff;
-             box-shadow: 0 8px 28px rgba(0,0,0,.22); border: 1px solid rgba(0,0,0,.08); }
-  .toolbar button { padding: 6px 10px; border-radius: 8px; font-weight: 500; }
+             box-shadow: 0 8px 28px rgba(0,0,0,.22); border: 1px solid rgba(0,0,0,.08);
+             width: max-content; max-width: calc(100vw - 32px); overflow-x: auto; }
+  .toolbar button { padding: 6px 10px; border-radius: 8px; font-weight: 500; white-space: nowrap; }
   .toolbar button:hover { background: #f0f0f0; }
   .toolbar button.active { background: #111; color: #fff; }
   .toolbar button.primary { background: ${ACCENT}; color: #fff; font-weight: 600; }
@@ -46,6 +62,35 @@ const CSS = `
   .toolbar .sep { width: 1px; height: 20px; background: rgba(0,0,0,.1); margin: 0 2px; }
   .toolbar .badge { min-width: 20px; padding: 0 6px; border-radius: 10px; background: #eee; text-align: center;
                     font-size: 11px; font-weight: 600; line-height: 20px; }
+  .toolbar .split { display: inline-flex; }
+  .toolbar .split button.primary { border-radius: 8px 0 0 8px; }
+  .toolbar .split button.caret { border-radius: 0 8px 8px 0; padding: 6px 7px; border-left: 1px solid rgba(255,255,255,.4); }
+  .providers { width: 100%; border-radius: 12px; background: #fff; box-shadow: 0 8px 28px rgba(0,0,0,.22);
+               border: 1px solid rgba(0,0,0,.08); padding: 6px; }
+  .providers[hidden] { display: none; }
+  .providers .head { display: flex; align-items: center; gap: 8px; padding: 4px 6px 6px; font-weight: 600; }
+  .providers .head .spacer { flex: 1; }
+  .providers .head button { padding: 2px 8px; border-radius: 6px; font-size: 12px; color: #555; }
+  .providers .head button:hover { background: #f0f0f0; }
+  .provider { display: grid; grid-template-columns: 10px 1fr auto auto; gap: 8px; align-items: center; width: 100%;
+              text-align: left; padding: 6px 8px; border-radius: 8px; }
+  .provider:hover { background: #f3f3f5; }
+  .provider:disabled { opacity: .5; cursor: default; }
+  .provider:disabled:hover { background: none; }
+  .provider .dot { width: 8px; height: 8px; border-radius: 4px; background: #ccc; }
+  .provider .dot[data-state="ready"] { background: #2e9e5b; }
+  .provider .dot[data-state="not on PATH"], .provider .dot[data-state="not logged in"], .provider .dot[data-state="too old"] { background: #c00; }
+  .provider .dot[data-state="unknown"] { background: #e0a800; }
+  .provider .name small { color: #777; margin-left: 6px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; }
+  .provider .tick { color: #2e9e5b; font-weight: 700; visibility: hidden; }
+  .provider.active .tick { visibility: visible; }
+  .provider .spin { width: 10px; height: 10px; border: 2px solid #ddd; border-top-color: #333; border-radius: 50%;
+                    animation: crt-spin .8s linear infinite; visibility: hidden; }
+  .providers.refreshing .provider .spin { visibility: visible; }
+  @keyframes crt-spin { to { transform: rotate(360deg); } }
+  .providers .why { padding: 4px 8px 2px; font-size: 11px; color: #777; }
+  .providers .remember { display: flex; gap: 6px; align-items: center; padding: 8px 8px 4px; font-size: 12px; color: #555;
+                         border-top: 1px solid rgba(0,0,0,.06); margin-top: 4px; cursor: pointer; }
   .panel { width: 100%; max-height: 50vh; overflow: auto; border-radius: 12px; background: #fff;
            box-shadow: 0 8px 28px rgba(0,0,0,.22); border: 1px solid rgba(0,0,0,.08); padding: 6px; }
   .panel[hidden] { display: none; }
@@ -129,12 +174,18 @@ export class OverlayUI {
   private raf = 0;
   private launcherPos = { right: EDGE, bottom: EDGE };
 
+  /** F-56: the last `GET /__crt/providers` payload; null until the server has answered once. */
+  private providers: ProvidersPayload | null = null;
+  /** F-56: the provider picked from the caret for the next send only; null = the server's active one. */
+  private pendingProvider: string | null = null;
+
   private readonly launcher: HTMLElement;
   private readonly count: HTMLElement;
   private readonly dock: HTMLElement;
   private readonly toolbar: HTMLElement;
   private readonly panel: HTMLElement;
   private readonly sessions: HTMLElement;
+  private readonly providersEl: HTMLElement;
   private readonly status: HTMLElement;
   private readonly layer: HTMLElement;
   private readonly hover: HTMLElement;
@@ -160,6 +211,7 @@ export class OverlayUI {
       <div class="dock" hidden>
         <div class="status" hidden></div>
         <div class="sessions" hidden></div>
+        <div class="providers" hidden></div>
         <div class="panel" hidden></div>
         <div class="toolbar" role="toolbar" aria-label="CRT tools">
           <button type="button" data-tool="select" title="Select an element (F-8)">Select</button>
@@ -169,12 +221,16 @@ export class OverlayUI {
           <span class="badge" data-count>0</span>
           <button type="button" data-action="clear" title="Remove all annotations">Clear</button>
           <button type="button" data-action="sessions" title="Recent intake sessions (F-30)">Sessions</button>
+          <button type="button" data-action="agent" title="Choose the agent that runs intake (F-56)">Agent</button>
           <span class="sep"></span>
-          <button type="button" data-action="quick" title="Quick note: Claude writes the task from your notes without a chat (F-14). Needs a note on every annotation.">Quick note</button>
-          <button type="button" class="primary" data-action="send" title="Capture and send to Claude (F-13)">Send to Claude</button>
+          <button type="button" data-action="quick" title="Quick note: the agent writes the task from your notes without a chat (F-14). Needs a note on every annotation.">Quick note</button>
+          <span class="split">
+            <button type="button" class="primary" data-action="send" title="Capture and send (F-13)">Send</button>
+            <button type="button" class="primary caret" data-action="agent" title="Choose the agent for this send (F-56)" aria-label="Choose the agent for this send">▾</button>
+          </span>
         </div>
       </div>
-      <button type="button" class="launcher" aria-label="Toggle Claude Review Tool (Ctrl/Cmd+Shift+.)">
+      <button type="button" class="launcher" aria-label="Toggle CRT (Ctrl/Cmd+Shift+.)">
         CRT <span class="count">0</span>
       </button>
     `;
@@ -185,6 +241,7 @@ export class OverlayUI {
     this.toolbar = q(".toolbar");
     this.panel = q(".panel");
     this.sessions = q(".sessions");
+    this.providersEl = q(".providers");
     this.status = q(".status");
     this.layer = q(".layer");
     this.hover = q(".hover");
@@ -197,6 +254,7 @@ export class OverlayUI {
         this.dock.classList.toggle("chat-open", open);
         if (open) {
           this.sessions.hidden = true;
+          this.providersEl.hidden = true;
           if (!this.open) this.toggle(true);
         }
         this.render();
@@ -205,6 +263,7 @@ export class OverlayUI {
     });
 
     this.restoreLauncher();
+    this.restorePendingProvider();
     this.wireLauncher();
     this.wireToolbar();
     this.wireLayer();
@@ -214,6 +273,7 @@ export class OverlayUI {
     this.placeLauncher(); // needs the launcher's real height, so after mount
     this.render();
     void this.chat.restore(); // a reload mid-conversation re-opens the chat (F-25)
+    void this.loadProviders(false).catch(() => undefined); // F-56: label the Send button with the active agent
   }
 
   // ---- public surface (also exposed on window.__crt for tests) ------------------------------
@@ -262,15 +322,18 @@ export class OverlayUI {
 
   /**
    * F-13: freeze, capture, POST, clear the annotations, then open the chat on a new intake
-   * session (F-24). The session is warm-started in parallel with the capture so the Claude
-   * Code process boots while the page is being rasterised (N-2). A capture that saved but
-   * whose session failed to start is still reported as sent — the files are on disk and the
-   * status line says what went wrong.
+   * session (F-24). The session is warm-started in parallel with the capture so the agent
+   * process boots while the page is being rasterised (N-2). A capture that saved but whose
+   * session failed to start is still reported as sent — the files are on disk and the status
+   * line says what went wrong.
    *
    * F-14 `quick`: every annotation must carry a note; the chat stays hidden and the status line
-   * reports the task id when Claude writes it (or the panel opens itself if Claude needs you).
+   * reports the task id when the agent writes it (or the panel opens itself if it needs you).
+   *
+   * F-56: the session runs on the provider picked for this send (the caret's list), else the
+   * server's active one; the per-send choice is spent the moment the session is requested.
    */
-  async sendToClaude(opts: { quick?: boolean } = {}): Promise<SendResult> {
+  async sendToAgent(opts: { quick?: boolean } = {}): Promise<SendResult> {
     const quick = opts.quick === true;
     if (this.busy) throw new Error("already sending");
     if (!this.store.count()) throw new Error("nothing to send: add an annotation first");
@@ -278,23 +341,27 @@ export class OverlayUI {
     this.busy = true;
     this.setTool(null);
     this.sessions.hidden = true;
+    this.providersEl.hidden = true;
+    const start: StartOptions = { quick, provider: this.pendingProvider };
+    const name = this.providerName(this.sendProvider());
+    this.setPendingProvider(null);
     this.showStatus("Capturing page…");
     this.render();
-    const warm = this.chat.warmStart({ quick }).catch(() => null);
+    const warm = this.chat.warmStart(start).catch(() => null);
     try {
       const result = await capture(this.store);
-      this.showStatus("Sending to Claude…");
+      this.showStatus(`Sending to ${escapeHtml(name)}…`);
       const sent = await send(result);
       this.store.clear();
       this.showStatus(`Capture saved: <code>${escapeHtml(sent.dir)}</code>`, false, !quick);
       try {
         const sessionId = await warm;
         if (sessionId) await this.chat.attachCapture(sessionId, sent.id, { quick });
-        else await this.chat.startFromCapture(sent.id, { quick });
-        if (quick) this.showStatus(`Quick note sent — Claude is writing the task…${openChatLink()}`);
+        else await this.chat.startFromCapture(sent.id, start);
+        if (quick) this.showStatus(`Quick note sent — ${escapeHtml(name)} is writing the task…${openChatLink()}`);
       } catch (err) {
         this.showStatus(
-          `Capture saved: <code>${escapeHtml(sent.dir)}</code> — but Claude did not start: ${escapeHtml(err instanceof Error ? err.message : String(err))}`,
+          `Capture saved: <code>${escapeHtml(sent.dir)}</code> — but ${escapeHtml(name)} did not start: ${escapeHtml(err instanceof Error ? err.message : String(err))}`,
           true,
         );
       }
@@ -319,8 +386,123 @@ export class OverlayUI {
     if (outcome.kind === "task") {
       this.showStatus(`Task <b>${escapeHtml(outcome.id)}</b> written to <code>${escapeHtml(outcome.path)}</code>${openChatLink()}`);
     } else {
-      this.showStatus(`Claude needs you: ${escapeHtml(outcome.reason)}`, false, true);
+      this.showStatus(`${escapeHtml(this.chat.agentName())} needs you: ${escapeHtml(outcome.reason)}`, false, true);
     }
+  }
+
+  // ---- provider menu (F-56) --------------------------------------------------------------------
+
+  /** The provider id the next Send (or Quick note) will ask for: the per-send pick, else the server's active one. */
+  sendProvider(): string | null {
+    return this.pendingProvider ?? this.providers?.active ?? null;
+  }
+
+  /** F-56: the display name the menu knows for an id; the id itself when the list has not loaded. */
+  providerName(id: string | null): string {
+    if (!id) return UNKNOWN_AGENT;
+    return this.providers?.providers.find((p) => p.id === id)?.displayName ?? id;
+  }
+
+  /** Pick a provider for the next send only (F-56); null clears the pick. Persists per tab. */
+  setPendingProvider(id: string | null): void {
+    this.pendingProvider = id;
+    try {
+      if (id) sessionStorage.setItem(PROVIDER_KEY, id);
+      else sessionStorage.removeItem(PROVIDER_KEY);
+    } catch {
+      // sessionStorage unavailable: the pick lives for this page load only
+    }
+  }
+
+  private restorePendingProvider(): void {
+    try {
+      this.pendingProvider = sessionStorage.getItem(PROVIDER_KEY);
+    } catch {
+      this.pendingProvider = null;
+    }
+  }
+
+  /** `GET /__crt/providers`, with `?refresh=1` to re-run the server's preflight (F-56, F-57). */
+  async loadProviders(refresh: boolean): Promise<ProvidersPayload> {
+    const res = await fetch(crtUrl(`${PROVIDERS_ENDPOINT}${refresh ? "?refresh=1" : ""}`));
+    const data = (await res.json().catch(() => ({}))) as Partial<ProvidersPayload> & { error?: string };
+    if (!res.ok || !data.ok || !data.providers || !data.active) throw new Error(data.error ?? `CRT server answered ${res.status}`);
+    this.providers = data as ProvidersPayload;
+    this.render();
+    return this.providers;
+  }
+
+  /** Toggle the provider list; opening it shows the last known rows at once and refreshes them. */
+  async toggleProviders(force?: boolean): Promise<void> {
+    const show = force ?? this.providersEl.hidden;
+    if (!show) {
+      this.providersEl.hidden = true;
+      this.render();
+      return;
+    }
+    this.sessions.hidden = true;
+    if (this.chat.isOpen()) this.chat.show(false);
+    this.providersEl.hidden = false;
+    this.renderProviders(true);
+    this.render();
+    try {
+      await this.loadProviders(true);
+      this.renderProviders(false);
+    } catch (err) {
+      const why = this.providersEl.querySelector(".why");
+      if (why) why.textContent = `Could not list agents: ${err instanceof Error ? err.message : String(err)}`;
+      this.providersEl.classList.remove("refreshing");
+    }
+  }
+
+  private renderProviders(refreshing: boolean): void {
+    const remember = this.providersEl.querySelector<HTMLInputElement>("input[type=checkbox]")?.checked === true;
+    this.providersEl.classList.toggle("refreshing", refreshing);
+    const head = document.createElement("div");
+    head.className = "head";
+    head.innerHTML = `<span>Send to…</span><span class="spacer"></span><button type="button" data-providers="close">×</button>`;
+    const rows = (this.providers?.providers ?? []).map((p) => providerRow(p, p.id === this.sendProvider()));
+    const why = document.createElement("div");
+    why.className = "why";
+    if (this.providers) {
+      const d = this.providers.decision;
+      why.textContent = `Auto-detected: ${this.providerName(d.provider)}${d.reason ? ` — ${d.reason}` : " (default)"}`;
+    } else why.textContent = "Loading…";
+    const label = document.createElement("label");
+    label.className = "remember";
+    label.innerHTML = `<input type="checkbox"> Remember for this project on this machine`;
+    (label.querySelector("input") as HTMLInputElement).checked = remember;
+    this.providersEl.replaceChildren(head, ...rows, why, label);
+  }
+
+  /** A row was clicked: for this send only, or — with the checkbox — remembered via PUT /__crt/config. */
+  async chooseProvider(id: string, remember: boolean): Promise<void> {
+    const name = this.providerName(id);
+    if (remember) {
+      try {
+        await this.rememberProvider(id);
+        this.setPendingProvider(null);
+        this.showStatus(`Remembered: new sessions run on ${escapeHtml(name)} for this project on this machine (<code>.crt/config.local.json</code>)`, false, true);
+      } catch (err) {
+        this.showStatus(`Could not remember ${escapeHtml(name)}: ${escapeHtml(err instanceof Error ? err.message : String(err))}`, true);
+      }
+    } else {
+      this.setPendingProvider(id);
+    }
+    this.providersEl.hidden = true;
+    this.render();
+  }
+
+  /** F-57 `PUT /__crt/config { provider }`: the server writes the local file and replaces its active provider. */
+  async rememberProvider(id: string): Promise<void> {
+    const res = await fetch(crtUrl(CONFIG_ENDPOINT), {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: id }),
+    });
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; active?: string; error?: string };
+    if (!res.ok || !data.ok) throw new Error(data.error ?? `CRT server answered ${res.status}`);
+    if (this.providers && data.active) this.providers = { ...this.providers, active: data.active };
   }
 
   // ---- session list (F-30) ---------------------------------------------------------------------
@@ -334,6 +516,7 @@ export class OverlayUI {
     }
     this.sessions.innerHTML = `<div class="head"><span>Sessions</span><span class="spacer"></span><button type="button" data-sessions="close">×</button></div><div class="empty">Loading…</div>`;
     this.sessions.hidden = false;
+    this.providersEl.hidden = true;
     if (this.chat.isOpen()) this.chat.show(false);
     this.render();
     let list: SessionInfo[];
@@ -360,7 +543,8 @@ export class OverlayUI {
       const pill = btn.querySelector(".pill") as HTMLElement;
       pill.dataset.state = s.state;
       pill.textContent = s.taskId ?? STATE_LABEL[s.state];
-      (btn.querySelector(".meta") as HTMLElement).textContent = `${time}${s.quick ? " · quick note" : ""}${s.url ? ` · ${pathOf(s.url)}` : ""} · ${s.id.slice(0, 8)}`;
+      // F-47: the provider per row, so a Codex session is recognisable in the list.
+      (btn.querySelector(".meta") as HTMLElement).textContent = `${time} · ${s.provider}${s.quick ? " · quick note" : ""}${s.url ? ` · ${pathOf(s.url)}` : ""} · ${s.id.slice(0, 8)}`;
       return btn;
     });
     const head = this.sessions.querySelector(".head")!;
@@ -368,7 +552,7 @@ export class OverlayUI {
     if (!rows.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = "No sessions yet — annotate something and Send to Claude.";
+      empty.textContent = "No sessions yet — annotate something and Send.";
       this.sessions.appendChild(empty);
     }
   }
@@ -457,11 +641,13 @@ export class OverlayUI {
         this.store.clear();
         this.status.hidden = true;
       } else if (btn.dataset.action === "send") {
-        void this.sendToClaude().catch(() => undefined);
+        void this.sendToAgent().catch(() => undefined);
       } else if (btn.dataset.action === "quick") {
-        void this.sendToClaude({ quick: true }).catch(() => undefined);
+        void this.sendToAgent({ quick: true }).catch(() => undefined);
       } else if (btn.dataset.action === "sessions") {
         void this.toggleSessions();
+      } else if (btn.dataset.action === "agent") {
+        void this.toggleProviders();
       }
     });
     this.sessions.addEventListener("click", (e) => {
@@ -469,6 +655,17 @@ export class OverlayUI {
       if (!btn) return;
       if (btn.dataset.sessions === "close") this.sessions.hidden = true;
       else if (btn.dataset.session) this.chat.open(btn.dataset.session);
+    });
+    this.providersEl.addEventListener("click", (e) => {
+      const btn = (e.target as Element).closest<HTMLButtonElement>("button");
+      if (!btn) return;
+      if (btn.dataset.providers === "close") {
+        this.providersEl.hidden = true;
+        this.render();
+      } else if (btn.dataset.provider && !btn.disabled) {
+        const remember = this.providersEl.querySelector<HTMLInputElement>("input[type=checkbox]")?.checked === true;
+        void this.chooseProvider(btn.dataset.provider, remember);
+      }
     });
     this.status.addEventListener("click", (e) => {
       const btn = (e.target as Element).closest<HTMLButtonElement>("button");
@@ -498,10 +695,18 @@ export class OverlayUI {
     this.count.classList.toggle("on", n > 0);
     (this.toolbar.querySelector("[data-count]") as HTMLElement).textContent = String(n);
     for (const b of Array.from(this.toolbar.querySelectorAll("button"))) b.disabled = this.busy;
-    (this.toolbar.querySelector("[data-action=send]") as HTMLButtonElement).disabled = this.busy || n === 0;
+    const sendBtn = this.toolbar.querySelector("[data-action=send]") as HTMLButtonElement;
+    sendBtn.disabled = this.busy || n === 0;
+    // F-56: the main half names the agent this send will use; `data-provider` is the id it will ask for.
+    const provider = this.sendProvider();
+    sendBtn.textContent = provider ? `Send to ${this.providerName(provider)}` : "Send";
+    if (provider) sendBtn.dataset.provider = provider;
+    else delete sendBtn.dataset.provider;
+    sendBtn.title = `Capture and send to ${this.providerName(provider)} (F-13)${this.pendingProvider ? " — for this send only" : ""}`;
     (this.toolbar.querySelector("[data-action=quick]") as HTMLButtonElement).disabled = this.busy || !this.canQuickNote();
     (this.toolbar.querySelector("[data-action=clear]") as HTMLButtonElement).disabled = this.busy || n === 0;
     (this.toolbar.querySelector("[data-action=sessions]") as HTMLButtonElement).classList.toggle("active", !this.sessions.hidden);
+    for (const b of Array.from(this.toolbar.querySelectorAll<HTMLButtonElement>("[data-action=agent]"))) b.classList.toggle("active", !this.providersEl.hidden);
 
     this.renderPanel(items);
     this.renderMarkers(items);
@@ -518,7 +723,7 @@ export class OverlayUI {
    * it, so rows are patched where they stand and only moved when their position changed.
    */
   private renderPanel(items: Annotation[]): void {
-    this.panel.hidden = !this.open || items.length === 0 || this.chat.isOpen() || !this.sessions.hidden;
+    this.panel.hidden = !this.open || items.length === 0 || this.chat.isOpen() || !this.sessions.hidden || !this.providersEl.hidden;
     const active = this.root.activeElement as HTMLTextAreaElement | null;
     const activeId = active?.closest<HTMLElement>(".item")?.dataset.id;
     const keep = new Set(items.map((a) => a.id));
@@ -770,6 +975,30 @@ const STATE_LABEL: Record<SessionInfo["state"], string> = {
 
 function openChatLink(): string {
   return `<button type="button" data-status="chat">open chat</button>`;
+}
+
+/** F-45's state column, derived from the F-57 row the way `preflightState` does on the server. */
+export function providerState(p: ProviderRow): "ready" | "not on PATH" | "not logged in" | "too old" | "unknown" {
+  if (!p.installed) return "not on PATH";
+  if (p.loggedIn === false) return "not logged in";
+  if (p.problem === null) return "ready";
+  return /too old/i.test(p.problem) ? "too old" : "unknown";
+}
+
+/** One row of the provider menu (F-56): state dot, name and id, tick on the active one, spinner while refreshing. */
+function providerRow(p: ProviderRow, active: boolean): HTMLButtonElement {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = `provider${active ? " active" : ""}`;
+  btn.dataset.provider = p.id;
+  const state = providerState(p);
+  btn.disabled = p.problem !== null;
+  btn.title = p.problem ?? `${state}${p.version ? ` · ${p.version}` : ""}`;
+  btn.innerHTML = `<span class="dot"></span><span class="name"><b></b><small></small></span><span class="tick">✓</span><span class="spin"></span>`;
+  (btn.querySelector(".dot") as HTMLElement).dataset.state = state;
+  (btn.querySelector(".name b") as HTMLElement).textContent = p.displayName;
+  (btn.querySelector(".name small") as HTMLElement).textContent = p.id;
+  return btn;
 }
 
 function pathOf(url: string): string {

@@ -6,10 +6,14 @@
  *     and re-served uncompressed with a correct Content-Length (F-2).
  *   • WebSocket upgrades are replayed over a raw TCP/TLS socket and piped untouched,
  *     so Next.js / Vite HMR keep working (F-3).
- *   • /__crt/overlay.js, /__crt/early.js, /__crt/health, POST /__crt/captures (F-13, F-23) and
- *     the /__crt/sessions routes (sessions.ts, F-24…F-30) are served here; anything else under
- *     /__crt/ is a 404 and never reaches the target (F-4).
- *   • Every /__crt/ response carries CORS headers when the request's Origin is a localhost
+ *   • /__crt/overlay.js, /__crt/early.js, /__crt/health, POST /__crt/captures (F-13, F-23), the
+ *     /__crt/sessions routes (sessions.ts, F-24…F-30), /__crt/providers and /__crt/config
+ *     (provider-routes.ts, F-57) are served here; anything else under /__crt/ is a 404 and never
+ *     reaches the target (F-4).
+ *   • /__crt/internal/* is for `crt mcp` only (F-49, N-8): a request carrying an `Origin` header
+ *     — which every browser sends on a POST and the Node shim never does — is refused with 403
+ *     before anything else happens, CORS included.
+ *   • Every other /__crt/ response carries CORS headers when the request's Origin is a localhost
  *     origin, so an app can load the overlay with a script tag instead of the proxy (F-6).
  * The caller binds the returned server to 127.0.0.1 (see serve.ts).
  */
@@ -32,17 +36,21 @@ import { connect as tlsConnect } from "node:tls";
 import { CaptureValidationError, writeCapture } from "./captures.js";
 import { applyCors, json, readJson } from "./http.js";
 import { decodeBody, EARLY_PATH, filterAcceptEncoding, injectOverlayTag, isHtml, OVERLAY_PATH, relaxCsp } from "./inject.js";
-import { handleSessionRoute, SESSIONS_PATH, type SessionRegistry } from "./sessions.js";
+import { handleProviderRoute } from "./provider-routes.js";
+import type { ProviderRegistry } from "./session.js";
+import { handleInternalRoute, handleSessionRoute, INTERNAL_PREFIX, SESSIONS_PATH, type SessionRegistry } from "./sessions.js";
 
 export interface ProxyOptions {
   /** Target origin, e.g. `http://localhost:3000`. */
   target: string;
-  /** Reported by /__crt/health; every Claude session CRT starts will use it as cwd. */
+  /** Reported by /__crt/health; every agent session CRT starts will use it as cwd. */
   projectRoot: string;
   /** Absolute path of the built overlay bundle (dist/overlay.js). */
   overlayPath: string;
   /** Intake sessions (F-24). Absent → the /__crt/sessions routes answer 503. */
   sessions?: SessionRegistry;
+  /** Provider registry (F-57). Absent → /__crt/providers and /__crt/config answer 503, health has no provider. */
+  providers?: ProviderRegistry;
 }
 
 export const CRT_PREFIX = "/__crt";
@@ -215,6 +223,20 @@ async function handleCrtRoute(
   const qs = url.indexOf("?");
   const path = qs === -1 ? url : url.slice(0, qs);
   const query = new URLSearchParams(qs === -1 ? "" : url.slice(qs + 1));
+  if (path === INTERNAL_PREFIX || path.startsWith(INTERNAL_PREFIX + "/")) {
+    // F-49/N-8: the shim only. A browser always sends Origin on a POST; refuse before CORS or a body read.
+    if (req.headers.origin !== undefined) {
+      res.writeHead(403);
+      res.end();
+      return;
+    }
+    if (!opts.sessions) {
+      json(res, 503, { ok: false, error: "intake sessions are not enabled on this server" });
+      return;
+    }
+    await handleInternalRoute(path, req, res, opts.sessions);
+    return;
+  }
   const cors = applyCors(req, res);
   if (req.method === "OPTIONS") {
     // F-6 preflight for the JSON POSTs from script-tag mode; non-local origins get nothing.
@@ -238,7 +260,16 @@ async function handleCrtRoute(
     return;
   }
   if (path === `${CRT_PREFIX}/health`) {
-    json(res, 200, { ok: true, target: opts.target, projectRoot: opts.projectRoot });
+    // F-57: `provider` is what a new session would run on right now (F-43 with no request value).
+    json(res, 200, { ok: true, target: opts.target, projectRoot: opts.projectRoot, provider: opts.providers?.resolve(null).provider ?? null });
+    return;
+  }
+  if (path === `${CRT_PREFIX}/providers` || path === `${CRT_PREFIX}/config`) {
+    if (!opts.providers) {
+      json(res, 503, { ok: false, error: "providers are not enabled on this server" });
+      return;
+    }
+    await handleProviderRoute(path, query, req, res, opts.providers, opts.projectRoot);
     return;
   }
   if (path === CAPTURES_PATH) {

@@ -1,10 +1,18 @@
 /**
- * Chat panel (PRD F-14, F-25, F-26, F-28, F-29, F-30): streams an intake session's events over
- * SSE, renders assistant text as it arrives (markdown-ish), shows tool calls as collapsed lines,
- * permission requests as Allow / Deny cards, and takes multi-turn input. The current session id
- * is kept in sessionStorage so a reload re-opens the panel and replays the transcript from the
- * server. A quick-note session (F-14) is followed with the panel hidden; it opens itself only
- * when Claude needs the developer. Framework-free; renders inside the overlay's Shadow DOM.
+ * Chat panel (PRD F-14, F-25, F-26, F-28, F-29, F-30; PRD-providers F-46, F-47, F-56): streams
+ * an intake session's events over SSE, renders assistant text as it arrives (markdown-ish),
+ * shows tool calls as collapsed lines, permission requests as Allow / Deny cards, and takes
+ * multi-turn input. The current session id is kept in sessionStorage so a reload re-opens the
+ * panel and replays the transcript from the server. A quick-note session (F-14) is followed
+ * with the panel hidden; it opens itself only when the agent needs the developer.
+ *
+ * Everything that names the agent — the head, the placeholder, "… has a question", the footer —
+ * comes from the session's own replayed `init` event (F-47), never from the server's active
+ * provider, so a reopened Codex session never reads "Claude". The `init` capabilities (F-46)
+ * decide what chrome exists: Allow/Deny only when `permissions` is `interactive`, Stop only when
+ * `interrupt`, the resume hint only when `resume` and there is a command, and a "read-only
+ * sandbox" badge when `sandboxed`. The panel's own title stays "CRT" (F-64).
+ * Framework-free; renders inside the overlay's Shadow DOM.
  */
 import type { SessionEvent, SessionInfo, SessionState } from "../../server/src/session-events.js";
 import { crtUrl } from "./base.js";
@@ -12,6 +20,10 @@ import { ACCENT } from "./screenshot.js";
 
 export const SESSIONS_ENDPOINT = "/__crt/sessions";
 const STORAGE_KEY = "crt.session.v1";
+/** What the panel calls the agent before its `init` event has arrived. */
+const UNKNOWN_AGENT = "the agent";
+
+export type InitEvent = Extract<SessionEvent, { type: "init" }>;
 
 export const CHAT_CSS = `
   .chat { display: flex; flex-direction: column; width: 100%; height: min(72vh, 680px); border-radius: 12px; background: #fff;
@@ -19,6 +31,8 @@ export const CHAT_CSS = `
   .chat[hidden] { display: none; }
   .chat-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid rgba(0,0,0,.08); background: #fafafa; }
   .chat-head .title { font-weight: 600; }
+  .chat-head .agent { color: #555; }
+  .chat-head .agent:empty { display: none; }
   .chat-head .state { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #eee; color: #555; }
   .chat-head .state[data-state="running"], .chat-head .state[data-state="starting"] { background: #fff3cd; color: #7a5a00; }
   .chat-head .state[data-state="waiting"] { background: ${ACCENT}; color: #fff; }
@@ -28,6 +42,7 @@ export const CHAT_CSS = `
   .chat-head button { padding: 4px 8px; border-radius: 6px; font-size: 12px; }
   .chat-head button:hover { background: #eee; }
   .chat-head button:disabled { opacity: .4; cursor: default; }
+  .chat-head button[hidden] { display: none; }
   .chat-log { flex: 1; overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; scroll-behavior: smooth; }
   .msg { max-width: 92%; padding: 8px 10px; border-radius: 10px; line-height: 1.45; word-wrap: break-word; overflow-wrap: anywhere; }
   .msg.user { align-self: flex-end; background: #111; color: #fff; white-space: pre-wrap; }
@@ -76,12 +91,15 @@ export const CHAT_CSS = `
   .chat-foot { padding: 6px 10px; font-size: 11px; color: #777; border-top: 1px solid rgba(0,0,0,.06); background: #fafafa;
                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .chat-foot code { font-family: ui-monospace, Menlo, Consolas, monospace; user-select: all; color: #333; }
+  .chat-foot .badge { display: inline-block; padding: 0 6px; border-radius: 999px; background: #e8f0fe; color: #1a4d99; font-weight: 600; }
 `;
 
 export interface ChatSnapshot {
   sessionId: string | null;
   state: SessionState | null;
   taskId: string | null;
+  /** F-47: the provider id from the session's own init event; null before it arrives. */
+  provider: string | null;
   /** F-14: following a quick-note session with the panel hidden. */
   quiet: boolean;
   events: SessionEvent[];
@@ -90,8 +108,14 @@ export interface ChatSnapshot {
 /** F-14: what a quietly followed session did. */
 export type QuietOutcome =
   | { kind: "task"; id: string; path: string }
-  /** The panel opened itself: Claude asked a question, needs a permission, or failed. */
+  /** The panel opened itself: the agent asked a question, needs a permission, or failed. */
   | { kind: "attention"; reason: string };
+
+/** F-56: which provider a new session should run on (the request-body value, F-43 step 1). */
+export interface StartOptions {
+  quick?: boolean;
+  provider?: string | null;
+}
 
 export interface ChatCallbacks {
   onVisibility(open: boolean): void;
@@ -117,6 +141,9 @@ export class ChatPanel {
   private thinking: HTMLElement | null = null;
   private lastSeq = 0;
   private quiet = false;
+  /** F-47: the session's own init event (replayed on reattach); every agent name comes from it. */
+  private init: InitEvent | null = null;
+  private readonly agentEl: HTMLElement;
   private readonly callbacks: ChatCallbacks;
 
   constructor(parent: HTMLElement, callbacks: ChatCallbacks) {
@@ -126,7 +153,8 @@ export class ChatPanel {
     this.el.hidden = true;
     this.el.innerHTML = `
       <div class="chat-head">
-        <span class="title">Claude</span>
+        <span class="title">CRT</span>
+        <span class="agent"></span>
         <span class="state" data-state="starting">starting</span>
         <span class="spacer"></span>
         <button type="button" data-chat="interrupt" title="Interrupt the current turn (F-29)">Stop</button>
@@ -136,7 +164,7 @@ export class ChatPanel {
       <div class="chat-log" role="log" aria-live="polite"></div>
       <div class="chat-task" hidden></div>
       <div class="chat-input">
-        <textarea rows="1" placeholder="Reply to Claude… (Enter to send, Shift+Enter for a new line)"></textarea>
+        <textarea rows="1" placeholder="Reply… (Enter to send, Shift+Enter for a new line)"></textarea>
         <button type="button" data-chat="send">Send</button>
       </div>
       <div class="chat-foot"></div>
@@ -144,6 +172,7 @@ export class ChatPanel {
     parent.prepend(this.el);
     const q = <T extends HTMLElement>(sel: string) => this.el.querySelector(sel) as T;
     this.log = q(".chat-log");
+    this.agentEl = q(".chat-head .agent");
     this.stateEl = q(".chat-head .state");
     this.taskEl = q(".chat-task");
     this.input = q("textarea");
@@ -156,16 +185,21 @@ export class ChatPanel {
   // ---- public ---------------------------------------------------------------------------------
 
   snapshot(): ChatSnapshot {
-    return { sessionId: this.sessionId, state: this.state, taskId: this.taskId, quiet: this.quiet, events: this.events.slice() };
+    return { sessionId: this.sessionId, state: this.state, taskId: this.taskId, provider: this.init?.provider ?? null, quiet: this.quiet, events: this.events.slice() };
   }
 
   isOpen(): boolean {
     return !this.el.hidden;
   }
 
+  /** F-56: what this session's agent is called, from its own init event; a neutral noun before that. */
+  agentName(): string {
+    return this.init?.displayName ?? UNKNOWN_AGENT;
+  }
+
   /** F-13/F-24: start an intake session for a saved capture and open the panel on it (or follow it quietly, F-14). */
-  async startFromCapture(captureId: string, opts: { quick?: boolean } = {}): Promise<string> {
-    const id = await this.createSession(captureId, opts.quick === true);
+  async startFromCapture(captureId: string, opts: StartOptions = {}): Promise<string> {
+    const id = await this.createSession(captureId, opts);
     if (opts.quick) this.follow(id);
     else this.open(id);
     return id;
@@ -175,8 +209,8 @@ export class ChatPanel {
    * N-2 warm start: boot the session while the capture is still being rasterised, then
    * `attachCapture` once it is saved (or `abandon` if the capture failed).
    */
-  warmStart(opts: { quick?: boolean } = {}): Promise<string> {
-    return this.createSession(null, opts.quick === true);
+  warmStart(opts: StartOptions = {}): Promise<string> {
+    return this.createSession(null, opts);
   }
 
   async attachCapture(sessionId: string, captureId: string, opts: { quick?: boolean } = {}): Promise<void> {
@@ -203,11 +237,12 @@ export class ChatPanel {
     return data.sessions;
   }
 
-  private async createSession(captureId: string | null, quick: boolean): Promise<string> {
+  private async createSession(captureId: string | null, opts: StartOptions): Promise<string> {
     const res = await fetch(crtUrl(SESSIONS_ENDPOINT), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...(captureId ? { captureId } : {}), ...(quick ? { quick } : {}) }),
+      // F-56/F-43 step 1: the per-send provider, only when the developer picked one for this send.
+      body: JSON.stringify({ ...(captureId ? { captureId } : {}), ...(opts.quick ? { quick: true } : {}), ...(opts.provider ? { provider: opts.provider } : {}) }),
     });
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean; id?: string; error?: string };
     if (!res.ok || !data.ok || !data.id) throw new Error(data.error ?? `CRT server answered ${res.status}`);
@@ -223,7 +258,7 @@ export class ChatPanel {
 
   /**
    * F-14: attach to a quick-note session without showing the panel. It stays hidden until the
-   * task is written (`onQuiet` reports it) or Claude needs the developer, when it opens itself.
+   * task is written (`onQuiet` reports it) or the agent needs the developer, when it opens itself.
    */
   follow(sessionId: string): void {
     this.attach(sessionId);
@@ -243,7 +278,8 @@ export class ChatPanel {
       this.log.replaceChildren();
       this.thinking = null;
       this.taskEl.hidden = true;
-      this.renderFoot();
+      this.init = null;
+      this.renderAgent();
       this.renderState();
       this.connect();
       try {
@@ -323,6 +359,8 @@ export class ChatPanel {
     this.texts.clear();
     this.log.replaceChildren();
     this.thinking = null;
+    this.init = null;
+    this.renderAgent();
     try {
       sessionStorage.removeItem(STORAGE_KEY);
     } catch {
@@ -375,12 +413,15 @@ export class ChatPanel {
         if (event.state === "ended") this.system("Session ended");
         if (event.state === "idle" && this.isOpen()) this.input.focus();
         // F-14: a quiet session that stops without a task has a question; one that fails needs eyes.
-        if (this.quiet && event.state === "idle" && !this.taskId) this.attention("Claude has a question");
+        if (this.quiet && event.state === "idle" && !this.taskId) this.attention(`${this.agentName()} has a question`);
         else if (this.quiet && event.state === "error") this.attention(event.detail ?? "the session failed");
         else if (this.quiet && event.state === "ended" && !this.taskId) this.attention("the session ended without writing a task");
         break;
       case "init":
-        this.renderFoot(event);
+        // F-47/F-56: the one source for the agent's name, version, model, capabilities and resume hint.
+        this.init = event;
+        this.renderAgent();
+        this.renderState();
         break;
       case "user":
         this.append(userBubble(event.text, event.images));
@@ -417,8 +458,9 @@ export class ChatPanel {
         break;
       }
       case "permission":
-        this.append(permissionCard(event.id, event.title, event.detail));
-        if (this.quiet) this.attention("Claude needs a permission");
+        // F-46: Allow/Deny exist only for `permissions: interactive`; a sandboxed agent decides alone.
+        this.append(permissionCard(event.id, event.title, event.detail, (this.init?.capabilities.permissions ?? "interactive") === "interactive"));
+        if (this.quiet) this.attention(`${this.agentName()} needs a permission`);
         else this.show(true);
         break;
       case "permission_resolved": {
@@ -491,14 +533,33 @@ export class ChatPanel {
     this.input.disabled = over;
     this.sendBtn.disabled = over;
     this.stopBtn.disabled = s !== "running" && s !== "waiting";
+    // F-46: no Stop for an agent that cannot be interrupted.
+    this.stopBtn.hidden = this.init?.capabilities.interrupt === false;
   }
 
-  /** F-28/F-47: session id, then model, agent and the resume hint from the session's own init event. */
-  private renderFoot(init?: Extract<SessionEvent, { type: "init" }>): void {
+  /**
+   * F-47/F-56: everything that names the agent, from the session's own init event: the head,
+   * the placeholder, and the footer `provider · model · agent version · resume command` (F-28),
+   * with a "read-only sandbox" badge instead of Allow/Deny for sandboxed agents (F-46). Before
+   * init only the session id is known.
+   */
+  private renderAgent(): void {
+    const init = this.init;
     const id = this.sessionId ?? "";
-    const agent = init ? [init.displayName, init.agentVersion].filter(Boolean).join(" ") : "";
-    this.foot.innerHTML = `session <code>${escapeHtml(id)}</code>${init?.model ? ` · ${escapeHtml(init.model)}` : ""}${agent ? ` · ${escapeHtml(agent)}` : ""}${init?.resumeCommand ? ` · continue in a terminal: <code>${escapeHtml(init.resumeCommand)}</code>` : ""}`;
-    this.foot.title = init?.resumeCommand ?? id;
+    this.agentEl.textContent = init?.displayName ?? "";
+    this.input.placeholder = `Reply${init ? ` to ${init.displayName}` : ""}… (Enter to send, Shift+Enter for a new line)`;
+    if (!init) {
+      this.foot.innerHTML = `session <code>${escapeHtml(id)}</code>`;
+      this.foot.title = id;
+      return;
+    }
+    const parts = [escapeHtml(init.displayName)];
+    if (init.model) parts.push(escapeHtml(init.model));
+    if (init.agentVersion) parts.push(escapeHtml(init.agentVersion));
+    if (init.capabilities.permissions === "sandboxed") parts.push(`<span class="badge">read-only sandbox</span>`);
+    if (init.capabilities.resume && init.resumeCommand) parts.push(`continue in a terminal: <code>${escapeHtml(init.resumeCommand)}</code>`);
+    this.foot.innerHTML = parts.join(" · ");
+    this.foot.title = `session ${id}${init.resumeCommand ? ` · ${init.resumeCommand}` : ""}`;
   }
 
   private scrollToEnd(): void {
@@ -576,11 +637,13 @@ function toolLine(id: string, label: string): HTMLElement {
   return el;
 }
 
-function permissionCard(id: string, title: string, detail: string): HTMLElement {
+function permissionCard(id: string, title: string, detail: string, interactive: boolean): HTMLElement {
   const el = document.createElement("div");
   el.className = "perm";
   el.dataset.pid = id;
-  el.innerHTML = `<div class="t"></div><pre></pre><div class="btns"><button type="button" class="allow" data-behavior="allow">Allow</button><button type="button" class="deny" data-behavior="deny">Deny</button></div>`;
+  el.innerHTML = interactive
+    ? `<div class="t"></div><pre></pre><div class="btns"><button type="button" class="allow" data-behavior="allow">Allow</button><button type="button" class="deny" data-behavior="deny">Deny</button></div>`
+    : `<div class="t"></div><pre></pre><div class="btns"><span class="done">decided by the agent's sandbox</span></div>`;
   (el.querySelector(".t") as HTMLElement).textContent = title;
   (el.querySelector("pre") as HTMLElement).textContent = detail;
   return el;

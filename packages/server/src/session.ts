@@ -20,7 +20,7 @@ import { codexProfile } from "./providers/codex.js";
 import { type Decision, DEFAULT_PROVIDER, detectProvider, formatDecision, scanMarkers } from "./providers/detect.js";
 import { stubProfile } from "./providers/stub.js";
 import { type LoggedIn, type PreflightResult, preflightPasses, preflightState, type ProviderProfile, type ProviderState } from "./providers/types.js";
-import type { ProviderCapabilities } from "./session-events.js";
+import type { ProviderCapabilities, ProvidersPayload } from "./session-events.js";
 
 export { DEFAULT_PROVIDER, formatDecision } from "./providers/detect.js";
 export type { Decision } from "./providers/detect.js";
@@ -34,10 +34,13 @@ export function stubEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.CRT_SESSION_STUB);
 }
 
-/** F-42: the profiles a developer may pick from — never `stub` unless `CRT_SESSION_STUB` is set. */
+/**
+ * F-42: the profiles a developer may pick from — never `stub` unless `CRT_SESSION_STUB` is set.
+ * A `stub` in `profiles` (a test's variant, `makeStubProfile`) replaces the module's own.
+ */
 export function listProviders(env: NodeJS.ProcessEnv = process.env, profiles: readonly ProviderProfile[] = BUILT_IN_PROFILES): ProviderProfile[] {
   const visible = profiles.filter((p) => p.id !== stubProfile.id);
-  return stubEnabled(env) ? [...visible, stubProfile] : visible;
+  return stubEnabled(env) ? [...visible, profiles.find((p) => p.id === stubProfile.id) ?? stubProfile] : visible;
 }
 
 export type ResolutionLayer = "stub" | "request" | "active" | "local" | "project" | "detected" | "default";
@@ -98,7 +101,9 @@ export class ProviderRegistry {
   constructor(opts: ProviderRegistryOptions) {
     this.root = opts.root;
     this.env = opts.env ?? process.env;
-    this.config = opts.config ?? DEFAULT_CONFIG;
+    // Own copy of the model map: `setModels()` (PUT /__crt/config) must never touch DEFAULT_CONFIG.
+    const config = opts.config ?? DEFAULT_CONFIG;
+    this.config = { ...config, models: { ...config.models } };
     this.profiles = opts.profiles ?? BUILT_IN_PROFILES;
     this.log = opts.log ?? (() => undefined);
     const fromEnv = this.env.CRT_PROVIDER?.trim();
@@ -167,6 +172,25 @@ export class ProviderRegistry {
     return { ok: true };
   }
 
+  /**
+   * F-57 `PUT /__crt/config { models }`: the per-provider model map for new sessions, layered over
+   * what the config files said (the route has already written the local file).
+   */
+  setModels(models: Record<string, string>): void {
+    Object.assign(this.config.models, models);
+  }
+
+  /** The model the developer chose for a provider (`models.<id>` in config, F-57), or null. */
+  modelFor(id: string): string | null {
+    return this.config.models[id] ?? null;
+  }
+
+  /** F-57: is `id` a listed string id whose preflight passes? The error is the N-7 line to answer with. */
+  check(id: unknown): { ok: true; id: string } | { ok: false; error: string } {
+    const r = this.usable(id);
+    return r.problem === null ? { ok: true, id: r.id } : { ok: false, error: r.problem };
+  }
+
   /** F-43: the provider a new session runs on. `requested` is the `POST /__crt/sessions` body value. */
   resolve(requested: unknown = null): Resolution {
     const explicit = (id: unknown, layer: ResolutionLayer, source: string): Resolution => {
@@ -221,7 +245,7 @@ export class ProviderRegistry {
   }
 
   /** F-57 payload: what `GET /__crt/providers` returns and `crt providers --json` prints. */
-  payload(): { ok: true; active: string; decision: Decision; providers: Array<Omit<ProviderStatus, "state" | "agentName" | "hints">> } {
+  payload(): ProvidersPayload {
     const decision = this.detection();
     return {
       ok: true,

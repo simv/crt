@@ -146,6 +146,22 @@ export function readConfig(root: string): CrtConfig {
   };
 }
 
+/**
+ * F-57 `PUT /__crt/config`: merge `provider` and/or `models` into `.crt/config.local.json`
+ * (creating it), leaving every other key of the file as it was. The route has validated the
+ * values; this only writes the machine-local file, never `.crt/config.json` (N-8).
+ */
+export function writeLocalConfig(root: string, patch: { provider?: string; models?: Record<string, string> }): string {
+  const path = join(root, ".crt", LOCAL_CONFIG_FILE);
+  const current = readConfigFile(path);
+  const next: CrtConfigFile = { ...current };
+  if (patch.provider !== undefined) next.provider = patch.provider;
+  if (patch.models !== undefined) next.models = { ...(current.models && typeof current.models === "object" ? current.models : {}), ...patch.models };
+  mkdirSync(join(root, ".crt"), { recursive: true });
+  writeFileSync(path, JSON.stringify(next, null, 2) + "\n", "utf8");
+  return path;
+}
+
 function readConfigFile(path: string): CrtConfigFile {
   try {
     const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;

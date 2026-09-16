@@ -35,7 +35,6 @@ import {
   type SDKUserMessage,
   tool,
 } from "@anthropic-ai/claude-agent-sdk";
-import { z } from "zod/v4";
 import { PERMISSION_TIMEOUT_MS } from "../permissions.js";
 import type {
   ProviderCapabilities,
@@ -46,12 +45,10 @@ import type {
   UserInput,
   WriteTaskRequest,
 } from "../session-events.js";
+import { CRT_MCP_SERVER, WRITE_TASK_DESCRIPTION, WRITE_TASK_TOOL, WRITE_TASK_TOOL_FULL, writeTaskShape } from "../write-task.js";
 import type { PreflightResult, ProviderProfile } from "./types.js";
 
-export const CRT_MCP_SERVER = "crt";
-export const WRITE_TASK_TOOL = "write_task";
-/** How the tool is named in canUseTool / permission rules. */
-export const WRITE_TASK_TOOL_FULL = `mcp__${CRT_MCP_SERVER}__${WRITE_TASK_TOOL}`;
+export { CRT_MCP_SERVER, WRITE_TASK_TOOL, WRITE_TASK_TOOL_FULL } from "../write-task.js";
 
 const STDERR_TAIL_LINES = 30;
 const SDK_PACKAGE = "@anthropic-ai/claude-agent-sdk";
@@ -217,38 +214,24 @@ export function startSession(opts: StartSessionOptions): SessionDriver {
     });
   };
 
-  const writeTask = tool(
-    WRITE_TASK_TOOL,
-    "Write the CRT task file for this intake (PRD F-32). The server allocates the CRT-NNNN id, moves the capture's screenshots to .crt/tasks/assets/<ID>/, renders the Evidence section from the capture, writes the file and regenerates the index. Call it once, after the developer has confirmed the definition of done. Returns the id and path.",
-    {
-      title: z.string().min(3).describe("Short imperative title, e.g. 'Cart total excludes applied discount'"),
-      summary: z.string().min(1).describe("One paragraph: what is wrong / wanted, in plain language"),
-      context: z.string().min(1).describe("What the page showed, how to reproduce, which component renders it, where the logic lives (file:line)"),
-      evidence: z.string().optional().describe("Extra evidence beyond the screenshots and annotations the server adds automatically (optional)"),
-      ask: z.string().min(1).describe("The change requested, precisely"),
-      definitionOfDone: z.array(z.string().min(1)).min(1).describe("Checkable items, one per entry; the server renders them as - [ ] checkboxes"),
-      notes: z.string().optional().describe("Constraints, hunches, non-goals, alternatives considered"),
-      priority: z.enum(["low", "normal", "high"]).optional().describe("Default normal"),
-      tags: z.array(z.string()).optional().describe("Short lowercase tags, e.g. ['cart', 'pricing']"),
-      files: z.array(z.string()).optional().describe("Project-relative source files identified during intake"),
-    },
-    async (args) => {
-      try {
-        const written = await opts.writeTask(args as WriteTaskRequest);
-        emit({ type: "task_written", id: written.id, path: written.path });
-        log(`crt: task ${written.id} written to ${written.path}`);
-        return { content: [{ type: "text", text: `Task ${written.id} written to ${written.path}` }] };
-      } catch (err) {
-        return { content: [{ type: "text", text: `write_task failed: ${(err as Error).message}` }], isError: true };
-      }
-    },
-  );
+  // §5.3: the same name, description and schema `crt mcp` serves to every other agent (write-task.ts).
+  const writeTask = tool(WRITE_TASK_TOOL, WRITE_TASK_DESCRIPTION, writeTaskShape, async (args) => {
+    try {
+      const written = await opts.writeTask(args as WriteTaskRequest);
+      emit({ type: "task_written", id: written.id, path: written.path });
+      log(`crt: task ${written.id} written to ${written.path}`);
+      return { content: [{ type: "text", text: `Task ${written.id} written to ${written.path}` }] };
+    } catch (err) {
+      return { content: [{ type: "text", text: `write_task failed: ${(err as Error).message}` }], isError: true };
+    }
+  });
 
   const options: Options = {
     cwd: opts.cwd,
     sessionId: opts.id,
     settingSources: ["user", "project", "local"],
     systemPrompt: { type: "preset", preset: "claude_code", append: opts.systemPromptAppend },
+    ...(opts.model ? { model: opts.model } : {}), // F-57 models.claude
     includePartialMessages: true,
     permissionMode: "default",
     canUseTool,
@@ -268,7 +251,8 @@ export function startSession(opts: StartSessionOptions): SessionDriver {
       | { type: "image"; source: { type: "base64"; media_type: "image/png" | "image/jpeg" | "image/webp" | "image/gif"; data: string } }
     > = [{ type: "text", text: u.text }];
     for (const img of u.images ?? []) {
-      blocks.push({ type: "image", source: { type: "base64", media_type: img.mediaType, data: img.data } });
+      // F-50: Claude takes images inline, so the registry filled `data`; a path-only image is skipped.
+      if (img.data) blocks.push({ type: "image", source: { type: "base64", media_type: img.mediaType, data: img.data } });
     }
     return {
       type: "user",

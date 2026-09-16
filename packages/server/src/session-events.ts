@@ -9,7 +9,7 @@
 export type SessionState =
   /** Process spawning; nothing streamed yet. */
   | "starting"
-  /** Claude is producing a turn (text or tool calls). */
+  /** The agent is producing a turn (text or tool calls). */
   | "running"
   /** A permission card is waiting for the developer. */
   | "waiting"
@@ -23,10 +23,17 @@ export type SessionState =
 /** Outcome of the F-26 policy for one tool call (see permissions.ts). */
 export type PermissionDecision = { kind: "allow" } | { kind: "deny"; reason: string } | { kind: "ask" };
 
+/**
+ * One screenshot for the agent (F-24). F-50: `path` is always set (absolute, under
+ * `.crt/captures/`); `data` only for providers with `images: inline`, so the base64 work is
+ * skipped for those that take a file path.
+ */
 export interface UserImage {
   mediaType: "image/png" | "image/jpeg" | "image/webp" | "image/gif";
-  /** Base64 bytes, no data: prefix. */
-  data: string;
+  /** Absolute path of the PNG in the capture directory. */
+  path: string;
+  /** Base64 bytes, no data: prefix; absent unless the provider wants images inline. */
+  data?: string;
   /** Shown to the developer in place of the bytes (e.g. the file name). */
   label: string;
 }
@@ -85,7 +92,7 @@ export type SessionEvent =
       type: "permission";
       id: string;
       toolName: string;
-      /** One line: what Claude wants to do. */
+      /** One line: what the agent wants to do. */
       title: string;
       /** The tool input rendered for humans (a command, a path, …). */
       detail: string;
@@ -107,12 +114,35 @@ export interface SessionInfo {
   startedAt: string;
   state: SessionState;
   taskId: string | null;
-  /** F-14: started as a quick note — Claude writes the task without waiting for confirmation. */
+  /** F-14: started as a quick note — the agent writes the task without waiting for confirmation. */
   quick: boolean;
   /** One line for the session list: the first note, else the page path. Null until a capture is attached. */
   summary: string | null;
   /** Page URL of the capture. Null until a capture is attached. */
   url: string | null;
+}
+
+/** F-57: one row of `GET /__crt/providers` (and `crt providers --json`); what the overlay's menu shows. */
+export interface ProviderRow {
+  id: string;
+  displayName: string;
+  installed: boolean;
+  loggedIn: true | false | "unknown";
+  version: string | null;
+  /** The N-7 line when the agent cannot be used right now; null when it can. */
+  problem: string | null;
+  /** F-44 markers found in the project root. */
+  markers: string[];
+  capabilities: ProviderCapabilities;
+}
+
+export interface ProvidersPayload {
+  ok: true;
+  /** The provider a new session would run on right now (F-43). */
+  active: string;
+  /** The F-44 auto-detection result and why. */
+  decision: { provider: string; reason: string | null };
+  providers: ProviderRow[];
 }
 
 /** Fields the intake session passes to CRT's `write_task` tool; mirrors tasks.ts NewTaskInput. */
@@ -148,17 +178,28 @@ export interface StartSessionOptions {
   id: string;
   /** Project root: the session's cwd (PRD goal 6). */
   cwd: string;
-  /** Intake instructions appended to the Claude Code preset system prompt (F-24). */
+  /**
+   * Intake instructions for the agent's system prompt (F-24). Empty when the profile declares
+   * `instructions: "first-message"`: the registry has then already prepended them to `first` (F-51).
+   */
   systemPromptAppend: string;
   /**
    * The capture summary + notes + images (F-24). Absent for a warm start: the process boots
    * while the overlay is still rasterising, and the first message arrives via `send()` (N-2).
    */
   first?: UserInput;
-  /** Called for every tool call Claude Code would prompt for (F-26). */
+  /** Called for every tool call the agent would prompt for (F-26; `permissions: interactive` only). */
   decide: (toolName: string, input: Record<string, unknown>) => PermissionDecision;
   /** Persist a task from the session's `write_task` call; returns id + path shown in the panel. */
   writeTask: (request: WriteTaskRequest) => Promise<{ id: string; path: string }>;
+  /**
+   * F-49: how an agent that is not driven in-process reaches `write_task`: spawn `command args`
+   * with `env` added (the per-session token and the server port). Drivers hand this to the agent
+   * as its MCP server; the token must never appear on a command line or in a URL (N-8).
+   */
+  mcp: { command: string; args: string[]; env: Record<string, string> };
+  /** F-57 `models.<id>`: the model the developer asked for, or null for the agent's default. */
+  model: string | null;
   permissionTimeoutMs?: number;
   log?: (line: string) => void;
 }
