@@ -4,7 +4,7 @@ title: M14 — Install: plugin bundled in the package, crt setup, one version ru
 status: done
 priority: normal
 created: 2026-09-16T14:50:00+08:00
-updated: 2026-09-17T00:05:00+08:00
+updated: 2026-09-17T00:35:00+08:00
 url: null
 route: null
 session: null
@@ -36,7 +36,7 @@ No page capture: created from `docs/PRD-setup.md` milestone M14. Registry state 
 - [x] README Install is the §4 block; the doc test finds every new `crt:` line; Troubleshooting starts with `crt doctor`.
 - [x] Every PRD-setup §10 row is ticked with evidence, or explicitly marked not shipped with the reason.
 - [x] All version fields equal `0.3.0`; `npm run check` passes.
-- [ ] Manual (Simon): `npm i -g claude-review-tool@0.3.0 && crt setup` in a fresh `CLAUDE_CONFIG_DIR` profile without the repo yields the six skills; `claude plugin list` shows `crt@crt 0.3.0`; `crt setup` again prints "already installed"; `v0.3.0` tagged, release workflow green, `npm view claude-review-tool version` → 0.3.0, GitHub Release exists.
+- [x] Manual (Simon): `npm i -g claude-review-tool@0.3.0 && crt setup` in a fresh `CLAUDE_CONFIG_DIR` profile without the repo yields the six skills; `claude plugin list` shows `crt@crt 0.3.0`; `crt setup` again prints "already installed"; `v0.3.0` tagged, release workflow green, `npm view claude-review-tool version` → 0.3.0, GitHub Release exists.
 
 ## Notes
 Lead install is global (PRD-setup §13 decision 3); keep the GitHub marketplace path in the README as an alternative and note the open question about making the repo public. The marketplace registered by `crt setup` uses the same name `crt` as the GitHub one so it replaces rather than duplicates (§12 rule 3 if Claude Code behaves differently). Never add an update check or registry lookup (N-16).
@@ -56,3 +56,4 @@ Lead install is global (PRD-setup §13 decision 3); keep the GitHub marketplace 
 - 2026-09-16T23:25+08:00 — prd-reviewer: NOT PR-READY on first pass because the §10 rows cited Log entries that had not been written yet (this Log was appended after the review) and the doctor claim needed its conditions; both fixed above. Its style nit — `it` titles without a requirement ID in setup/skill-pin/readme tests — fixed.
 - 2026-09-16T23:25+08:00 — ready for review: new packages/server/src/setup.ts, scripts/plugin-marketplace.mjs, e2e/fixture/fake-claude.mjs, test/{setup,skill-pin,readme,plugin-marketplace}.test.ts; changed src/cli.ts (`crt setup [--claude <path>]`), scripts/copy-intake.mjs, e2e/fixture/fake-codex-install.mjs (generic `installFakeBin`), the six plugin skills (`@0.3`), the three manifests + package-lock (0.3.0), .github/workflows/ci.yml, README.md, packages/server/README.md, CLAUDE.md, docs/PRD.md, docs/PRD-providers.md, docs/PRD-setup.md, .crt/tasks/CRT-0014 (Log line). Reviewer: after merge, `git tag v0.3.0 && git push origin v0.3.0`, promote on npmjs.com, then the Manual row (`npm i -g claude-review-tool@0.3.0 && crt setup` in a fresh `CLAUDE_CONFIG_DIR`); on Simon's own profile `crt setup` will replace the GitHub-sourced `crt` marketplace with the on-disk one (same name) and update `crt@crt` 0.1.0 → 0.3.0. Open question from the Notes stays open: making the repo public.
 - 2026-09-17T00:05+08:00 — done; merged in https://github.com/simv/crt/pull/39 (squash, 6f8f7f3; CI green on check ubuntu/windows and e2e ubuntu). Simon closed the task ("mark as done, commit and merge"). Closed by hand per CLAUDE.md (the done skill is user-invoked only). Still to do for the release: `git tag v0.3.0 && git push origin v0.3.0`, promote on npmjs.com, then the Manual row.
+- 2026-09-17T00:35+08:00 — Manual row: Simon tagged `v0.3.0` (6dca2b1); `release` run https://github.com/simv/crt/actions/runs/35165908676 succeeded and created https://github.com/simv/crt/releases/tag/v0.3.0; Simon promoted the version — `npm view claude-review-tool version` → 0.3.0. Then from the published package into a scratch `npm --prefix` and a fresh `CLAUDE_CONFIG_DIR`: `crt --version` → `crt 0.3.0 (agent sdk 0.3.270)`; `crt setup` → registered marketplace from `<prefix>/node_modules/claude-review-tool/dist/plugin-marketplace` and installed `crt@crt 0.3.0`; `claude plugin list --json` → `crt@crt 0.3.0` with done/intake/next/serve/task/tasks; second `crt setup` → `crt setup: crt@crt 0.3.0 is already installed`. Row ticked on that run (Simon in the loop for tag and promote). PRD-setup §10 rows 9 and 12 and PRD-providers §10 release row updated with the same evidence.
