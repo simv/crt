@@ -1,10 +1,10 @@
 ---
 id: CRT-0014
 title: M11 — Providers docs, v0.2 definition of done, release 0.2.0
-status: backlog
+status: done
 priority: normal
 created: 2026-09-15T17:30:00+08:00
-updated: 2026-09-15T17:30:00+08:00
+updated: 2026-09-17T00:20:00+08:00
 url: null
 route: null
 session: null
@@ -40,3 +40,4 @@ No page capture: created from PRD-providers milestone M11.
 ## Log
 - 2026-09-15T17:30+08:00 — created from PRD-providers milestone M11 by the planning session that wrote docs/PRD-providers.md.
 - 2026-09-16T23:05+08:00 — folded into CRT-0018 (PRD-setup F-89): `0.2.0` was never released, so M14 carries this task's Asks — README Providers section (F-43 order list, `crt providers` sample, every N-7 line, F-64 first-paragraph line, N-12 telemetry, F-48 minimum-version note, N-13 resume note; doc test `test/readme.test.ts`), `docs/PRD.md` §9 "v0.2:" annotations, `docs/PRD-providers.md` §10 ticked with evidence (M10 row marked not shipped), and one release `0.3.0` (no `v0.2.0` tag). Written by session 21c8bea3-fd0d-49d4-97aa-734d23658916 per the CRT-0018 Ask; status left for Simon to close alongside CRT-0018.
+- 2026-09-17T00:20+08:00 — done; merged in https://github.com/simv/crt/pull/39. Closed from `backlog` (never claimed on its own): every Ask shipped inside CRT-0018 per PRD-setup F-89 — README Providers section, PRD.md v0.2 notes, PRD-providers §10 evidence — as one release, 0.3.0; DoD rows 1–3 are covered there, row 4 (0.2.0 fields) and the Manual row (v0.2.0 tag) are superseded by 0.3.0 and its tag, which is still pending.
