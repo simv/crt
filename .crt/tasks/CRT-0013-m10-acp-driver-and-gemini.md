@@ -4,7 +4,7 @@ title: M10 — Generic Agent Client Protocol driver and Gemini profile (Should)
 status: backlog
 priority: low
 created: 2026-09-15T17:30:00+08:00
-updated: 2026-09-15T17:30:00+08:00
+updated: 2026-09-17T01:10:00+08:00
 url: null
 route: null
 session: null
@@ -38,5 +38,8 @@ No page capture: created from PRD-providers milestone M10.
 ## Notes
 Do not use `session/load`. If Gemini's tested version does not advertise image support in `promptCapabilities`, ship `images: none` and let the first message say so (F-50).
 
+**Deferred, not scheduled (Simon, 2026-09-17).** v0.2 and v0.3 shipped without M10 (PRD-providers §6 allows it; §10's M10 row says "not shipped"; the README claims Codex only). Nothing here has been started: `providers/` holds `claude`, `codex`, `stub`; the only ACP traces are the enum comment in `providers/types.ts` and the deliberate rejection of `provider: { kind: "acp" }` in `session.ts`. Before `/crt:next` can take this task it needs a spike the way M6 preceded the Codex driver: install `@google/gemini-cli`, log in, and record the real `gemini --experimental-acp` behaviour that the Ask defers to "the tested version" — `initialize` capabilities, `session/new` with a stdio MCP server, `session/update` shapes, `session/request_permission`, resume and launch-env facts, image support — as `test/providers/fixtures/acp/*.jsonl` plus `docs/spikes/gemini-acp-<date>.md`. Without that a worker blocks on the unknowns and on the Manual row (Gemini is not installed on the dev machine). Revisit when a third agent is actually wanted; until then leave `backlog`, priority `low`.
+
 ## Log
 - 2026-09-15T17:30+08:00 — created from PRD-providers milestone M10 by the planning session that wrote docs/PRD-providers.md.
+- 2026-09-17T01:10+08:00 — reviewed after the v0.3.0 release: nothing started, all five Ask items and five DoD rows open; deferred with the note above (spike before build). Session 21c8bea3-fd0d-49d4-97aa-734d23658916.
