@@ -1,10 +1,10 @@
 ---
 id: CRT-0019
 title: M15 — Embedded server mode (default), crt proxy, the loader and its e2e
-status: backlog
+status: in_progress
 priority: high
 created: 2026-09-17T08:54:00+08:00
-updated: 2026-09-17T08:54:00+08:00
+updated: 2026-09-17T09:30:00+08:00
 url: null
 route: null
 session: null
@@ -45,3 +45,4 @@ Do not refactor the proxy path beyond what mode selection needs (N-21). The load
 
 ## Log
 - 2026-09-17T08:54+08:00 — created from docs/PRD-embedded.md milestone M15 by the planning session that wrote it.
+- 2026-09-17T09:30+08:00 — claimed by /crt:next, session 3425f82e-1856-467e-a8da-b6e444ab104e, branch crt/CRT-0019-m15-embedded-server-mode-and-loader
