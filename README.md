@@ -255,7 +255,7 @@ Since v0.4 this is the default, productised as **embedded mode** (`crt`): your a
 <script src="http://localhost:4400/__crt/overlay.js" defer></script>
 ```
 
-Either way, keep browsing `http://localhost:3000`: the overlay reads the CRT origin from its own script tag and talks to the API cross-origin. The server allows this only for `localhost`, `*.localhost`, `127.0.0.1` and `[::1]` origins (any port, http or https); every other origin gets no CORS headers and its preflight is refused. Console errors and failed requests fired before the loader runs are missed — put the tag as early in `<head>` as you can. `crt proxy` is the v0.3 experience for an app that cannot be touched: browse `http://localhost:4400` and CRT injects the overlay (and the early hook) into every HTML page.
+Either way, keep browsing `http://localhost:3000`: the overlay reads the CRT origin from its own script tag and talks to the API cross-origin. The server allows this only for `localhost`, `*.localhost`, `127.0.0.1` and `[::1]` origins (any port, http or https); every other origin gets no CORS headers and its preflight is refused. The loader is as strict in the other direction: it loads the overlay only from a CRT origin on one of those hosts — a non-loopback `origin` option or script source is ignored and `http://localhost:4400` is used instead — so nothing from CRT ever reaches, or comes from, another machine. Console errors and failed requests fired before the loader runs are missed — put the tag as early in `<head>` as you can. `crt proxy` is the v0.3 experience for an app that cannot be touched: browse `http://localhost:4400` and CRT injects the overlay (and the early hook) into every HTML page.
 
 ## How it works
 

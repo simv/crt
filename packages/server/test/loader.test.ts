@@ -61,15 +61,29 @@ describe("loader — pure parts (F-96)", () => {
   it("step 4: options.origin, else options.port, else the script's own origin, else http://localhost:4400 (F-96)", () => {
     const page = "http://localhost:3000/app";
     expect(resolveOrigin({ origin: "http://127.0.0.1:4405/" }, "http://localhost:4400/__crt/loader.js", page)).toBe("http://127.0.0.1:4405");
+    expect(resolveOrigin({ origin: "https://app.localhost:4405/x" }, null, page)).toBe("https://app.localhost:4405");
     expect(resolveOrigin({ origin: "nonsense", port: 4406 }, null, page)).toBe("http://localhost:4406");
     expect(resolveOrigin({ port: 4406 }, "http://localhost:4400/__crt/loader.js", page)).toBe("http://localhost:4406");
     expect(resolveOrigin({ port: 0 }, "http://localhost:4400/__crt/loader.js", page)).toBe("http://localhost:4400");
     expect(resolveOrigin(undefined, "http://localhost:4401/__crt/loader.js", page)).toBe("http://localhost:4401");
+    expect(resolveOrigin(undefined, "http://[::1]:4402/__crt/loader.js", page)).toBe("http://[::1]:4402");
     // A same-origin src (a bundled loader served by the app itself) says nothing about where CRT is.
     expect(resolveOrigin(undefined, "http://localhost:3000/assets/main.js", page)).toBe(DEFAULT_ORIGIN);
+    expect(resolveOrigin(undefined, "/assets/main.js", page)).toBe(DEFAULT_ORIGIN);
     expect(resolveOrigin(undefined, null, page)).toBe(DEFAULT_ORIGIN);
     expect(resolveOrigin({}, "", page)).toBe(DEFAULT_ORIGIN);
     expect(DEFAULT_ORIGIN).toBe("http://localhost:4400");
+  });
+
+  it("step 4 accepts loopback origins only: a non-loopback option or script src is skipped, never used (N-20, PRD-embedded Goal 6)", () => {
+    const page = "http://localhost:3000/app";
+    for (const bad of ["http://evil.example:4400", "https://crt.example", "http://localhost.evil.example:4400", "http://10.0.0.5:4400", "ftp://localhost:4400", "file:///x"]) {
+      expect(resolveOrigin({ origin: bad }, null, page), bad).toBe(DEFAULT_ORIGIN);
+      expect(resolveOrigin({ origin: bad, port: 4407 }, null, page), bad).toBe("http://localhost:4407");
+      expect(resolveOrigin(undefined, `${bad}/__crt/loader.js`, page), bad).toBe(DEFAULT_ORIGIN);
+    }
+    // Even on a loopback page, a loader served from elsewhere does not redirect the overlay there.
+    expect(resolveOrigin(undefined, "https://cdn.example/loader.js", "http://127.0.0.1:5173/")).toBe(DEFAULT_ORIGIN);
   });
 
   it("the pill names the port and the fix, step 6 (F-96)", () => {

@@ -48,25 +48,31 @@ export function isLoopbackHost(hostname: string): boolean {
   return h === "localhost" || h.endsWith(".localhost") || h === "127.0.0.1" || h === "[::1]" || h === "::1";
 }
 
-/** F-96 step 4: `options.origin`, else `http://localhost:<options.port>`, else the loader script's own origin, else 4400. */
+/**
+ * F-96 step 4: `options.origin`, else `http://localhost:<options.port>`, else the loader script's
+ * own origin, else 4400. N-20 / PRD-embedded Goal 6: every candidate must be a loopback origin
+ * (http or https on the F-6 hosts) — anything else is skipped, so the loader can never be pointed
+ * at a machine other than this one, whatever an app passes.
+ */
 export function resolveOrigin(options: MountOptions | undefined, scriptSrc: string | null, pageHref: string): string {
-  if (options?.origin) {
-    try {
-      return new URL(options.origin).origin;
-    } catch {
-      // not a URL: fall through to the next rule
-    }
-  }
+  const fromOption = loopbackOrigin(options?.origin, undefined); // absolute only: "nonsense" must not resolve against the page
+  if (fromOption) return fromOption;
   if (options?.port && Number.isInteger(options.port) && options.port > 0 && options.port <= 65535) return `http://localhost:${options.port}`;
-  if (scriptSrc) {
-    try {
-      const origin = new URL(scriptSrc, pageHref).origin;
-      if (origin !== "null" && origin !== new URL(pageHref).origin) return origin;
-    } catch {
-      // a relative or odd src: fall through
-    }
-  }
+  const fromScript = loopbackOrigin(scriptSrc, pageHref);
+  if (fromScript && fromScript !== loopbackOrigin(pageHref, pageHref)) return fromScript; // the app's own bundle says nothing about where CRT is
   return DEFAULT_ORIGIN;
+}
+
+/** The origin of `value` (resolved against `base`) when it is http(s) on a loopback host; null otherwise. */
+function loopbackOrigin(value: string | null | undefined, base: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value, base);
+    if ((url.protocol === "http:" || url.protocol === "https:") && isLoopbackHost(url.hostname)) return url.origin;
+  } catch {
+    // not a URL
+  }
+  return null;
 }
 
 function portOf(origin: string): string {
@@ -100,7 +106,7 @@ export function mountCrt(options?: MountOptions): CrtLoader | null {
 
   const own = document.currentScript;
   const origin = resolveOrigin(options, own instanceof HTMLScriptElement && own.src ? own.src : null, location.href); // step 4
-  const src = origin + OVERLAY_PATH;
+  const src = new URL(OVERLAY_PATH, origin).href; // a loopback origin by construction (resolveOrigin), never a bare string
 
   let script: HTMLScriptElement | null = null;
   let pill: PillHandle | null = null;
