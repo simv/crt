@@ -35,5 +35,9 @@ for (const name of ["log", "error"]) {
     original(...args);
   };
 }
-process.argv = [process.argv[0], join(here, "..", "..", "dist", "cli.js"), "serve", ...process.argv.slice(2)];
+// PRD-embedded F-92 / §13 decision 10: the primary e2e servers stay in proxy mode until M18 flips
+// them; playwright.config.ts passes `--proxy`, which becomes the `crt proxy` command (≡ `crt serve --mode proxy`).
+const args = process.argv.slice(2);
+const proxy = args.includes("--proxy");
+process.argv = [process.argv[0], join(here, "..", "..", "dist", "cli.js"), proxy ? "proxy" : "serve", ...args.filter((a) => a !== "--proxy")];
 await import("../../dist/cli.js");

@@ -6,6 +6,7 @@
  */
 import { request } from "node:http";
 import { createServer } from "node:net";
+import { isMode } from "./init.js";
 import { SHUTDOWN_PATH } from "./proxy.js";
 import type { CrtHealth } from "./start.js";
 
@@ -47,13 +48,15 @@ export function parseHealth(body: string): CrtHealth | null {
   }
   if (!parsed || typeof parsed !== "object") return null;
   const h = parsed as Record<string, unknown>;
-  if (h.ok !== true || typeof h.target !== "string" || typeof h.projectRoot !== "string") return null;
+  // `target` is a string, or null from an embedded server that found no app (PRD-embedded F-93).
+  if (h.ok !== true || !(typeof h.target === "string" || h.target === null) || typeof h.projectRoot !== "string") return null;
   return {
     version: typeof h.version === "string" ? h.version : null,
     startedAt: typeof h.startedAt === "string" ? h.startedAt : null,
     target: h.target,
     projectRoot: h.projectRoot,
     sessions: typeof h.sessions === "number" ? h.sessions : 0,
+    mode: isMode(h.mode) ? h.mode : null,
   };
 }
 

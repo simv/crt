@@ -17,6 +17,13 @@
 //                       image fired at load (M2 capture spec, F-21)
 //   GET  /script-tag    the page from / but loading the overlay from ?crt=<origin> with a script
 //                       tag instead of through the proxy (F-6)
+//   GET  /embedded      the /app playground in embedded mode (PRD-embedded F-95, F-96): a
+//                       console.error fired before the loader tag (missed by design — F-95), then
+//                       <script src="<?crt=origin>/__crt/loader.js"> first in <head>, then a
+//                       console.error fired before the overlay executes (captured by the loader's hooks)
+//   GET  /embedded-bundled  the /app playground with <script src="/embedded-bundle.js"> first in
+//                       <head>: the ESM loader bundled by the embedded spec (Playwright fulfils that
+//                       URL), so the pill exists without a server (F-96 step 6)
 //   GET  /react         React 18 dev build (UMD from node_modules) rendering a small component tree
 //                       with __source set, for the fiber-walk spec (F-18)
 //   GET  /vendor/*.js   react.development.js / react-dom.development.js
@@ -217,6 +224,17 @@ export function startFixture(opts = {}) {
         const tag = `<script src="${crt}/__crt/overlay.js" defer></script>`;
         return html(PAGE.replace("</head>", `${tag}</head>`));
       }
+      case "/embedded": {
+        const crt = new URL(req.url ?? "/", "http://x").searchParams.get("crt") ?? "";
+        const head = [
+          `<script>console.error("fixture: before the loader");</script>`,
+          `<script src="${crt}/__crt/loader.js"></script>`,
+          `<script>console.error("fixture: after the loader, before the overlay");</script>`,
+        ].join("\n  ");
+        return html(APP_PAGE.replace("<head>\n", `<head>\n  ${head}\n`));
+      }
+      case "/embedded-bundled":
+        return html(APP_PAGE.replace("<head>\n", `<head>\n  <script src="/embedded-bundle.js"></script>\n`));
       case "/csp":
         return html(PAGE, { "content-security-policy": "default-src 'none'; script-src 'nonce-abc'" });
       case "/csp-strict":

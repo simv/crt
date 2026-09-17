@@ -1,5 +1,18 @@
 /**
- * Reverse proxy (PRD F-2, F-3, F-4, F-6).
+ * The CRT server (PRD F-2, F-3, F-4, F-6; PRD-embedded F-91…F-94): the `/__crt/*` routes in
+ * both modes, plus what happens to every other request.
+ *
+ * Embedded mode (`mode: "embedded"`, the v0.4 default, F-91): the server proxies nothing.
+ *   • Every request outside /__crt/ is answered 200 text/html with the landing page (`landingPage`):
+ *     the version and project, the app link when known, the `crt init` / `crt proxy` sentence, no scripts.
+ *   • GET /__crt/loader.js serves dist/loader.js (F-94, F-96) with the F-6 CORS rules and no-store;
+ *     health's `overlay.loader` counts it.
+ *   • F-94: one 15 s timer per server, armed by `browserOpened(url)` (serve.ts calls it after opening
+ *     the app); when it fires with neither the loader nor the overlay requested, the terminal says so once.
+ *   • The F-75 "overlay loaded" line names the requesting page's origin (Origin, else Referer).
+ *   • WebSocket upgrades are refused (nothing to forward to).
+ *
+ * Proxy mode (`mode: "proxy"`, `crt proxy`, F-92) — unchanged from v0.3 (N-21):
  *   • Everything not under /__crt/ is forwarded to the target with Host rewritten and
  *     X-Forwarded-* added; bodies stream both ways.
  *   • text/html responses are buffered, decompressed, injected with the overlay tag,
@@ -45,6 +58,7 @@ import type { Duplex } from "node:stream";
 import { connect as tlsConnect } from "node:tls";
 import { CaptureValidationError, writeCapture } from "./captures.js";
 import { applyCors, json, readJson } from "./http.js";
+import type { CrtMode } from "./init.js";
 import { decodeBody, EARLY_PATH, filterAcceptEncoding, injectOverlayTag, isHtml, OVERLAY_PATH, relaxCsp } from "./inject.js";
 import { handleProviderRoute } from "./provider-routes.js";
 import { loginField, type ProviderRegistry } from "./session.js";
@@ -52,8 +66,13 @@ import { handleInternalRoute, handleSessionRoute, INTERNAL_PREFIX, SESSIONS_PATH
 import { countTaskFiles } from "./tasks.js";
 
 export interface ProxyOptions {
-  /** Target origin, e.g. `http://localhost:3000`. */
-  target: string;
+  /**
+   * The app origin, e.g. `http://localhost:3000`: what proxy mode forwards to; what embedded mode
+   * opens and links to from the landing page (null when none is known, F-91).
+   */
+  target: string | null;
+  /** PRD-embedded F-91/F-92; defaults to `proxy` (which needs a target). */
+  mode?: CrtMode;
   /** Reported by /__crt/health; every agent session CRT starts will use it as cwd. */
   projectRoot: string;
   /** Absolute path of the built overlay bundle (dist/overlay.js). */
@@ -73,14 +92,18 @@ export interface ProxyOptions {
   log?: (line: string) => void;
   /** F-80: how long the browser gets to fetch the overlay after an injected page (tests shorten it). */
   overlayTimeoutMs?: number;
+  /** F-94: how long the opened app gets to request the loader or the overlay (tests shorten it). */
+  loaderTimeoutMs?: number;
 }
 
-/** F-78/F-80: what health's `overlay` reports. */
+/** F-78/F-80/F-93: what health's `overlay` reports. */
 export interface OverlayStats {
   /** HTML responses the proxy injected the overlay tag into. */
   injected: number;
   /** Requests for /__crt/overlay.js. */
   fetched: number;
+  /** Requests for /__crt/loader.js (F-93). */
+  loader: number;
   /** Content-Type of the last response to a document request (`sec-fetch-dest: document`); null before one. */
   lastContentType: string | null;
   /** The unrelaxable CSP the last injected page sent (F-80 Should), null when none was seen. */
@@ -89,11 +112,50 @@ export interface OverlayStats {
 
 /** F-80: the wait between an injected page and the "never fetched" line. */
 export const OVERLAY_TIMEOUT_MS = 10_000;
+/** F-94: the wait between CRT opening the app and the "never loaded the CRT loader" line. */
+export const LOADER_TIMEOUT_MS = 15_000;
 
 export const SHUTDOWN_PATH = "/__crt/internal/shutdown";
 
 export const CRT_PREFIX = "/__crt";
 export const CAPTURES_PATH = `${CRT_PREFIX}/captures`;
+/** F-94/F-96: the IIFE loader, `dist/loader.js`, next to the overlay bundle. */
+export const LOADER_PATH = `${CRT_PREFIX}/loader.js`;
+
+/** The server plus the one call embedded mode needs from serve.ts (F-94). */
+export interface CrtServer extends Server {
+  /** F-94: CRT just opened the browser on `url`; start the "never loaded the loader" timer (embedded mode only). */
+  browserOpened(url: string): void;
+}
+
+/**
+ * F-91: the page every non-/__crt/ request gets in embedded mode. Plain words, no scripts:
+ * what this is, the app link when known, and the two ways forward.
+ */
+export function landingPage(o: { version: string | null; projectRoot: string; app: string | null }): string {
+  const title = `CRT${o.version ? ` ${o.version}` : ""}`;
+  const lines = [
+    "<!doctype html>",
+    '<html lang="en">',
+    "<head>",
+    '  <meta charset="utf-8">',
+    `  <title>${escapeHtml(title)}</title>`,
+    "  <style>body { margin: 40px auto; max-width: 640px; font: 15px/1.5 system-ui, sans-serif; color: #222; } code { background: #f3f3f3; padding: 1px 4px; border-radius: 3px; }</style>",
+    "</head>",
+    "<body>",
+    `  <h1>${escapeHtml(title)} is running for ${escapeHtml(o.projectRoot)}. This is the CRT server, not your app.</h1>`,
+    ...(o.app ? [`  <p><a href="${escapeHtml(o.app)}">Open ${escapeHtml(o.app)}</a> — the CRT button appears there once your app includes the CRT integration</p>`] : []),
+    "  <p>Run <code>crt init</code> for the one-line snippet for your framework, or <code>crt proxy</code> to proxy your app instead.</p>",
+    "</body>",
+    "</html>",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
 /** A capture is a JSON document with a few base64 PNGs; 64 MB is far beyond any real page. */
 const MAX_CAPTURE_BODY = 64 * 1024 * 1024;
 
@@ -110,23 +172,16 @@ const HOP_BY_HOP = new Set([
   "upgrade",
 ]);
 
-export function createProxyServer(opts: ProxyOptions): Server {
-  const target = new URL(opts.target);
-  const secure = target.protocol === "https:";
-  const targetPort = Number(target.port) || (secure ? 443 : 80);
-  const agent = secure
-    ? new HttpsAgent({ keepAlive: true, rejectUnauthorized: false })
-    : new HttpAgent({ keepAlive: true });
-  const request = secure ? httpsRequest : httpRequest;
-  /** Every way a dev server might spell its own origin in a Location header. */
-  const targetOrigins = new Set(
-    ["localhost", "127.0.0.1", "[::1]", "0.0.0.0", target.hostname].map((h) => `${target.protocol}//${h}:${targetPort}`),
-  );
+export function createProxyServer(opts: ProxyOptions): CrtServer {
+  const mode: CrtMode = opts.mode ?? "proxy";
+  if (mode === "proxy" && opts.target === null) throw new Error("proxy mode needs a target");
   const state: RouteState = {
-    overlay: { injected: 0, fetched: 0, lastContentType: null, cspWarning: null },
+    mode,
+    overlay: { injected: 0, fetched: 0, loader: 0, lastContentType: null, cspWarning: null },
     lastInjected: "/",
     timer: null,
-    warned: { missing: false, nonHtml: false, csp: false },
+    loaderTimer: null,
+    warned: { missing: false, nonHtml: false, csp: false, loader: false },
   };
   const log = opts.log ?? (() => undefined);
   const overlayTimeout = opts.overlayTimeoutMs ?? OVERLAY_TIMEOUT_MS;
@@ -143,6 +198,21 @@ export function createProxyServer(opts: ProxyOptions): Server {
     }, overlayTimeout);
     state.timer.unref();
   };
+  const loaderTimeout = opts.loaderTimeoutMs ?? LOADER_TIMEOUT_MS;
+  /** F-94: CRT opened the app; if the page asks for neither the loader nor the overlay in time, say so once per server. */
+  const browserOpened = (url: string) => {
+    if (mode !== "embedded") return;
+    if (state.loaderTimer) clearTimeout(state.loaderTimer);
+    state.loaderTimer = setTimeout(() => {
+      state.loaderTimer = null;
+      if (state.overlay.loader > 0 || state.overlay.fetched > 0 || state.warned.loader) return;
+      state.warned.loader = true;
+      log(`crt: opened ${url} but the page never loaded the CRT loader — add the integration (\`crt init\` prints the snippet, /crt:init applies it), or run \`crt proxy\``);
+    }, loaderTimeout);
+    state.loaderTimer.unref();
+  };
+
+  const proxy = mode === "proxy" ? proxyHandlers(new URL(opts.target!), opts, state, log, armOverlayTimer) : null;
 
   const server = createServer((req, res) => {
     const url = req.url ?? "/";
@@ -150,6 +220,54 @@ export function createProxyServer(opts: ProxyOptions): Server {
       void handleCrtRoute(url, req, res, opts, state);
       return;
     }
+    if (!proxy) {
+      // F-91: embedded mode proxies nothing; every other request gets the landing page.
+      const page = landingPage({ version: opts.version ?? null, projectRoot: opts.projectRoot, app: opts.target });
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-length": String(Buffer.byteLength(page)), "cache-control": "no-store" });
+      res.end(req.method === "HEAD" ? undefined : page);
+      return;
+    }
+    proxy.request(req, res);
+  });
+
+  server.on("upgrade", (req, socket, head) => {
+    if (!proxy) {
+      socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+      return;
+    }
+    proxy.upgrade(req, socket, head);
+  });
+  server.on("close", () => {
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = null;
+    if (state.loaderTimer) clearTimeout(state.loaderTimer);
+    state.loaderTimer = null;
+  });
+
+  return Object.assign(server, { browserOpened });
+}
+
+/** Proxy mode (F-2, F-3, F-4, F-80), verbatim from v0.3 (N-21): the request and upgrade handlers for one target. */
+function proxyHandlers(
+  target: URL,
+  opts: ProxyOptions,
+  state: RouteState,
+  log: (line: string) => void,
+  armOverlayTimer: () => void,
+): { request(req: IncomingMessage, res: ServerResponse): void; upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void } {
+  const secure = target.protocol === "https:";
+  const targetPort = Number(target.port) || (secure ? 443 : 80);
+  const agent = secure
+    ? new HttpsAgent({ keepAlive: true, rejectUnauthorized: false })
+    : new HttpAgent({ keepAlive: true });
+  const request = secure ? httpsRequest : httpRequest;
+  /** Every way a dev server might spell its own origin in a Location header. */
+  const targetOrigins = new Set(
+    ["localhost", "127.0.0.1", "[::1]", "0.0.0.0", target.hostname].map((h) => `${target.protocol}//${h}:${targetPort}`),
+  );
+
+  const onRequest = (req: IncomingMessage, res: ServerResponse) => {
+    const url = req.url ?? "/";
     const crtOrigin = `http://${req.headers.host ?? "localhost"}`;
 
     const headers: OutgoingHttpHeaders = {};
@@ -234,9 +352,9 @@ export function createProxyServer(opts: ProxyOptions): Server {
       if (!upstreamDone) upstream.destroy();
     });
     req.pipe(upstream);
-  });
+  };
 
-  server.on("upgrade", (req, socket, head) => {
+  const onUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const up = secure
       ? tlsConnect({ host: target.hostname, port: targetPort, servername: target.hostname, rejectUnauthorized: false })
       : netConnect({ host: target.hostname, port: targetPort });
@@ -247,13 +365,9 @@ export function createProxyServer(opts: ProxyOptions): Server {
       socket.pipe(up);
     });
     wireClose(up, socket);
-  });
-  server.on("close", () => {
-    if (state.timer) clearTimeout(state.timer);
-    state.timer = null;
-  });
+  };
 
-  return server;
+  return { request: onRequest, upgrade: onUpgrade };
 }
 
 /** The media type of a Content-Type header, without parameters; null when absent. */
@@ -327,13 +441,16 @@ function responseHeaders(
 
 /** Per-server counters behind the health payload (one server = one browser session, F-80). */
 interface RouteState {
+  mode: CrtMode;
   overlay: OverlayStats;
   /** The last page the overlay tag went into, for the "overlay loaded" and F-80 lines. */
   lastInjected: string;
   /** F-80: the one "never fetched" timer, armed by an injected page. */
   timer: NodeJS.Timeout | null;
-  /** F-80: each line prints once per server. */
-  warned: { missing: boolean; nonHtml: boolean; csp: boolean };
+  /** F-94: the one "never loaded the loader" timer, armed when CRT opens the app. */
+  loaderTimer: NodeJS.Timeout | null;
+  /** F-80/F-94: each line prints once per server. */
+  warned: { missing: boolean; nonHtml: boolean; csp: boolean; loader: boolean };
 }
 
 async function handleCrtRoute(
@@ -382,16 +499,21 @@ async function handleCrtRoute(
     res.end();
     return;
   }
-  if (path === OVERLAY_PATH || path === EARLY_PATH) {
+  if (path === OVERLAY_PATH || path === EARLY_PATH || path === LOADER_PATH) {
     if (path === OVERLAY_PATH && req.method !== "HEAD") {
-      // F-75: the first fetch proves the injected tag reached a browser (F-80 reports the miss).
-      if (state.overlay.fetched === 0) opts.log?.(`crt: overlay loaded in the browser (GET ${state.lastInjected})`);
+      // F-75: the first fetch proves the tag reached a browser (F-80 / F-94 report the miss). Embedded
+      // mode names the page's origin, since the tag came from the app, not from an injected page.
+      if (state.overlay.fetched === 0) {
+        opts.log?.(state.mode === "embedded" ? `crt: overlay loaded in the browser (from ${requestingOrigin(req)})` : `crt: overlay loaded in the browser (GET ${state.lastInjected})`);
+      }
       state.overlay.fetched++;
       if (state.timer) clearTimeout(state.timer); // F-80: the browser did ask for it
       state.timer = null;
     }
+    if (path === LOADER_PATH && req.method !== "HEAD") state.overlay.loader++; // F-93
+    const file = path === OVERLAY_PATH ? opts.overlayPath : siblingOf(opts.overlayPath, path === EARLY_PATH ? "early.js" : "loader.js");
     try {
-      const js = await readFile(path === OVERLAY_PATH ? opts.overlayPath : earlyPath(opts.overlayPath));
+      const js = await readFile(file);
       res.writeHead(200, {
         "content-type": "text/javascript; charset=utf-8",
         "content-length": String(js.length),
@@ -400,7 +522,7 @@ async function handleCrtRoute(
       res.end(req.method === "HEAD" ? undefined : js);
     } catch {
       res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
-      res.end(`CRT: overlay bundle missing at ${opts.overlayPath} — run \`npm run build\``);
+      res.end(`CRT: overlay bundle missing at ${file} — run \`npm run build\``);
     }
     return;
   }
@@ -450,10 +572,11 @@ async function handleCrtRoute(
 }
 
 /**
- * F-78: `{ ok, version, startedAt, target, projectRoot, tasksDir, tasks, provider, login, sessions, overlay }`
- * with `overlay` the F-80 object `{ injected, fetched, lastContentType, cspWarning }`.
- * `provider` is what a new session would run on right now (F-43 with no request value) and
- * `login` its F-74 state; both are null / "unchecked" without a registry.
+ * F-78/F-93: `{ ok, version, startedAt, mode, app, target, projectRoot, tasksDir, tasks, provider, login, sessions, overlay }`
+ * with `overlay` the F-80 object `{ injected, fetched, loader, lastContentType, cspWarning }`.
+ * `app` is the app URL (null when embedded mode found none) and `target` equals it for the
+ * skills and the e2e assertions. `provider` is what a new session would run on right now (F-43
+ * with no request value) and `login` its F-74 state; both are null / "unchecked" without a registry.
  */
 export function healthPayload(opts: ProxyOptions, overlay: OverlayStats): Record<string, unknown> {
   const resolution = opts.providers?.resolve(null) ?? null;
@@ -461,6 +584,8 @@ export function healthPayload(opts: ProxyOptions, overlay: OverlayStats): Record
     ok: true,
     version: opts.version ?? null,
     startedAt: opts.startedAt ?? null,
+    mode: opts.mode ?? "proxy",
+    app: opts.target,
     target: opts.target,
     projectRoot: opts.projectRoot,
     tasksDir: opts.tasksDir ?? null,
@@ -472,7 +597,22 @@ export function healthPayload(opts: ProxyOptions, overlay: OverlayStats): Record
   };
 }
 
-/** early.js sits next to overlay.js in dist/. */
-function earlyPath(overlayPath: string): string {
-  return join(dirname(overlayPath), "early.js");
+/** early.js and loader.js sit next to overlay.js in dist/. */
+function siblingOf(overlayPath: string, name: string): string {
+  return join(dirname(overlayPath), name);
+}
+
+/** F-94: the origin of the page that requested a bundle — `Origin`, else `Referer`'s origin, else "an unknown origin". */
+export function requestingOrigin(req: Pick<IncomingMessage, "headers">): string {
+  const origin = req.headers.origin;
+  if (typeof origin === "string" && origin && origin !== "null") return origin;
+  const referer = req.headers.referer;
+  if (typeof referer === "string") {
+    try {
+      return new URL(referer).origin;
+    } catch {
+      // fall through
+    }
+  }
+  return "an unknown origin";
 }

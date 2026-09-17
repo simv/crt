@@ -1,8 +1,8 @@
 /**
- * CRT overlay entry point. Injected by the CRT proxy as <script src="/__crt/overlay.js" defer>,
- * or loaded by the app itself from `http://localhost:4400/__crt/overlay.js` (script-tag mode,
- * F-6; see base.ts). Everything renders inside a Shadow DOM host so host-page CSS cannot leak in
- * or out (PRD §5.1).
+ * CRT overlay entry point. Loaded by the CRT loader on the app's own origin from
+ * `http://localhost:4400/__crt/overlay.js` (embedded mode, PRD-embedded F-95/F-96; see base.ts),
+ * or injected by the CRT proxy as <script src="/__crt/overlay.js" defer> (proxy mode, F-2).
+ * Everything renders inside a Shadow DOM host so host-page CSS cannot leak in or out (PRD §5.1).
  *
  * Boot order matters: console/error and failed-request hooks first (F-20, F-21; normally already
  * installed by early.js), then the UI. `window.__crt` is the only global (CLAUDE.md): a
@@ -11,7 +11,7 @@
 import type { CaptureBundle } from "../../server/src/capture-schema.js";
 import type { ProvidersPayload, SessionInfo } from "../../server/src/session-events.js";
 import { type Annotation, AnnotationStore } from "./annotations.js";
-import { CRT_ORIGIN, SCRIPT_TAG_MODE } from "./base.js";
+import { CRT_ORIGIN, EMBEDDED_MODE } from "./base.js";
 import { capture, type SendResult } from "./capture.js";
 import { ChatPanel, type ChatSnapshot } from "./chat.js";
 import { detectComponents, detectFramework } from "./component.js";
@@ -78,9 +78,9 @@ export interface CrtTestHooks {
   healthState(): HealthState;
   /** F-82: open the welcome card on demand, whatever the suppression rules say. */
   welcome(): Promise<void>;
-  /** F-6: "" behind the proxy, the CRT origin in script-tag mode. */
+  /** F-6/F-95: "" behind the proxy, the CRT origin in embedded mode. */
   crtOrigin(): string;
-  scriptTagMode(): boolean;
+  embeddedMode(): boolean;
   /** F-30: the session list in the toolbar. */
   sessions: {
     toggle(force?: boolean): Promise<void>;
@@ -168,7 +168,7 @@ function mount(): void {
     healthState: () => ui.healthState(),
     welcome: () => ui.welcome(),
     crtOrigin: () => CRT_ORIGIN,
-    scriptTagMode: () => SCRIPT_TAG_MODE,
+    embeddedMode: () => EMBEDDED_MODE,
     sessions: {
       toggle: (force) => ui.toggleSessions(force),
       list: () => ChatPanel.listSessions(),

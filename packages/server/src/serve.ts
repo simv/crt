@@ -1,16 +1,21 @@
 /**
- * `crt [target]` / `crt serve [target]` (PRD F-1, F-4, F-5, F-23, F-24, N-6; PRD-providers F-43,
- * F-44; PRD-setup F-70…F-75, F-78, F-79): run `init`, prune stale captures, preflight the
- * providers and pick one, choose the target (start.ts `chooseTarget` — found, remembered, asked
- * for, or waited on), wire the session registry, bind the proxy to 127.0.0.1 (start.ts
- * `bindPort` — reusing or stepping around a stale CRT), print the ready line (ending with the
- * provider, why, and the login state), and optionally open the browser. Every failure surfaces
- * as a CrtError with a single actionable line.
+ * `crt [target]` / `crt serve [target]` / `crt proxy [target]` (PRD F-1, F-4, F-5, F-23, F-24,
+ * N-6; PRD-providers F-43, F-44; PRD-setup F-70…F-75, F-78, F-79; PRD-embedded F-91…F-94): run
+ * `init`, prune stale captures, preflight the providers and pick one, resolve the mode
+ * (init.ts `resolveMode`: `crt proxy` / `--mode` / config, default embedded), choose the target
+ * (start.ts `chooseTarget` — in proxy mode found, remembered, asked for, or waited on; in
+ * embedded mode the soft form: the app URL CRT opens, never waited for), wire the session
+ * registry, bind the server to 127.0.0.1 (start.ts `bindPort` — reusing or stepping around a
+ * stale CRT), print the ready line (F-93: mode, app, project, tasks, provider, login), and
+ * optionally open the browser — the app's own URL in embedded mode (then arm the F-94 timer),
+ * the CRT URL in proxy mode. Every failure surfaces as a CrtError with a single actionable line.
  *
  * The two guided steps are pure over `StartDeps`; this module supplies the real probes
  * (target.ts, probes.ts) and the prompter cli.ts chose (prompt.ts on a terminal, none otherwise).
  *
- * `CRT_SESSION_STUB=1` selects the `stub` provider ahead of every other resolution step (tests only).
+ * `CRT_SESSION_STUB=1` selects the `stub` provider ahead of every other resolution step (tests
+ * only). `CRT_BROWSER=<command>` replaces the platform opener (tests only: the e2e "opens" the app
+ * with a command that does nothing, so the F-94 timer can be observed without a real browser).
  */
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -19,10 +24,10 @@ import { relative, resolve } from "node:path";
 import { pruneCaptures } from "./captures.js";
 import { collectDoctorFacts, doctorRows, hasDevScript, renderRow } from "./doctor.js";
 import { CrtError } from "./errors.js";
-import { describeInit, initProject, readConfig, writeLocalConfig } from "./init.js";
+import { type CrtMode, describeInit, initProject, readConfig, resolveMode, writeLocalConfig } from "./init.js";
 import { fetchHealth, isPortFree, requestShutdown } from "./probes.js";
 import { findProjectRoot } from "./project.js";
-import { createProxyServer } from "./proxy.js";
+import { createProxyServer, type CrtServer } from "./proxy.js";
 import { describeResolution, loginField, ProviderRegistry } from "./session.js";
 import { SessionRegistry } from "./sessions.js";
 import { bindPort, chooseTarget, type CrtHealth, type Prompter, type StartDeps } from "./start.js";
@@ -33,6 +38,10 @@ import { packageVersion } from "./version.js";
 export interface ServeOptions {
   /** Launch directory; the project root is found from here. */
   cwd?: string;
+  /** `crt proxy` is `--mode proxy` (F-92); default `serve`. */
+  command?: "serve" | "proxy";
+  /** `--mode <embedded|proxy>`: outranks the config files (F-91). */
+  mode?: string | undefined;
   /** `--target` value, if given — the scripting form, never remembered (F-72). */
   target?: string | undefined;
   /** The positional target (`crt 3100`), remembered once it responds (F-69, F-72). */
@@ -63,7 +72,9 @@ export interface ServeOptions {
 export interface ServeHandle {
   server: Server;
   url: string;
-  target: string;
+  mode: CrtMode;
+  /** The app URL; null in embedded mode when none was found (F-91). */
+  target: string | null;
   projectRoot: string;
   /** The provider new sessions use, as printed on the ready line. */
   provider: string;
@@ -73,8 +84,8 @@ export interface ServeHandle {
   close(): Promise<void>;
 }
 
-/** `serving` holds the server; `reused` means another CRT already serves this project and target (F-73) — exit 0. */
-export type ServeResult = { kind: "serving"; handle: ServeHandle } | { kind: "reused"; url: string; target: string; projectRoot: string; health: CrtHealth };
+/** `serving` holds the server; `reused` means another CRT already serves this project in this mode (F-73, F-93) — exit 0. */
+export type ServeResult = { kind: "serving"; handle: ServeHandle } | { kind: "reused"; url: string; target: string | null; projectRoot: string; health: CrtHealth };
 
 const NO_PROMPT: Prompter = {
   ask: () => Promise.reject(new Error("prompted on a non-interactive run")),
@@ -95,6 +106,8 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
 
   const config = readConfig(projectRoot);
   const port = opts.port ?? config.port;
+  // F-91/F-92: `crt proxy` > `--mode` > config.local.json > config.json > embedded.
+  const mode = resolveMode({ command: opts.command ?? "serve", flag: opts.mode, config });
 
   // F-43/F-44: preflight every provider once, detect, and validate an explicit --provider / CRT_PROVIDER.
   // Before the target step, so the F-76 rows before a prompt can name a provider's problem.
@@ -106,7 +119,7 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
   await providers.refresh();
   const resolution = providers.resolve(null);
 
-  let server: Server | null = null;
+  let server: CrtServer | null = null;
   let warned = false;
   const deps: StartDeps = {
     interactive,
@@ -138,15 +151,19 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
       config: { target: config.target, source: config.targetSource },
       hasDevScript: hasDevScript(projectRoot),
       ports: PROBE_PORTS,
+      required: mode === "proxy", // F-91: embedded mode never waits and never fails
     },
     deps,
   );
   const target = chosen.origin;
-  if (chosen.remember && !(config.targetSource === "local" && safeOrigin(config.target) === target)) {
+  if (mode === "proxy" && target === null) throw new Error("proxy mode resolved no target"); // unreachable: the required form always answers or throws
+  if (target && chosen.remember && !(config.targetSource === "local" && safeOrigin(config.target) === target)) {
     // F-72: typed, picked or positional targets are remembered per machine once they responded.
     writeLocalConfig(projectRoot, { target });
     log(`Remembered ${target} in .crt/config.local.json — \`crt <port>\` switches.`);
   }
+  /** F-91: the app URL to open — known and responding. */
+  const app = chosen.down ? null : target;
 
   const tasksDir = resolve(projectRoot, config.tasksDir);
   const sessions = new SessionRegistry({
@@ -166,6 +183,7 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
     });
   server = createProxyServer({
     target,
+    mode,
     projectRoot,
     overlayPath: opts.overlayPath,
     sessions,
@@ -178,11 +196,13 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
   });
 
   const bound = await bindPort(
-    { port, explicit: opts.port !== undefined, replace: opts.replace === true, projectRoot, target, version, open: opts.open === true },
+    { port, explicit: opts.port !== undefined, replace: opts.replace === true, projectRoot, target, version, open: opts.open === true, mode },
     deps,
   );
   if (bound.kind === "reused") {
-    if (opts.open) openBrowser(bound.url, log);
+    // F-93: embedded mode opens the app (this run's, else the running server's); proxy mode opens the CRT URL.
+    const toOpen = mode === "embedded" ? (app ?? bound.health.target) : bound.url;
+    if (opts.open && toOpen) openBrowser(toOpen, log);
     return { kind: "reused", url: bound.url, target, projectRoot, health: bound.health };
   }
   sessions.mcpPort = bound.port;
@@ -191,21 +211,36 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
   const tasks = countTaskFiles(tasksDir);
   const login = loginField(resolution, providers);
   const tasksLabel = relative(projectRoot, tasksDir) || ".";
-  log(`CRT ready at ${url} → ${target} (project: ${projectRoot}, ${tasks} task${tasks === 1 ? "" : "s"} in ${tasksLabel}, provider: ${describeResolution(resolution)}, login: ${login})`);
+  const details = `project: ${projectRoot}, ${tasks} task${tasks === 1 ? "" : "s"} in ${tasksLabel}, provider: ${describeResolution(resolution)}, login: ${login}`;
+  // F-93: `CRT ready at <url> for <app> (embedded; …)` / `CRT ready at <url> → <target> (proxy; …)`.
+  log(mode === "embedded" ? `CRT ready at ${url}${target ? ` for ${target}` : ""} (embedded; ${details})` : `CRT ready at ${url} → ${target} (proxy; ${details})`);
+  if (mode === "embedded" && bound.port !== port) {
+    // F-93: a stepped port (F-73) leaves the app's loader pointing at the configured one.
+    log(`crt: your app's CRT loader expects :${port} — run \`crt --replace\`, or set port in .crt/config.json and in the snippet`);
+  }
   if (login === "missing") {
     // F-74: the N-6 line at start, before anyone writes a note.
     const problem = providers.preflight(resolution.provider).problem;
     if (problem) log(`crt: ${problem}`);
   } else if (interactive) {
-    log(`Open ${url} → CRT button bottom-right (Ctrl/Cmd+Shift+.) → Select · note · Send. Ctrl+C stops CRT; your dev server keeps running.`);
+    const where = mode === "embedded" ? (app ? `Open ${app}` : "Open your dev server in the browser") : `Open ${url}`;
+    log(`${where} → CRT button bottom-right (Ctrl/Cmd+Shift+.) → Select · note · Send. Ctrl+C stops CRT; your dev server keeps running.`);
   }
-  if (opts.open) openBrowser(url, log);
+  if (opts.open) {
+    if (mode === "proxy") openBrowser(url, log);
+    else if (app) {
+      // F-91: embedded mode opens the app's own URL (nothing when none is known); F-94 watches for the loader.
+      openBrowser(app, log);
+      server.browserOpened(app);
+    }
+  }
 
   return {
     kind: "serving",
     handle: {
       server,
       url,
+      mode,
       target,
       projectRoot,
       provider: resolution.provider,
@@ -258,10 +293,12 @@ function listen(server: Server, port: number): Promise<"ok" | "in-use"> {
   });
 }
 
-/** Open `url` in the default browser via the platform opener, spawned without a shell. */
+/** Open `url` in the default browser via the platform opener (or `CRT_BROWSER`, a test seam), spawned without a shell. */
 export function openBrowser(url: string, log: (line: string) => void): void {
-  const [cmd, args]: [string, string[]] =
-    process.platform === "win32"
+  const custom = process.env.CRT_BROWSER?.trim();
+  const [cmd, args]: [string, string[]] = custom
+    ? [custom, [url]]
+    : process.platform === "win32"
       ? ["cmd.exe", ["/c", "start", "", url]]
       : process.platform === "darwin"
         ? ["open", [url]]

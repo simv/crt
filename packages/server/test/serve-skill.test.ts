@@ -26,9 +26,10 @@ describe("serve skill (F-83)", () => {
     expect(skill).toContain("`--replace`");
   });
 
-  it("runs `crt serve --open --yes [--target …]` in the background and waits 5 min after the npx fallback, 30 s otherwise (F-83)", () => {
-    expect(skill).toContain("crt serve --open --yes  ");
-    expect(skill).toContain("crt serve --open --yes --target $ARGUMENTS");
+  it("runs `crt proxy --open --yes [--target …]` in the background (proxy mode until M17, PRD-embedded F-92) and waits 5 min after the npx fallback, 30 s otherwise (F-83)", () => {
+    expect(skill).toContain("crt proxy --open --yes  ");
+    expect(skill).toContain("crt proxy --open --yes --target $ARGUMENTS");
+    expect(skill).toContain("CRT ready at http://localhost:4400 → http://localhost:3000 (proxy; project: C:\\my-app, 3 tasks in .crt\\tasks, provider: claude (default), login: ok)");
     expect(skill).toMatch(/\*\*in the background\*\*/);
     expect(skill).toContain("**30 s** when `npx --no crt` resolved; **up to 5 minutes** when the `npx -y` fallback ran");
     expect(skill).toContain("no local install of claude-review-tool — npx may be downloading it (~220 MB on a first run)…");

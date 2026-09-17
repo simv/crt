@@ -12,19 +12,22 @@ export const HEALTH_ENDPOINT = "/__crt/health";
 /** Per tab: the server this tab first loaded from, to spot a `crt serve` from another session (F-81 Should). */
 export const SERVER_KEY = "crt.server.v1";
 
-/** The F-78 payload, as the overlay reads it. */
+/** The F-78 payload, as the overlay reads it (PRD-embedded F-93: `mode`, `app`, `overlay.loader`; `mode` is absent from a pre-v0.4 server, which is a proxy). */
 export interface HealthPayload {
   ok: boolean;
   version: string | null;
   startedAt: string | null;
-  target: string;
+  mode?: "embedded" | "proxy";
+  /** The app URL; null when embedded mode found none. `target` equals it. */
+  app?: string | null;
+  target: string | null;
   projectRoot: string;
   tasksDir: string | null;
   tasks: number;
   provider: string | null;
   login: "ok" | "missing" | "unchecked";
   sessions: number;
-  overlay: { injected: number; fetched: number; lastContentType: string | null; cspWarning: string | null };
+  overlay: { injected: number; fetched: number; loader?: number; lastContentType: string | null; cspWarning: string | null };
 }
 
 export type HealthState = "checking" | "connected" | "agent not ready" | "unreachable" | "different project";

@@ -7,7 +7,7 @@ import { expect, type Page, test } from "@playwright/test";
 const FIXTURE = "http://localhost:3999"; // FIXTURE_PORT in playwright.config.ts
 
 type Hooks = {
-  scriptTagMode(): boolean;
+  embeddedMode(): boolean;
   crtOrigin(): string;
   addSelect(sel: string): number;
   setNote(n: number, note: string): void;
@@ -31,7 +31,7 @@ test.describe("script-tag mode (F-6)", () => {
   test("the overlay loads from another local origin and runs a full Send cross-origin", async ({ page, baseURL }) => {
     await page.goto(`${FIXTURE}/script-tag?crt=${baseURL}`);
     await expect(page.locator("#crt-host")).toBeAttached();
-    expect(await page.evaluate(() => window.__crt.scriptTagMode())).toBe(true);
+    expect(await page.evaluate(() => window.__crt.embeddedMode())).toBe(true);
     expect(await page.evaluate(() => window.__crt.crtOrigin())).toBe(baseURL);
     await expect(shadow(page, ".launcher")).toBeVisible();
 

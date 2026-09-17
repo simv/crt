@@ -11,8 +11,32 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
+import { CrtError } from "./errors.js";
 
 export const DEFAULT_PORT = 4400;
+
+/** PRD-embedded F-91/F-92: what the CRT server does with requests outside `/__crt/`. */
+export type CrtMode = "embedded" | "proxy";
+export const MODES: readonly CrtMode[] = ["embedded", "proxy"];
+
+export function isMode(v: unknown): v is CrtMode {
+  return typeof v === "string" && (MODES as readonly string[]).includes(v);
+}
+
+/**
+ * PRD-embedded F-91/F-92: the mode a start runs in. `crt proxy` is `--mode proxy`; an explicit
+ * `--mode` outranks the config files; otherwise `readConfig`'s `mode` (local over project,
+ * default embedded).
+ */
+export function resolveMode(input: { command: "serve" | "proxy"; flag?: string | boolean | undefined; config: Pick<CrtConfig, "mode"> }): CrtMode {
+  const flag = input.flag;
+  if (flag !== undefined) {
+    if (!isMode(flag)) throw new CrtError(`--mode must be embedded or proxy (got "${String(flag)}")`);
+    if (input.command === "proxy" && flag !== "proxy") throw new CrtError("`crt proxy` already means --mode proxy — drop --mode " + flag);
+    return flag;
+  }
+  return input.command === "proxy" ? "proxy" : input.config.mode;
+}
 export const CAPTURES_IGNORE = ".crt/captures/";
 export const LOCAL_CONFIG_IGNORE = ".crt/config.local.json";
 export const CONFIG_FILE = "config.json";
@@ -28,6 +52,8 @@ export interface AcpProviderConfig {
 
 /** What `.crt/config.json` may contain; every key is optional on disk. */
 export interface CrtConfigFile {
+  /** `embedded` (the default, F-91) or `proxy` (F-92); the local file wins, `--mode` outranks both. */
+  mode?: CrtMode;
   tasksDir?: string;
   target?: string | null;
   port?: number;
@@ -41,6 +67,9 @@ export interface CrtConfigFile {
 
 /** The merged, validated configuration the server runs with. */
 export interface CrtConfig {
+  mode: CrtMode;
+  /** Which file `mode` came from (the local file wins); null when neither sets it (embedded). */
+  modeSource: "local" | "project" | null;
   tasksDir: string;
   target: string | null;
   /** Which file `target` came from (the local file wins); null when neither sets it. */
@@ -54,9 +83,11 @@ export interface CrtConfig {
 }
 
 /** What `crt init` writes; provider keys are added by the developer or by "Remember" (local file). */
-export const DEFAULT_CONFIG_FILE: CrtConfigFile = { tasksDir: ".crt/tasks", target: null, port: DEFAULT_PORT };
+export const DEFAULT_CONFIG_FILE: CrtConfigFile = { mode: "embedded", tasksDir: ".crt/tasks", target: null, port: DEFAULT_PORT };
 
 export const DEFAULT_CONFIG: CrtConfig = {
+  mode: "embedded",
+  modeSource: null,
   tasksDir: ".crt/tasks",
   target: null,
   targetSource: null,
@@ -171,7 +202,11 @@ export function readConfig(root: string): CrtConfig {
   const portOf = (f: CrtConfigFile): number | null => (typeof f.port === "number" && Number.isInteger(f.port) && f.port > 0 && f.port <= 65535 ? f.port : null);
   const localTarget = targetOf(local);
   const projectTarget = targetOf(project);
+  const localMode = isMode(local.mode) ? local.mode : null;
+  const projectMode = isMode(project.mode) ? project.mode : null;
   return {
+    mode: localMode ?? projectMode ?? DEFAULT_CONFIG.mode,
+    modeSource: localMode ? "local" : projectMode ? "project" : null,
     tasksDir: typeof project.tasksDir === "string" && project.tasksDir ? project.tasksDir : DEFAULT_CONFIG.tasksDir,
     target: localTarget ?? projectTarget,
     targetSource: localTarget ? "local" : projectTarget ? "project" : null,
