@@ -8,7 +8,7 @@ allowed-tools: Bash(npx *) Bash(curl *) Read AskUserQuestion
 
 Start the CRT server for this project (PRD F-36, PRD-setup F-83), from the project root `${CLAUDE_PROJECT_DIR}`. Never start the user's dev server for them: CRT proxies one that is already running.
 
-`crt` below is `npx --no crt` when the project has it installed (a devDependency, a workspace, or a global install), else `npx -y claude-review-tool@latest`. Remember which one you used: the fallback may have to download the package (~220 MB on a first run), which changes how long you wait in step 2.
+`crt` below is `npx --no crt` when the project has it installed (a devDependency, a workspace, or a global install), else `npx -y claude-review-tool@0.3`. Remember which one you used: the fallback may have to download the package (~220 MB on a first run), which changes how long you wait in step 2.
 
 ## 0. Is a CRT already running for this project?
 

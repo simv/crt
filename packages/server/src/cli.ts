@@ -6,6 +6,7 @@
  *   crt [target] [--port <n>] [--open|--no-open] [--yes] [--replace] [--provider <id>]   F-69…F-73 (the guided start)
  *   crt serve [target] [--target <url>] …                                the same under its explicit name (F-1, F-5, F-43)
  *   crt doctor                                                           F-76
+ *   crt setup [--claude <path>]                                          F-86 (registers the bundled plugin with Claude Code)
  *   crt init                                                             F-35
  *   crt tasks [--json]                                                   F-33 (also refreshes the README index, F-34)
  *   crt task <ID> [--validate]                                           F-33 (F-32 format check)
@@ -37,6 +38,7 @@ const USAGE = [
   "  crt serve [target]      the same, under its explicit name",
   "      [--target <url>] [--port <n>] [--open | --no-open] [--yes] [--replace] [--provider <id>]",
   "  crt doctor              check node, project, .crt, target, port, providers, plugin",
+  "  crt setup               register the bundled Claude Code plugin (/crt:serve, /crt:next, …) [--claude <path>]",
   "  crt init",
   "  crt tasks [--json]",
   "  crt task <ID> [--validate]",
@@ -48,7 +50,7 @@ const USAGE = [
   "typed or picked in .crt/config.local.json; `crt <port>` switches it.",
 ].join("\n");
 
-const COMMANDS = new Set(["serve", "doctor", "init", "tasks", "task", "providers", "mcp", "skills", "help"]);
+const COMMANDS = new Set(["serve", "doctor", "setup", "init", "tasks", "task", "providers", "mcp", "skills", "help"]);
 
 /** F-77: a second Ctrl+C within this window exits at once. */
 const FORCE_EXIT_MS = 2_000;
@@ -126,6 +128,17 @@ async function main(argv: string[]): Promise<number> {
       const r = await runDoctor({ version: packageVersion() });
       console.log(r.text);
       return r.exitCode;
+    }
+    case "setup": {
+      // F-86: the marketplace built by F-85 sits next to cli.js in the published package.
+      const { runSetup } = await import("./setup.js");
+      const r = await runSetup({
+        version: packageVersion(),
+        marketplaceDir: resolve(fileURLToPath(new URL("./plugin-marketplace/", import.meta.url))),
+        claude: stringFlag(flags.claude, "--claude <path>") ?? null,
+      });
+      for (const line of r.lines) console.log(line);
+      return 0;
     }
     case "init": {
       const root = findProjectRoot();
