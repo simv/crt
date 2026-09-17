@@ -263,7 +263,7 @@ This document was written from one review session's runs and tool documentation.
 
 **Open questions.**
 
-1. Should the repository go public? npm is already public and `release.yml` wants `--provenance` back when it does. Not required by this document (F-86 works from disk), but it would make the GitHub install path work for everyone. Simon's call.
+1. ~~Should the repository go public?~~ *Resolved 2026-09-17: the repository is public (`gh repo view simv/crt` → PUBLIC); `release.yml` publishes with `--provenance` (the `0.3.0` attestation is on the registry) and the GitHub install path works for everyone alongside `crt setup`.*
 2. Should the welcome card also appear the first time a *new provider* becomes active (e.g. Codex)? Proposed: no; the Agent menu already shows the row.
 
 ---
