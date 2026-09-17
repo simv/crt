@@ -97,7 +97,7 @@ export function doctorRows(f: DoctorFacts): DoctorReport {
   else if (p.state === "crt") {
     const where = p.thisProject ? "this project" : `project ${p.health.projectRoot}`;
     const fix = p.thisProject ? "crt --replace" : `crt starts on ${p.port + 1}, or crt --replace`;
-    rows.push({ status: "FAIL", name: "port", detail: `${p.port} held by CRT ${p.health.version ?? "(unknown version)"} → ${p.health.target} (${where}) — ${fix}` });
+    rows.push({ status: "FAIL", name: "port", detail: `${p.port} held by CRT ${p.health.version ?? "(unknown version)"} → ${p.health.target ?? "no app"} (${where}) — ${fix}` });
   } else rows.push({ status: "FAIL", name: "port", detail: `${p.port} in use by a non-CRT process — crt --port ${p.port + 1}` });
 
   for (const r of f.providers) {

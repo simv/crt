@@ -27,7 +27,7 @@
  */
 import type { ProviderRow, ProvidersPayload, SessionInfo, SessionState } from "../../server/src/session-events.js";
 import { type Annotation, AnnotationStore, toViewportRect } from "./annotations.js";
-import { crtUrl, SCRIPT_TAG_MODE } from "./base.js";
+import { CRT_ORIGIN, crtUrl } from "./base.js";
 import { capture, send, type SendResult } from "./capture.js";
 import { CHAT_CSS, ChatPanel, type QuietOutcome, type StartOptions } from "./chat.js";
 import { nearestComponentName } from "./component.js";
@@ -1156,7 +1156,7 @@ export class OverlayUI {
     });
     void Promise.all([this.checkHealth(), this.providersReady]).then(() => {
       if (this.welcomeEl) return;
-      const gate = { health: this.health, scriptTagMode: SCRIPT_TAG_MODE, inIframe: window.top !== window, restored: this.restored, seen: welcomeSeen };
+      const gate = { health: this.health, inIframe: window.top !== window, restored: this.restored, seen: welcomeSeen };
       if (shouldShowWelcome(gate)) this.showWelcome();
     });
   }
@@ -1207,7 +1207,7 @@ export class OverlayUI {
     const h = this.health;
     if (!h || h === "failed") return;
     const row = h.provider ? this.providers?.providers.find((p) => p.id === h.provider) : undefined;
-    const copy = welcomeCopy(h, { name: row?.displayName ?? null, problem: row?.problem ?? null });
+    const copy = welcomeCopy(h, { name: row?.displayName ?? null, problem: row?.problem ?? null }, CRT_ORIGIN || location.origin);
     this.welcomeEl?.remove();
     const el = buildWelcome(copy, {
       gotIt: () => this.dismissWelcome(),

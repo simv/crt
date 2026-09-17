@@ -3,9 +3,10 @@
  * above the launcher that says what is proxied, where tasks go, which agent will answer and
  * whether it is logged in, and the three steps of the loop. Remembered per project in
  * localStorage (`crt.welcome.v1:<projectRoot>`), so one port serving two projects shows it once
- * each. Never shown under the `stub` provider (how e2e runs), in script-tag mode, inside an
- * iframe, after a mid-work reload (threads or annotations restored), or when health failed (the
- * launcher dot owns that, F-81). `window.__crt.welcome()` opens it on demand.
+ * each. Never shown under the `stub` provider (how e2e runs), inside an iframe, after a mid-work
+ * reload (threads or annotations restored), or when health failed (the launcher dot owns that,
+ * F-81). It is shown in embedded mode (PRD-embedded F-95 dropped the v0.3 "never in script-tag
+ * mode" rule) with its second line from health's `mode`. `window.__crt.welcome()` opens it on demand.
  *
  * The copy and the suppression rule are pure functions, unit-tested from packages/server/test;
  * ui.ts mounts the element and positions it.
@@ -36,8 +37,11 @@ export function markWelcomeSeen(projectRoot: string): void {
 
 export interface WelcomeCopy {
   title: string;
-  /** "Proxying <target> for <project>. Tasks are written to <dir> (<n> there now)." */
-  proxying: string;
+  /**
+   * Where CRT is (F-82, F-95): "Proxying <target> for <project>. Tasks are written to <dir> (<n> there now)." in
+   * proxy mode; "Talking to CRT at <origin> for <project>. Tasks are written to <dir> (<n> there now)." embedded.
+   */
+  where: string;
   /** "Agent: <name> — …" */
   agent: string;
   steps: [string, string, string];
@@ -58,10 +62,12 @@ export function tasksLabel(h: Pick<HealthPayload, "projectRoot" | "tasksDir">): 
   return dir;
 }
 
-/** F-82 copy, exactly, with live values from health and the provider list. */
-export function welcomeCopy(h: HealthPayload, agent: WelcomeAgent): WelcomeCopy {
+/** F-82/F-95 copy, exactly, with live values from health and the provider list; `crtOrigin` is where this overlay came from (embedded mode). */
+export function welcomeCopy(h: HealthPayload, agent: WelcomeAgent, crtOrigin = ""): WelcomeCopy {
   const name = agent.name ?? h.provider ?? "the agent";
   const n = h.tasks;
+  const tasks = `Tasks are written to ${tasksLabel(h)} (${n} there now).`;
+  const where = h.mode === "embedded" ? `Talking to CRT at ${crtOrigin || "this origin"} for ${h.projectRoot}. ${tasks}` : `Proxying ${h.target} for ${h.projectRoot}. ${tasks}`;
   let line: string;
   if (h.login === "ok") line = `Agent: ${name} — ready, logged in`;
   else if (h.login === "missing" && (h.provider === "claude" || !agent.problem)) {
@@ -70,7 +76,7 @@ export function welcomeCopy(h: HealthPayload, agent: WelcomeAgent): WelcomeCopy 
   else line = `Agent: ${name} — login not checked yet; the first Send will tell you`;
   return {
     title: "CRT is on this page",
-    proxying: `Proxying ${h.target} for ${h.projectRoot}. Tasks are written to ${tasksLabel(h)} (${n} there now).`,
+    where,
     agent: line,
     steps: ["Open the toolbar: the CRT button, or Ctrl/Cmd+Shift+.", "Select, Box or Pin the thing.", "Type a note and Send."],
   };
@@ -78,18 +84,17 @@ export function welcomeCopy(h: HealthPayload, agent: WelcomeAgent): WelcomeCopy 
 
 export interface WelcomeGate {
   health: HealthPayload | "failed" | null;
-  scriptTagMode: boolean;
   inIframe: boolean;
   /** Threads or annotations came back from sessionStorage: a mid-work reload. */
   restored: boolean;
   seen: (projectRoot: string) => boolean;
 }
 
-/** F-82: whether the card shows by itself on this load. */
+/** F-82/F-95: whether the card shows by itself on this load (embedded mode included). */
 export function shouldShowWelcome(g: WelcomeGate): boolean {
   if (g.health === null || g.health === "failed" || !g.health.ok) return false;
   if (g.health.provider === "stub") return false;
-  if (g.scriptTagMode || g.inIframe || g.restored) return false;
+  if (g.inIframe || g.restored) return false;
   return !g.seen(g.health.projectRoot);
 }
 
@@ -118,8 +123,8 @@ export function buildWelcome(copy: WelcomeCopy, on: { gotIt: () => void; showMe:
   const h2 = document.createElement("h2");
   h2.textContent = copy.title;
   const proxying = document.createElement("p");
-  proxying.className = "proxying";
-  proxying.textContent = copy.proxying;
+  proxying.className = "where";
+  proxying.textContent = copy.where;
   const agent = document.createElement("p");
   agent.className = "agent";
   agent.textContent = copy.agent;

@@ -90,7 +90,7 @@ function world(w: World): Run {
 
 const target = (over: Partial<TargetInput> = {}): TargetInput => ({ positional: null, flag: null, config: { target: null, source: null }, hasDevScript: false, ports: PORTS, ...over });
 const port = (over: Partial<PortInput> = {}): PortInput => ({ port: 4400, explicit: false, replace: false, projectRoot: "C:\\my-app", target: L3000, version: "0.3.0", open: true, ...over });
-const mine = (over: Partial<CrtHealth> = {}): CrtHealth => ({ version: "0.3.0", startedAt: "2026-09-16T09:12:00+08:00", target: L3000, projectRoot: "C:\\my-app", sessions: 1, ...over });
+const mine = (over: Partial<CrtHealth> = {}): CrtHealth => ({ version: "0.3.0", startedAt: "2026-09-16T09:12:00+08:00", target: L3000, projectRoot: "C:\\my-app", sessions: 1, mode: "proxy", ...over });
 const other = (over: Partial<CrtHealth> = {}): CrtHealth => mine({ target: L5173, projectRoot: "C:\\other-app", ...over });
 
 const NO_DEV_SERVER = "no dev server found on ports 3000, 5173, 8080, 4200, 8000, 3001 — start it, or run `crt <port>`";
@@ -358,6 +358,137 @@ describe("bindPort — a busy port is diagnosed (F-73, F-79)", () => {
   it("every port in 4400…4409 held → one line with the fix (F-73, N-17)", async () => {
     const r = world({ interactive: false, busy: [4400, 4401, 4402, 4403, 4404, 4405, 4406, 4407, 4408, 4409] });
     await fails(bindPort(port(), r.deps), "ports 4400–4409 are all in use — run `crt --port <n>`");
+  });
+});
+
+describe("chooseTarget — the soft form of embedded mode (PRD-embedded F-91)", () => {
+  const soft = (over: Partial<TargetInput> = {}): TargetInput => target({ required: false, ...over });
+  const NONE_SOFT = "no dev server on ports 3000, 5173, 8080, 4200, 8000, 3001 — start it and open it in your browser; the CRT button appears when the page loads the CRT loader (crt <port> to have CRT open it next time)";
+
+  it("an explicit, remembered or committed target that responds is used at once; only the positional is remembered (F-91, F-72)", async () => {
+    for (const interactive of [true, false]) {
+      const r = world({ interactive, up: [L3100, L3000] });
+      expect(await chooseTarget(soft({ positional: "3100" }), r.deps)).toEqual({ origin: L3100, source: "positional", remember: true });
+      expect(await chooseTarget(soft({ flag: "3100" }), r.deps)).toEqual({ origin: L3100, source: "flag", remember: false });
+      expect(await chooseTarget(soft({ config: { target: L3100, source: "local" } }), r.deps)).toEqual({ origin: L3100, source: "local", remember: false });
+      expect(r.logs).toEqual([]);
+      expect(r.questions).toEqual([]);
+    }
+  });
+
+  it("one found → `Found …`, used, not remembered (both modes) (F-91)", async () => {
+    for (const interactive of [true, false]) {
+      const r = world({ interactive, up: [L5173] });
+      expect(await chooseTarget(soft(), r.deps)).toEqual({ origin: L5173, source: "probe", remember: false });
+      expect(r.logs).toEqual(["Found http://localhost:5173."]);
+      expect(r.questions).toEqual([]);
+    }
+  });
+
+  it("several found, interactive → the F-71 list with `Which one should I open? [1]`; the pick is remembered (F-91, F-72)", async () => {
+    const hits = [
+      { origin: L3000, label: "Trial app" },
+      { origin: L5173, label: null },
+    ];
+    const r = world({ interactive: true, hits, answers: ["2"] });
+    expect(await chooseTarget(soft(), r.deps)).toEqual({ origin: L5173, source: "picked", remember: true });
+    expect(r.logs).toEqual(["Found 2 dev servers:", "  1) http://localhost:3000 — Trial app", "  2) http://localhost:5173"]);
+    expect(r.questions).toEqual(["Which one should I open? [1]"]);
+    expect(r.beforePrompt).toBe(1);
+    const d = world({ interactive: true, hits, answers: ["9", ""] });
+    expect(await chooseTarget(soft(), d.deps)).toEqual({ origin: L3000, source: "picked", remember: true });
+    expect(d.logs).toContain("Answer 1–2.");
+  });
+
+  it("several found, --yes → the first with the `opening` line (F-91)", async () => {
+    const r = world({ interactive: false, up: [L3000, L5173] });
+    expect(await chooseTarget(soft(), r.deps)).toEqual({ origin: L3000, source: "probe", remember: false });
+    expect(r.logs).toEqual(["crt: found 2 dev servers (http://localhost:3000, http://localhost:5173); opening http://localhost:3000 — run `crt <port>` to pick another"]);
+  });
+
+  it("none found → one line, no prompt, no origin; interactive adds the `npm run dev` hint (F-91)", async () => {
+    const i = world({ interactive: true });
+    expect(await chooseTarget(soft({ hasDevScript: true }), i.deps)).toEqual({ origin: null, source: null, remember: false });
+    expect(i.logs).toEqual([
+      "No dev server on ports 3000, 5173, 8080, 4200, 8000, 3001 — start it and open it in your browser; the CRT button appears when the page loads the CRT loader (crt <port> to have CRT open it next time).",
+      "(This project has `npm run dev`.)",
+    ]);
+    expect(i.questions).toEqual([]);
+    expect(i.beforePrompt).toBe(0);
+    const plain = world({ interactive: true });
+    await chooseTarget(soft(), plain.deps);
+    expect(plain.logs).toHaveLength(1);
+    const y = world({ interactive: false });
+    expect(await chooseTarget(soft({ hasDevScript: true }), y.deps)).toEqual({ origin: null, source: null, remember: false });
+    expect(y.logs).toEqual([`crt: ${NONE_SOFT}`]);
+  });
+
+  it("an explicit or remembered target that is down → one line, no wait loop, no `Use 3000?` question, marked down (F-91)", async () => {
+    for (const interactive of [true, false]) {
+      const r = world({ interactive, up: [L3000] });
+      expect(await chooseTarget(soft({ config: { target: L3100, source: "local" } }), r.deps)).toEqual({ origin: L3100, source: "local", remember: false, down: true });
+      expect(r.logs).toEqual(["crt: http://localhost:3100 (remembered) is not responding — start it; CRT is ready for it"]);
+      expect(r.questions).toEqual([]);
+      expect(r.waits).toEqual([]);
+      expect(r.beforePrompt).toBe(0);
+    }
+    const p = world({ interactive: true, up: [L3000] });
+    expect(await chooseTarget(soft({ config: { target: "3100", source: "project" } }), p.deps)).toMatchObject({ origin: L3100, down: true });
+    expect(p.logs).toEqual(["crt: http://localhost:3100 (.crt/config.json) is not responding — start it; CRT is ready for it"]);
+    // A positional that is down is not remembered (F-72: only once it responded).
+    const q = world({ interactive: false });
+    expect(await chooseTarget(soft({ positional: "3100" }), q.deps)).toEqual({ origin: L3100, source: "positional", remember: false, down: true });
+    expect(q.logs).toEqual(["crt: http://localhost:3100 is not responding — start it; CRT is ready for it"]);
+  });
+
+  it("a value that is not a URL still fails with the F-1 line (F-91)", async () => {
+    const r = world({ interactive: true });
+    await fails(chooseTarget(soft({ positional: "http://" }), r.deps), 'target "http://" is not a valid URL — use e.g. --target http://localhost:3000');
+  });
+});
+
+describe("bindPort — reuse compares the mode (PRD-embedded F-93)", () => {
+  const embeddedMine = (over: Partial<CrtHealth> = {}): CrtHealth => mine({ version: "0.4.0", mode: "embedded", ...over });
+
+  it("an embedded CRT for this project is reused whatever its app, with the line naming what was opened (F-93)", async () => {
+    for (const held of [L3000, L5173, null]) {
+      const r = world({ interactive: false, busy: [4400], health: { 4400: embeddedMine({ target: held }) } });
+      const out = await bindPort(port({ mode: "embedded", target: L3000, version: "0.4.0" }), r.deps);
+      expect(out).toMatchObject({ kind: "reused", port: 4400, url: "http://localhost:4400" });
+      expect(r.logs).toEqual([expect.stringMatching(/^CRT 0\.4\.0 is already serving this project \(embedded\) at http:\/\/localhost:4400 \(since \d\d:\d\d\) — opened http:\/\/localhost:3000\.$/)]);
+      expect(r.bound).toEqual([]);
+    }
+    // No app known by this run: the running server's app, else "open your app in the browser".
+    const theirs = world({ interactive: false, busy: [4400], health: { 4400: embeddedMine({ target: L5173, startedAt: null }) } });
+    await bindPort(port({ mode: "embedded", target: null, version: "0.4.0", open: false }), theirs.deps);
+    expect(theirs.logs).toEqual(["CRT 0.4.0 is already serving this project (embedded) at http://localhost:4400 — open http://localhost:5173 in your browser."]);
+    const none = world({ interactive: false, busy: [4400], health: { 4400: embeddedMine({ target: null, startedAt: null }) } });
+    await bindPort(port({ mode: "embedded", target: null, version: "0.4.0" }), none.deps);
+    expect(none.logs).toEqual(["CRT 0.4.0 is already serving this project (embedded) at http://localhost:4400 — open your app in the browser."]);
+  });
+
+  it("a different mode on the port is another CRT: --yes steps to the next port, naming what it serves (F-93, F-73)", async () => {
+    // Embedded start, proxy on the port (a pre-v0.4 server sends no mode: a proxy).
+    for (const held of [mine(), mine({ mode: null })]) {
+      const r = world({ interactive: false, busy: [4400], health: { 4400: held } });
+      expect(await bindPort(port({ mode: "embedded", version: "0.3.0" }), r.deps)).toEqual({ kind: "bound", port: 4401 });
+      expect(r.logs).toEqual(["crt: port 4400 is held by another CRT (→ http://localhost:3000, project C:\\my-app); using 4401"]);
+    }
+    // Proxy start, embedded on the port.
+    const p = world({ interactive: false, busy: [4400], health: { 4400: embeddedMine() } });
+    expect(await bindPort(port({ mode: "proxy", version: "0.4.0" }), p.deps)).toEqual({ kind: "bound", port: 4401 });
+    expect(p.logs).toEqual(["crt: port 4400 is held by another CRT (embedded for http://localhost:3000, project C:\\my-app); using 4401"]);
+    const q = world({ interactive: false, busy: [4400], health: { 4400: embeddedMine({ target: null }) } });
+    await bindPort(port({ mode: "proxy", version: "0.4.0" }), q.deps);
+    expect(q.logs).toEqual(["crt: port 4400 is held by another CRT (embedded, project C:\\my-app); using 4401"]);
+  });
+
+  it("proxy mode still needs the same target to reuse (F-73 unchanged, N-21)", async () => {
+    const r = world({ interactive: false, busy: [4400], health: { 4400: mine({ target: L5173 }) } });
+    expect(await bindPort(port({ mode: "proxy" }), r.deps)).toEqual({ kind: "bound", port: 4401 });
+    const same = world({ interactive: false, busy: [4400], health: { 4400: mine() } });
+    expect(await bindPort(port({ mode: "proxy" }), same.deps)).toMatchObject({ kind: "reused" });
+    expect(same.logs).toEqual([expect.stringMatching(/^CRT 0\.3\.0 is already serving http:\/\/localhost:3000 for this project at http:\/\/localhost:4400 \(since \d\d:\d\d\) — opened it\.$/)]);
   });
 });
 

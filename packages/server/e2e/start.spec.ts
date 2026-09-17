@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 
 // PRD-setup F-69, F-72, F-73, F-78, F-79 (the M12 half of F-90): the guided start driven through
-// `dist/cli.js` with argv, from scratch projects of their own (never the shared e2e/.project root,
+// `dist/cli.js` with argv — under `crt proxy`, the v0.3 flow verbatim (PRD-embedded F-92, N-21; embedded.spec.ts
+// covers the embedded ready line) —, from scratch projects of their own (never the shared e2e/.project root,
 // whose crt.mjs log a second server would truncate), each spec spawning its own servers with
 // `CRT_SESSION_STUB=1` and stdout captured. Ports 4480–4489 are this file's; the Playwright web
 // servers hold 4497–4499. Nothing here needs a browser.
@@ -108,9 +109,10 @@ test.afterEach(async () => {
 
 test("`crt 3999` starts with no prompt and remembers the target; the second run asks nothing and still names 3999 (F-69, F-72, N-15)", async () => {
   const root = scratch("remember", 4485);
-  const first = startCrt(root, ["3999", "--yes"]);
+  const first = startCrt(root, ["proxy", "3999", "--yes"]);
   const ready = await first.waitFor(/^CRT ready at /);
-  expect(ready).toMatch(/^CRT ready at http:\/\/localhost:4485 → http:\/\/localhost:3999 \(project: .*, 0 tasks in \.crt[\\/]tasks, provider: stub \(CRT_SESSION_STUB\), login: unchecked\)$/);
+  // PRD-embedded F-93: the proxy-mode ready line reads `→ <target> (proxy; …)`.
+  expect(ready).toMatch(/^CRT ready at http:\/\/localhost:4485 → http:\/\/localhost:3999 \(proxy; project: .*, 0 tasks in \.crt[\\/]tasks, provider: stub \(CRT_SESSION_STUB\), login: unchecked\)$/);
   expect(first.lines).toContain("Remembered http://localhost:3999 in .crt/config.local.json — `crt <port>` switches.");
   expect(first.lines.some((l) => /Dev server URL|Which one\?/.test(l))).toBe(false);
   expect(JSON.parse(readFileSync(join(root, ".crt", "config.local.json"), "utf8"))).toEqual({ target: FIXTURE });
@@ -124,10 +126,10 @@ test("`crt 3999` starts with no prompt and remembers the target; the second run 
   first.child.kill();
   await first.exited;
 
-  const second = startCrt(root, ["--yes"]);
+  const second = startCrt(root, ["proxy", "--yes"]);
   const started = Date.now();
   const again = await second.waitFor(/^CRT ready at /);
-  expect(again).toContain("CRT ready at http://localhost:4485 → http://localhost:3999 (");
+  expect(again).toContain("CRT ready at http://localhost:4485 → http://localhost:3999 (proxy; ");
   expect(Date.now() - started).toBeLessThan(15_000);
   expect(second.lines.some((l) => l.startsWith("Remembered "))).toBe(false);
   expect(second.lines.some((l) => l.startsWith("crt init:"))).toBe(false);
@@ -135,13 +137,13 @@ test("`crt 3999` starts with no prompt and remembers the target; the second run 
 
 test("a second start on the same target and project exits 0 with the reuse line while the first keeps serving (F-73)", async () => {
   const root = scratch("reuse", 4489);
-  const first = startCrt(root, ["--target", FIXTURE, "--yes"]);
+  const first = startCrt(root, ["proxy", "--target", FIXTURE, "--yes"]);
   await first.waitFor(/^CRT ready at http:\/\/localhost:4489 /);
   const before = await health(4489);
   // --target is the scripting form: never remembered (the chat spec relies on this too).
   expect(existsSync(join(root, ".crt", "config.local.json"))).toBe(false);
 
-  const second = startCrt(root, ["--target", FIXTURE, "--yes"]);
+  const second = startCrt(root, ["proxy", "--target", FIXTURE, "--yes"]);
   expect(await second.exited).toBe(0);
   const reuse = second.lines.find((l) => l.startsWith("CRT "));
   expect(reuse).toContain(`CRT ${VERSION} is already serving http://localhost:3999 for this project at http://localhost:4489 (since `);
@@ -165,9 +167,9 @@ test("a non-CRT listener on the port makes the next start take the next port and
   const root = scratch("busy", 4487);
   const plain = await listenPlain(4487);
   try {
-    const crt = startCrt(root, ["--target", FIXTURE, "--yes"]);
+    const crt = startCrt(root, ["proxy", "--target", FIXTURE, "--yes"]);
     const ready = await crt.waitFor(/^CRT ready at /);
-    expect(ready).toContain("CRT ready at http://localhost:4488 → http://localhost:3999 (");
+    expect(ready).toContain("CRT ready at http://localhost:4488 → http://localhost:3999 (proxy; ");
     expect(crt.lines).toContain("crt: port 4487 is in use by a process that is not CRT; using 4488");
     expect(await health(4488)).toMatchObject({ ok: true, target: FIXTURE });
     expect(await health(4487)).toBeNull();
@@ -178,22 +180,22 @@ test("a non-CRT listener on the port makes the next start take the next port and
 
 test("an explicit --port is never stepped around, and --replace stops the CRT on the port through the shutdown route (F-73, F-79)", async () => {
   const root = scratch("replace", 4483);
-  const first = startCrt(root, ["--target", FIXTURE, "--yes"]);
+  const first = startCrt(root, ["proxy", "--target", FIXTURE, "--yes"]);
   await first.waitFor(/^CRT ready at http:\/\/localhost:4483 /);
 
   const other = scratch("replace-other", 4483);
-  const refused = startCrt(other, ["--target", FIXTURE, "--yes", "--port", "4483"]);
+  const refused = startCrt(other, ["proxy", "--target", FIXTURE, "--yes", "--port", "4483"]);
   expect(await refused.exited).toBe(1);
   expect(refused.lines.find((l) => l.startsWith("crt: port 4483"))).toMatch(/^crt: port 4483 is already in use by CRT .* \(→ http:\/\/localhost:3999, project .*\) — stop the other process, run `crt --replace`, or pass --port <n>$/);
 
-  const stepped = startCrt(other, ["--target", FIXTURE, "--yes"]);
+  const stepped = startCrt(other, ["proxy", "--target", FIXTURE, "--yes"]);
   const ready = await stepped.waitFor(/^CRT ready at /);
   expect(ready).toContain("CRT ready at http://localhost:4484 →");
   expect(stepped.lines.find((l) => l.startsWith("crt: port 4483"))).toMatch(/^crt: port 4483 is held by another CRT \(→ http:\/\/localhost:3999, project .*\); using 4484$/);
   stepped.child.kill();
   await stepped.exited;
 
-  const replacing = startCrt(root, ["--target", FIXTURE, "--yes", "--replace"]);
+  const replacing = startCrt(root, ["proxy", "--target", FIXTURE, "--yes", "--replace"]);
   await replacing.waitFor(/^CRT ready at http:\/\/localhost:4483 /);
   expect(replacing.lines).toContain(`Stopped CRT ${VERSION} on port 4483.`);
   expect(await first.exited).toBe(0);
@@ -212,7 +214,7 @@ test("crt --version, crt help and an unknown command (F-69)", async () => {
   expect(await bogus.exited).toBe(2);
   expect(bogus.lines).toEqual(['crt: unknown command "bogus" — a target is a port, host:port or URL; `crt help` lists commands']);
   // A bad positional target is a usage error, not a probe.
-  const down = startCrt(root, ["--yes", "3998"]);
+  const down = startCrt(root, ["proxy", "--yes", "3998"]);
   expect(await down.exited).toBe(1);
   expect(down.lines).toContain("crt: target http://localhost:3998 is not responding — start your dev server there, or run `crt <port>`");
 });

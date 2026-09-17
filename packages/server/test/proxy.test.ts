@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { encodeFrame, readFrame, startFixture, type Fixture } from "../e2e/fixture/server.mjs";
 import { INJECT_TAGS, OVERLAY_TAG } from "../src/inject.js";
-import { createProxyServer } from "../src/proxy.js";
+import { createProxyServer, landingPage, requestingOrigin } from "../src/proxy.js";
 import { samplePost } from "./helpers/sample-capture.js";
 
 let fixture: Fixture;
@@ -16,11 +16,13 @@ let crt: string; // CRT origin
 let tmp: string;
 const overlayJs = 'console.log("overlay stub")';
 const earlyJs = 'console.log("early stub")';
+const loaderJs = 'console.log("loader stub")';
 
 beforeAll(async () => {
   tmp = mkdtempSync(join(tmpdir(), "crt-proxy-"));
   writeFileSync(join(tmp, "overlay.js"), overlayJs);
   writeFileSync(join(tmp, "early.js"), earlyJs);
+  writeFileSync(join(tmp, "loader.js"), loaderJs);
   fixture = await startFixture();
   proxy = createProxyServer({ target: fixture.url, projectRoot: tmp, overlayPath: join(tmp, "overlay.js") });
   await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
@@ -157,7 +159,9 @@ describe("CRT routes (F-4)", () => {
     expect(r.status).toBe(200);
     const health = JSON.parse(r.body.toString()) as Record<string, unknown>;
     expect(health).toMatchObject({ ok: true, target: fixture.url, projectRoot: tmp, provider: null, login: "unchecked", sessions: 0, tasks: 0 });
-    expect(Object.keys(health).sort()).toEqual(["login", "ok", "overlay", "projectRoot", "provider", "sessions", "startedAt", "target", "tasks", "tasksDir", "version"]);
+    // PRD-embedded F-93: `mode` and `app` (= `target`) join the payload; a bare proxy is proxy mode.
+    expect(health).toMatchObject({ mode: "proxy", app: fixture.url });
+    expect(Object.keys(health).sort()).toEqual(["app", "login", "mode", "ok", "overlay", "projectRoot", "provider", "sessions", "startedAt", "target", "tasks", "tasksDir", "version"]);
     // No version/startedAt/tasksDir were given to this bare proxy.
     expect(health.version).toBeNull();
     expect(health.startedAt).toBeNull();
@@ -180,7 +184,8 @@ describe("CRT routes (F-4)", () => {
 
   it("health's overlay object has the F-80 shape (F-78, F-80)", async () => {
     const health = JSON.parse((await raw("/__crt/health")).body.toString()) as { overlay: Record<string, unknown> };
-    expect(Object.keys(health.overlay).sort()).toEqual(["cspWarning", "fetched", "injected", "lastContentType"]);
+    // `loader` counts /__crt/loader.js requests (PRD-embedded F-93).
+    expect(Object.keys(health.overlay).sort()).toEqual(["cspWarning", "fetched", "injected", "lastContentType", "loader"]);
   });
 
   it("serves /__crt/overlay.js with no-cache headers", async () => {
@@ -431,5 +436,149 @@ describe("overlay-fetch timer (PRD-setup F-80)", () => {
     } finally {
       await q.close();
     }
+  });
+});
+
+describe("embedded mode (PRD-embedded F-91, F-93, F-94)", () => {
+  /** An embedded server of its own per case (the F-94 timer and line are per server). */
+  async function embedded(opts: { target?: string | null; version?: string } = {}): Promise<{ lines: string[]; origin: string; get: (path: string, headers?: Record<string, string>, method?: string) => Promise<Raw>; health: () => Promise<Record<string, unknown>>; server: ReturnType<typeof createProxyServer>; close: () => Promise<void> }> {
+    const lines: string[] = [];
+    const server = createProxyServer({ mode: "embedded", target: opts.target ?? null, version: opts.version ?? "0.4.0", projectRoot: tmp, overlayPath: join(tmp, "overlay.js"), log: (l) => lines.push(l), loaderTimeoutMs: 60 });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const origin = `http://localhost:${(server.address() as { port: number }).port}`;
+    const get = (path: string, headers: Record<string, string> = {}, method = "GET") =>
+      new Promise<Raw>((resolve, reject) => {
+        const req = httpRequest(origin + path, { headers, method }, (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c: Buffer) => chunks.push(c));
+          res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks) }));
+        });
+        req.on("error", reject);
+        req.end();
+      });
+    return {
+      lines,
+      origin,
+      get,
+      server,
+      health: async () => JSON.parse((await get("/__crt/health")).body.toString()) as Record<string, unknown>,
+      close: async () => {
+        server.closeAllConnections();
+        await new Promise<void>((r) => server.close(() => r()));
+      },
+    };
+  }
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const NEVER_LOADED = "crt: opened http://localhost:3000 but the page never loaded the CRT loader — add the integration (`crt init` prints the snippet, /crt:init applies it), or run `crt proxy`";
+
+  it("answers every non-/__crt/ request with the landing page — version, project, the app link, the two ways forward, no scripts (F-91)", async () => {
+    const e = await embedded({ target: "http://localhost:3000" });
+    try {
+      for (const path of ["/", "/app?x=1", "/deep/route"]) {
+        const r = await e.get(path);
+        expect(r.status, path).toBe(200);
+        expect(r.headers["content-type"]).toBe("text/html; charset=utf-8");
+        expect(r.headers["content-length"]).toBe(String(r.body.length));
+        const html = r.body.toString();
+        expect(html).toContain(`CRT 0.4.0 is running for ${tmp}. This is the CRT server, not your app.`);
+        expect(html).toContain('<a href="http://localhost:3000">Open http://localhost:3000</a> — the CRT button appears there once your app includes the CRT integration');
+        expect(html).toContain("Run <code>crt init</code> for the one-line snippet for your framework, or <code>crt proxy</code> to proxy your app instead.");
+        expect(html).not.toMatch(/<script/i);
+      }
+      // HEAD gets the headers only; a POST gets the page too (nothing is forwarded anywhere).
+      expect((await e.get("/", {}, "HEAD")).body.length).toBe(0);
+      expect((await e.get("/api/save", {}, "POST")).status).toBe(200);
+    } finally {
+      await e.close();
+    }
+    // No app known: no link, the rest unchanged.
+    expect(landingPage({ version: null, projectRoot: "C:\\my-app", app: null })).not.toContain("<a ");
+    expect(landingPage({ version: null, projectRoot: "C:\\my-app", app: null })).toContain("CRT is running for C:\\my-app. This is the CRT server, not your app.");
+    expect(landingPage({ version: "0.4.0", projectRoot: "C:\\<app>", app: null })).toContain("for C:\\&lt;app&gt;.");
+  });
+
+  it("serves /__crt/loader.js with CORS for a loopback origin and no-store, counts it in health, and refuses upgrades (F-93, F-94)", async () => {
+    const e = await embedded({ target: "http://localhost:3000" });
+    try {
+      const r = await e.get("/__crt/loader.js", { origin: "http://localhost:3000" });
+      expect(r.status).toBe(200);
+      expect(r.headers["content-type"]).toMatch(/^text\/javascript/);
+      expect(r.headers["cache-control"]).toContain("no-store");
+      expect(r.headers["access-control-allow-origin"]).toBe("http://localhost:3000");
+      expect(r.body.toString()).toBe(loaderJs);
+      expect((await e.get("/__crt/loader.js", { origin: "http://evil.example" })).headers["access-control-allow-origin"]).toBeUndefined();
+      const h = await e.health();
+      expect(h).toMatchObject({ ok: true, mode: "embedded", app: "http://localhost:3000", target: "http://localhost:3000", version: "0.4.0" });
+      expect(h.overlay).toMatchObject({ injected: 0, fetched: 0, loader: 2 });
+      // Health keys are the proxy-mode keys plus nothing else: the same story in both modes.
+      expect(Object.keys(h).sort()).toEqual(["app", "login", "mode", "ok", "overlay", "projectRoot", "provider", "sessions", "startedAt", "target", "tasks", "tasksDir", "version"]);
+      // Nothing to forward a WebSocket to.
+      const socket = connect({ host: "127.0.0.1", port: Number(new URL(e.origin).port) });
+      await new Promise<void>((r) => socket.once("connect", r));
+      socket.write("GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: abc\r\nSec-WebSocket-Version: 13\r\n\r\n");
+      const answer = await new Promise<string>((r) => socket.once("data", (c: Buffer) => r(c.toString())));
+      expect(answer).toMatch(/^HTTP\/1\.1 404/);
+      socket.destroy();
+    } finally {
+      await e.close();
+    }
+  });
+
+  it("health says `app: null` and `target: null` when no app is known (F-91, F-93)", async () => {
+    const e = await embedded({ target: null });
+    try {
+      expect(await e.health()).toMatchObject({ mode: "embedded", app: null, target: null });
+    } finally {
+      await e.close();
+    }
+  });
+
+  it("says once that the opened page never loaded the loader, 15 s (shortened) after CRT opened the browser (F-94)", async () => {
+    const e = await embedded({ target: "http://localhost:3000" });
+    try {
+      e.server.browserOpened("http://localhost:3000");
+      await sleep(150);
+      expect(e.lines).toEqual([NEVER_LOADED]);
+      e.server.browserOpened("http://localhost:3000");
+      await sleep(150);
+      expect(e.lines).toEqual([NEVER_LOADED]);
+    } finally {
+      await e.close();
+    }
+  });
+
+  it("stays silent when the loader (or the overlay) was requested in time, and names the page's origin on the F-75 line (F-94)", async () => {
+    const e = await embedded({ target: "http://localhost:3000" });
+    try {
+      e.server.browserOpened("http://localhost:3000");
+      await e.get("/__crt/loader.js", { referer: "http://localhost:3000/app" });
+      await sleep(150);
+      expect(e.lines).toEqual([]);
+      await e.get("/__crt/overlay.js", { referer: "http://localhost:3000/app" });
+      expect(e.lines).toEqual(["crt: overlay loaded in the browser (from http://localhost:3000)"]);
+      await e.get("/__crt/overlay.js", { origin: "http://127.0.0.1:5173" });
+      expect(e.lines).toHaveLength(1);
+    } finally {
+      await e.close();
+    }
+    const o = await embedded({ target: "http://localhost:3000" });
+    try {
+      o.server.browserOpened("http://localhost:3000");
+      await o.get("/__crt/overlay.js", { origin: "http://127.0.0.1:5173" });
+      await sleep(150);
+      expect(o.lines).toEqual(["crt: overlay loaded in the browser (from http://127.0.0.1:5173)"]);
+    } finally {
+      await o.close();
+    }
+    expect(requestingOrigin({ headers: {} })).toBe("an unknown origin");
+    expect(requestingOrigin({ headers: { referer: "not a url" } })).toBe("an unknown origin");
+    expect(requestingOrigin({ headers: { origin: "null", referer: "http://localhost:3000/x" } })).toBe("http://localhost:3000");
+  });
+
+  it("proxy mode is the default and still needs a target (F-92, N-21)", () => {
+    expect(() => createProxyServer({ target: null, projectRoot: tmp, overlayPath: join(tmp, "overlay.js") })).toThrow(/proxy mode needs a target/);
+    const p = createProxyServer({ target: "http://localhost:3000", projectRoot: tmp, overlayPath: join(tmp, "overlay.js") });
+    expect(typeof p.browserOpened).toBe("function");
+    p.browserOpened("http://localhost:3000"); // a no-op in proxy mode: F-80 owns that story
   });
 });

@@ -19,7 +19,7 @@ type Hooks = {
   framework(): { name: string; bundler: string; route: string | null; hints: string[] };
   consoleEntries(): Array<{ level: string; message: string; stack: string | null }>;
   networkEntries(): Array<{ method: string; url: string; status: number | null; error: string | null; via: string }>;
-  scriptTagMode(): boolean;
+  embeddedMode(): boolean;
   isOpen(): boolean;
   toggle(force?: boolean): void;
   setTool(t: "select" | "box" | "pin" | null): void;
@@ -133,7 +133,7 @@ test.describe("failed network requests (F-21)", () => {
     expect(validateCaptureBundle(bundle)).toEqual([]);
     expect(bundle.network.map((e) => e.via)).toEqual(expect.arrayContaining(["fetch", "xhr", "resource"]));
     expect(bundle.network.length).toBeLessThanOrEqual(50);
-    expect(await page.evaluate(() => window.__crt.scriptTagMode())).toBe(false);
+    expect(await page.evaluate(() => window.__crt.embeddedMode())).toBe(false);
   });
 });
 

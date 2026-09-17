@@ -23,18 +23,18 @@ The port is `port` from `.crt/config.local.json`, else from `.crt/config.json`, 
 Run **in the background** (the Bash tool's background mode; it keeps running until the user stops it):
 
 ```
-crt serve --open --yes                       # no argument: CRT finds the dev server, or remembers the last answer (PRD-setup F-71, F-72)
-crt serve --open --yes --target $ARGUMENTS   # argument given: 3000, localhost:3000 or a full URL
+crt proxy --open --yes                       # no argument: CRT finds the dev server, or remembers the last answer (PRD-setup F-71, F-72)
+crt proxy --open --yes --target $ARGUMENTS   # argument given: 3000, localhost:3000 or a full URL
 ```
 
-`--yes` makes every prompt take its default (this is not a terminal), `--open` opens the browser once ready.
+`crt proxy` is proxy mode (PRD-embedded F-92: the v0.3 flow; `crt` alone is embedded mode since v0.4 — this skill switches to it in M17). `--yes` makes every prompt take its default (this is not a terminal), `--open` opens the browser once ready.
 
 ## 2. Wait for the ready line
 
 The server prints one line:
 
 ```
-CRT ready at http://localhost:4400 → http://localhost:3000 (project: C:\my-app, 3 tasks in .crt\tasks, provider: claude (default), login: ok)
+CRT ready at http://localhost:4400 → http://localhost:3000 (proxy; project: C:\my-app, 3 tasks in .crt\tasks, provider: claude (default), login: ok)
 ```
 
 How long to wait: **30 s** when `npx --no crt` resolved; **up to 5 minutes** when the `npx -y` fallback ran — you cannot tell whether the download is cached, so tell the user meanwhile: "no local install of claude-review-tool — npx may be downloading it (~220 MB on a first run)…". While waiting, poll `curl -s http://localhost:<port>/__crt/health` on the port the ready line names (it may be 4401 when 4400 was held: the ready line always names the port actually bound) — it answers `{"ok":true,"target":…,"projectRoot":…,"tasksDir":…,"tasks":…,"provider":…,"login":…,"overlay":{…}}` once up.

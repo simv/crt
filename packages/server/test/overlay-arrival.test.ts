@@ -56,7 +56,7 @@ describe("welcome card (F-82)", () => {
   it("has the copy with live values from health, and the agent line per login state (F-82)", () => {
     const copy = welcomeCopy(health(), { name: "Claude", problem: null });
     expect(copy.title).toBe("CRT is on this page");
-    expect(copy.proxying).toBe("Proxying http://localhost:3000 for C:\\my-app. Tasks are written to .crt\\tasks (3 there now).");
+    expect(copy.where).toBe("Proxying http://localhost:3000 for C:\\my-app. Tasks are written to .crt\\tasks (3 there now).");
     expect(copy.agent).toBe("Agent: Claude — ready, logged in");
     expect(copy.steps).toEqual(["Open the toolbar: the CRT button, or Ctrl/Cmd+Shift+.", "Select, Box or Pin the thing.", "Type a note and Send."]);
     expect(welcomeCopy(health({ login: "missing" }), { name: "Claude", problem: "not logged in …" }).agent).toBe(
@@ -67,7 +67,18 @@ describe("welcome card (F-82)", () => {
     expect(welcomeCopy(health({ provider: "codex", login: "missing" }), { name: "Codex CLI", problem: "codex not logged in — run `codex login`" }).agent).toBe(
       "Agent: Codex CLI — codex not logged in — run `codex login`",
     );
-    expect(welcomeCopy(health({ tasks: 1 }), { name: null, problem: null }).proxying).toContain("(1 there now)");
+    expect(welcomeCopy(health({ tasks: 1 }), { name: null, problem: null }).where).toContain("(1 there now)");
+  });
+
+  it("reads `Talking to CRT at <origin> for <project>` in embedded mode, from health's mode, and keeps `Proxying …` in proxy mode (PRD-embedded F-95)", () => {
+    const embedded = welcomeCopy(health({ mode: "embedded", app: "http://localhost:3000" }), { name: "Claude", problem: null }, "http://localhost:4400");
+    expect(embedded.where).toBe("Talking to CRT at http://localhost:4400 for C:\\my-app. Tasks are written to .crt\\tasks (3 there now).");
+    expect(welcomeCopy(health({ mode: "embedded", app: null, target: null }), { name: "Claude", problem: null }, "http://localhost:4401").where).toBe(
+      "Talking to CRT at http://localhost:4401 for C:\\my-app. Tasks are written to .crt\\tasks (3 there now).",
+    );
+    expect(welcomeCopy(health({ mode: "proxy" }), { name: "Claude", problem: null }, "http://localhost:4400").where).toBe("Proxying http://localhost:3000 for C:\\my-app. Tasks are written to .crt\\tasks (3 there now).");
+    // A pre-v0.4 server sends no `mode`: it is a proxy.
+    expect(welcomeCopy(health(), { name: "Claude", problem: null }, "").where).toMatch(/^Proxying /);
   });
 
   it("prints the tasks directory relative to the project, on either separator (F-82)", () => {
@@ -77,12 +88,13 @@ describe("welcome card (F-82)", () => {
     expect(tasksLabel({ projectRoot: "/home/me/app", tasksDir: null })).toBe(".crt/tasks");
   });
 
-  it("is suppressed for the stub, script-tag mode, iframes, restored work, failed health, and once seen; keyed per project (F-82)", () => {
+  it("is suppressed for the stub, iframes, restored work, failed health, and once seen; shown embedded; keyed per project (F-82, F-95)", () => {
     const seen = () => false;
-    const ok = { health: health(), scriptTagMode: false, inIframe: false, restored: false, seen };
+    const ok = { health: health(), inIframe: false, restored: false, seen };
     expect(shouldShowWelcome(ok)).toBe(true);
     expect(shouldShowWelcome({ ...ok, health: health({ provider: "stub" }) })).toBe(false);
-    expect(shouldShowWelcome({ ...ok, scriptTagMode: true })).toBe(false);
+    // PRD-embedded F-95: the v0.3 "never in script-tag mode" rule is gone — embedded mode shows the card.
+    expect(shouldShowWelcome({ ...ok, health: health({ mode: "embedded" }) })).toBe(true);
     expect(shouldShowWelcome({ ...ok, inIframe: true })).toBe(false);
     expect(shouldShowWelcome({ ...ok, restored: true })).toBe(false);
     expect(shouldShowWelcome({ ...ok, health: "failed" })).toBe(false);

@@ -65,7 +65,8 @@ Inside Claude Code, `/crt:serve` does what `crt` does — it reuses a CRT that i
 
 ```
 crt [target] [--port <n>] [--open | --no-open] [--yes] [--replace] [--provider <id>]
-crt serve [target] [--target <url>] …          # the same command under its explicit name
+crt serve [target] [--target <url>] [--mode <embedded|proxy>] …   # the same command under its explicit name
+crt proxy [target] …                           # proxy your app through http://localhost:4400 instead (= crt serve --mode proxy)
 crt doctor                                     # checklist: node, project, .crt, target, port, providers, plugin
 crt setup [--claude <path>]                    # register the bundled Claude Code plugin (idempotent)
 crt --version                                  # crt <version> (agent sdk <version>)
@@ -73,8 +74,10 @@ crt --version                                  # crt <version> (agent sdk <versi
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `[target]` | auto | Dev server to proxy, as a positional: `3000`, `localhost:3000` or a full URL. Remembered in `.crt/config.local.json` once it responds; `crt <port>` switches it. |
-| `--target <url>` | auto | The same, as a flag (what scripts and the skills pass); never remembered. Without either, CRT reads `target` from `.crt/config.local.json`, then `.crt/config.json`, then probes ports 3000, 5173, 8080, 4200, 8000, 3001. On a terminal it asks when there are several or none and waits for the one you name. |
+| `[target]` | auto | Your app's URL, as a positional: `3000`, `localhost:3000` or a full URL — what CRT opens for you in embedded mode, what it proxies in proxy mode. Remembered in `.crt/config.local.json` once it responds; `crt <port>` switches it. |
+| `--target <url>` | auto | The same, as a flag (what scripts and the skills pass); never remembered. Without either, CRT reads `target` from `.crt/config.local.json`, then `.crt/config.json`, then probes ports 3000, 5173, 8080, 4200, 8000, 3001. In proxy mode a terminal asks when there are several or none and waits for the one you name; embedded mode never waits — it says what it found (or did not) and is ready either way. |
+| `crt proxy [target]` | | Proxy mode: the v0.3 experience for an app that cannot be touched — browse `http://localhost:4400`, CRT injects the overlay into every HTML page (WebSocket/HMR passthrough, CSP relaxing). The same flags as `crt`. |
+| `--mode <embedded\|proxy>` | `embedded` (or `mode` in `.crt/config.local.json` / `.crt/config.json`) | Which mode `crt serve` runs in; `crt proxy` is `--mode proxy`. Put `"mode": "proxy"` in `.crt/config.json` to make proxy mode a project's default. |
 | `--port <n>` | `4400` (or `port` in `.crt/config.local.json` / `.crt/config.json`) | Port CRT listens on. Always bound to `127.0.0.1`. Never stepped around; without it a held port falls back to 4401…4409. |
 | `--open` / `--no-open` | on for a terminal, off otherwise | Open the CRT URL in your default browser once ready. |
 | `--yes` | off | Never prompt: every question takes its default or fails with one `crt:` line (also the behaviour off a terminal or with `CI` set). |
@@ -84,7 +87,7 @@ crt --version                                  # crt <version> (agent sdk <versi
 | `crt setup [--claude <path>]` | `claude` on PATH | Registers the plugin bundled in the package with Claude Code and installs (or updates) `crt@crt`; says `already installed` when it is. `--claude` names the Claude Code executable when it is not on PATH. |
 | `crt --version` | | `crt 0.3.0 (agent sdk 0.3.270)`, read from local files — CRT never checks a registry. |
 
-On success it prints one line — `CRT ready at http://localhost:4400 → http://localhost:3000 (project: C:\my-app, 3 tasks in .crt\tasks, provider: claude (default), login: ok)` — and, on a terminal, `Open http://localhost:4400 → CRT button bottom-right (Ctrl/Cmd+Shift+.) → Select · note · Send. Ctrl+C stops CRT; your dev server keeps running.`, then keeps running until Ctrl+C (`Stopping CRT … 1 session ended; written task files are kept.`). When a CRT from an earlier session already serves the same project and target on the port, `crt` says `CRT <version> is already serving … — opened it.` and exits 0; when it serves something else, or the port is held by something that is not CRT, `crt` takes the next free port and says so (`crt: port 4400 is held by another CRT (→ <target>, project <root>); using 4401` / `crt: port 4400 is in use by a process that is not CRT; using 4401`). `crt` first runs `crt init`, which creates `.crt/tasks/`, `.crt/config.json` and adds `.crt/captures/` and `.crt/config.local.json` to `.gitignore` (idempotent; the first run prints `crt init: created … — commit .crt/`). Every failure is a single `crt: …` line on stderr and a non-zero exit — run `crt doctor` first, then see [Troubleshooting](#troubleshooting) for what each one means.
+On success it prints one line — `CRT ready at http://localhost:4400 for http://localhost:3000 (embedded; project: C:\my-app, 3 tasks in .crt\tasks, provider: claude (default), login: ok)` (`for <app>` is omitted when no dev server was found; `CRT ready at http://localhost:4400 → http://localhost:3000 (proxy; project: …)` under `crt proxy`) — and, on a terminal, `Open http://localhost:3000 → CRT button bottom-right (Ctrl/Cmd+Shift+.) → Select · note · Send. Ctrl+C stops CRT; your dev server keeps running.` (`Open http://localhost:4400 → …` in proxy mode), then keeps running until Ctrl+C (`Stopping CRT … 1 session ended; written task files are kept.`). In embedded mode the CRT button appears on your app's own URL once the page loads the CRT loader — `<script src="http://localhost:4400/__crt/loader.js"></script>` first in `<head>` of your development page (the framework entries and `crt init`'s snippet arrive with v0.4's later milestones); `http://localhost:4400` itself shows a landing page that says so, and when CRT opened your app but the page never asked for the loader it says `crt: opened http://localhost:3000 but the page never loaded the CRT loader — add the integration (\`crt init\` prints the snippet, /crt:init applies it), or run \`crt proxy\``. When a CRT from an earlier session already serves the same project in the same mode on the port, `crt` says `CRT <version> is already serving this project (embedded) at http://localhost:4400 (since 09:12) — opened http://localhost:3000.` (`CRT <version> is already serving … for this project at … — opened it.` in proxy mode) and exits 0; when it serves something else, or the port is held by something that is not CRT, `crt` takes the next free port and says so (`crt: port 4400 is held by another CRT (→ <target>, project <root>); using 4401` / `crt: port 4400 is in use by a process that is not CRT; using 4401`). `crt` first runs `crt init`, which creates `.crt/tasks/`, `.crt/config.json` and adds `.crt/captures/` and `.crt/config.local.json` to `.gitignore` (idempotent; the first run prints `crt init: created … — commit .crt/`). Every failure is a single `crt: …` line on stderr and a non-zero exit — run `crt doctor` first, then see [Troubleshooting](#troubleshooting) for what each one means.
 
 ### What Claude gets
 
@@ -240,13 +243,19 @@ The seven sections are fixed and in this order. The **Log** is append-only: ever
 
 ## Script-tag fallback
 
-The proxy needs nothing from your app, but some apps misbehave behind one (hard-coded absolute origins, cookies scoped to the port, strict CSP). Then load the overlay from your own origin instead:
+Since v0.4 this is the default, productised as **embedded mode** (`crt`): your app loads a small loader from the CRT server and the CRT button appears on your app's own URL — no proxied copy. The loader installs the console/network hooks at once, appends the overlay script from the running server, and shows a pill (`CRT server not running on :4400 — run \`crt\` in the project, then click here`) that retries on click or when the tab regains focus, so starting `crt` after the page is open needs no reload. For a page without a bundler, put the tag first in `<head>` of your development page:
+
+```html
+<script src="http://localhost:4400/__crt/loader.js"></script>
+```
+
+(`data-crt-port="4401"` on that tag when `port` in `.crt/config.json` is not 4400. With this form the script itself is missing when the server is down, so there is no pill — the pill needs the bundled ES module form, which the framework entries and `crt init`'s snippet bring in v0.4's later milestones.) The plain overlay tag still works too:
 
 ```html
 <script src="http://localhost:4400/__crt/overlay.js" defer></script>
 ```
 
-Run `crt serve --target http://localhost:3000` as usual, but keep browsing `http://localhost:3000`: the overlay reads the CRT origin from its own script tag and talks to the API cross-origin. The server allows this only for `localhost`, `*.localhost`, `127.0.0.1` and `[::1]` origins (any port, http or https); every other origin gets no CORS headers and its preflight is refused. In this mode the early error hook is not injected, so console errors and failed requests fired before the overlay script loads are missed — put the tag as early in `<head>` as you can.
+Either way, keep browsing `http://localhost:3000`: the overlay reads the CRT origin from its own script tag and talks to the API cross-origin. The server allows this only for `localhost`, `*.localhost`, `127.0.0.1` and `[::1]` origins (any port, http or https); every other origin gets no CORS headers and its preflight is refused. Console errors and failed requests fired before the loader runs are missed — put the tag as early in `<head>` as you can. `crt proxy` is the v0.3 experience for an app that cannot be touched: browse `http://localhost:4400` and CRT injects the overlay (and the early hook) into every HTML page.
 
 ## How it works
 

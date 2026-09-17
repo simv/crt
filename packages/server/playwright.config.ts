@@ -1,7 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
 // E2E smoke (PRD §9, task CRT-0001 Ask 8): the static fixture app sits behind a real
-// `crt serve --target`, and Chromium loads pages through the CRT origin.
+// `crt proxy --target` (PRD-embedded §13 decision 10: the primary servers stay in proxy mode until
+// M18 flips them; embedded.spec.ts spawns its own embedded server), and Chromium loads pages through the CRT origin.
 // Playwright starts the web servers in order, so the fixture is up before crt probes it.
 const FIXTURE_PORT = 3999;
 const CRT_PORT = 4499;
@@ -34,14 +35,14 @@ export default defineConfig({
       // e2e/fixture/crt.mjs runs `crt serve` from a scratch project (e2e/.project/) with the
       // scripted session driver, so the chat spec never needs a Claude login and nothing is
       // written under this repo's .crt/.
-      command: `node e2e/fixture/crt.mjs --target http://localhost:${FIXTURE_PORT} --port ${CRT_PORT}`,
+      command: `node e2e/fixture/crt.mjs --proxy --target http://localhost:${FIXTURE_PORT} --port ${CRT_PORT}`,
       url: `http://localhost:${CRT_PORT}/__crt/health`,
       reuseExistingServer: false,
       timeout: 15_000,
     },
     {
       // The same, with the stub in its `sandboxed` variant (chat.spec.ts "sandboxed stub" block).
-      command: `node e2e/fixture/crt.mjs --target http://localhost:${FIXTURE_PORT} --port ${CRT_SANDBOXED_PORT}`,
+      command: `node e2e/fixture/crt.mjs --proxy --target http://localhost:${FIXTURE_PORT} --port ${CRT_SANDBOXED_PORT}`,
       env: { CRT_SESSION_STUB: "sandboxed", CRT_E2E_PROJECT: "sandboxed" },
       url: `http://localhost:${CRT_SANDBOXED_PORT}/__crt/health`,
       reuseExistingServer: false,
@@ -50,7 +51,7 @@ export default defineConfig({
     {
       // The codex axis (chat.spec.ts "codex provider" block): no stub (the variable is present but
       // empty), the fake `codex` first on PATH, and the provider fixed by CRT_PROVIDER (F-43 step 2).
-      command: `node e2e/fixture/crt.mjs --target http://localhost:${FIXTURE_PORT} --port ${CRT_CODEX_PORT}`,
+      command: `node e2e/fixture/crt.mjs --proxy --target http://localhost:${FIXTURE_PORT} --port ${CRT_CODEX_PORT}`,
       env: { CRT_SESSION_STUB: "", CRT_PROVIDER: "codex", CRT_E2E_PROJECT: "codex", CRT_E2E_FAKE_CODEX: "1" },
       url: `http://localhost:${CRT_CODEX_PORT}/__crt/health`,
       reuseExistingServer: false,

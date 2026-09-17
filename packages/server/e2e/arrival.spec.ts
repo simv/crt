@@ -7,7 +7,7 @@ import { expect, test } from "@playwright/test";
 // PRD-setup F-80, F-81, F-82 (the M13 half of F-90): the launcher dot, the welcome card and the
 // "never fetched the overlay" line. The dot and the F-80 line need a server of their own (the
 // timer and the once-per-server lines are per server, and the dot must see its server die), so
-// those specs spawn `dist/cli.js serve --yes` from scratch projects with `CRT_SESSION_STUB=1` and
+// those specs spawn `dist/cli.js proxy --yes` (proxy mode: F-80 and the injected page are proxy-only, PRD-embedded F-92) from scratch projects with `CRT_SESSION_STUB=1` and
 // stdout captured, the way start.spec.ts does; ports 4470–4479 are this file's. The welcome card
 // is suppressed under the stub, so it is opened explicitly with `window.__crt.welcome()` on the
 // shared stub server (baseURL) and never shows on the pages the other specs load.
@@ -94,7 +94,7 @@ test.afterEach(async () => {
 
 test("launcher dot reaches `connected` with the project in its tooltip, and turns `unreachable` once its server is gone (F-81)", async ({ page }) => {
   const root = scratch("dot", 4471);
-  const crt = startCrt(root, ["--target", FIXTURE, "--yes"]);
+  const crt = startCrt(root, ["proxy", "--target", FIXTURE, "--yes"]);
   await crt.waitFor(/^CRT ready at http:\/\/localhost:4471 /);
   const projectRoot = (await health(4471))!.projectRoot as string;
 
@@ -128,8 +128,8 @@ test("`window.__crt.welcome()` shows the card with health's target, project and 
   const card = host.locator(".welcome");
   await expect(card).toBeVisible();
   await expect(card.locator("h2")).toHaveText("CRT is on this page");
-  await expect(card.locator("p.proxying")).toContainText(`Proxying ${h.target} for ${h.projectRoot}. Tasks are written to `);
-  await expect(card.locator("p.proxying")).toContainText(`(${h.tasks} there now).`);
+  await expect(card.locator("p.where")).toContainText(`Proxying ${h.target} for ${h.projectRoot}. Tasks are written to `);
+  await expect(card.locator("p.where")).toContainText(`(${h.tasks} there now).`);
   await expect(card.locator("p.agent")).toHaveText("Agent: Claude — login not checked yet; the first Send will tell you");
   await expect(card.locator("ol li")).toHaveText(["Open the toolbar: the CRT button, or Ctrl/Cmd+Shift+.", "Select, Box or Pin the thing.", "Type a note and Send."]);
   // The card sits above the launcher, never over it.
@@ -153,7 +153,7 @@ test("`window.__crt.welcome()` shows the card with health's target, project and 
 
 test("a page whose CSP blocks the overlay script produces the F-80 line and leaves overlay.fetched at 0 (F-80)", async ({ page }) => {
   const root = scratch("csp", 4473);
-  const crt = startCrt(root, ["--target", FIXTURE, "--yes"]);
+  const crt = startCrt(root, ["proxy", "--target", FIXTURE, "--yes"]);
   await crt.waitFor(/^CRT ready at http:\/\/localhost:4473 /);
 
   await page.goto("http://localhost:4473/csp-strict");
