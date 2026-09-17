@@ -1,10 +1,10 @@
 ---
 id: CRT-0018
 title: M14 — Install: plugin bundled in the package, crt setup, one version rule, README, release 0.3.0
-status: review
+status: done
 priority: normal
 created: 2026-09-16T14:50:00+08:00
-updated: 2026-09-16T23:25:00+08:00
+updated: 2026-09-17T00:05:00+08:00
 url: null
 route: null
 session: null
@@ -55,3 +55,4 @@ Lead install is global (PRD-setup §13 decision 3); keep the GitHub marketplace 
 - 2026-09-16T23:20+08:00 — verified: versions — `packages/server/package.json`, `plugin/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` (both fields) and `package-lock.json`'s workspace entry are `0.3.0`; `npm run check` exit 0 (typecheck, 36 files / 404 tests, build); `npm run e2e` 48/48 on Windows.
 - 2026-09-16T23:25+08:00 — prd-reviewer: NOT PR-READY on first pass because the §10 rows cited Log entries that had not been written yet (this Log was appended after the review) and the doctor claim needed its conditions; both fixed above. Its style nit — `it` titles without a requirement ID in setup/skill-pin/readme tests — fixed.
 - 2026-09-16T23:25+08:00 — ready for review: new packages/server/src/setup.ts, scripts/plugin-marketplace.mjs, e2e/fixture/fake-claude.mjs, test/{setup,skill-pin,readme,plugin-marketplace}.test.ts; changed src/cli.ts (`crt setup [--claude <path>]`), scripts/copy-intake.mjs, e2e/fixture/fake-codex-install.mjs (generic `installFakeBin`), the six plugin skills (`@0.3`), the three manifests + package-lock (0.3.0), .github/workflows/ci.yml, README.md, packages/server/README.md, CLAUDE.md, docs/PRD.md, docs/PRD-providers.md, docs/PRD-setup.md, .crt/tasks/CRT-0014 (Log line). Reviewer: after merge, `git tag v0.3.0 && git push origin v0.3.0`, promote on npmjs.com, then the Manual row (`npm i -g claude-review-tool@0.3.0 && crt setup` in a fresh `CLAUDE_CONFIG_DIR`); on Simon's own profile `crt setup` will replace the GitHub-sourced `crt` marketplace with the on-disk one (same name) and update `crt@crt` 0.1.0 → 0.3.0. Open question from the Notes stays open: making the repo public.
+- 2026-09-17T00:05+08:00 — done; merged in https://github.com/simv/crt/pull/39 (squash, 6f8f7f3; CI green on check ubuntu/windows and e2e ubuntu). Simon closed the task ("mark as done, commit and merge"). Closed by hand per CLAUDE.md (the done skill is user-invoked only). Still to do for the release: `git tag v0.3.0 && git push origin v0.3.0`, promote on npmjs.com, then the Manual row.
