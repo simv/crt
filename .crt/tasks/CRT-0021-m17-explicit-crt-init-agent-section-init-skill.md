@@ -1,10 +1,10 @@
 ---
 id: CRT-0021
 title: M17 — Explicit crt init (plan, .crt/README.md, CRT section in CLAUDE.md/AGENTS.md, snippet), /crt:init, embedded /crt:serve, doctor rows
-status: review
+status: done
 priority: high
 created: 2026-09-17T08:54:00+08:00
-updated: 2026-09-18T10:52:00+08:00
+updated: 2026-09-18T13:33:00+08:00
 url: null
 route: null
 session: null
@@ -60,3 +60,4 @@ No page capture: created from `docs/PRD-embedded.md` milestone M17 by the planni
 - 2026-09-18T10:50+08:00 — verified: skills row — `test/init-skill.test.ts` (frontmatter, the three steps, the four recipes, grep before editing, never commit, names no file outside the snippet targets, F-87 pins, F-58 rewrite) and `test/serve-skill.test.ts` (step 0 by projectRoot + mode, step ½ question and the two outcomes, `crt serve --open --yes` / `crt proxy …` under --proxy, the F-93 ready lines, the relayed "no dev server" line, the F-105 step-4 sentence, the four-line reply with the embedded first line and the "no dev server found" suffix); `test/session-start-hook.test.ts` F-106 rows (the line when neither file carries the marker, silent when either does or .crt/tasks is absent or a file, third after backlog and drift).
 - 2026-09-18T10:50+08:00 — verified: dogfood row — `.crt/README.md` and the CRT section in CLAUDE.md are the built `crt init`'s output (transcript above), not hand-written; the prd-reviewer subagent confirmed both byte-identical to `readmeTemplate("0.3.0")` / `instructionsBlock("0.3.0")` from dist.
 - 2026-09-18T10:52+08:00 — ready for review: changed packages/server/src/{init,start,serve,cli,args,doctor,setup,skills}.ts, packages/server/e2e/{fixture/crt.mjs,start.spec.ts}, packages/server/test/{project-init,instructions-block (new),init-skill (new),doctor,start,serve-skill,session-start-hook,readme,skill-pin,plugin-marketplace,skills,setup}.test.ts, plugin/skills/{init (new),serve}/SKILL.md, plugin/hooks/session-start.mjs, plugin/.claude-plugin/plugin.json, README.md (minimal: the "CRT is not set up" entry, the F-103 rows, the flags rows, /crt:init in the F-86 line, seven skills), CLAUDE.md (Don'ts N-19 line, seven skills, the dogfood section), .claude/agents/prd-reviewer.md (N-5 row), .crt/README.md (new, dogfood). Reviewer notes: `describeInit` is gone (F-75 line retired per §9); the `crt init` provider resolution spawns preflight only when a file must be created; the Manual (Simon) row is left unticked; `packages/server/claude-review-tool-0.3.0.tgz` appeared untracked in the working tree during this session (not mine, not staged). prd-reviewer: PR-READY WITH NOTES (the note — no direct unit test of cli.ts's `crt tasks` branch — is now covered by the e2e row).
+- 2026-09-18T13:33+08:00 — done; merged in https://github.com/simv/crt/pull/52
