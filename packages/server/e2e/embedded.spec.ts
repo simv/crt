@@ -6,13 +6,16 @@ import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
 import type { SessionEvent } from "../src/session-events.js";
 import { validateTaskText, writeIndex } from "../src/tasks.js";
+import { CRT_ORIGIN, FIXTURE_ORIGIN } from "../playwright.config.js";
 
 // PRD-embedded M15 (the server/overlay half of F-110): embedded mode end to end.
-//   1. The cross-origin loop on the shared server (baseURL, which serves /__crt/loader.js in either
-//      mode): the fixture's /embedded page loads the loader from CRT, the loader's hooks catch a
-//      console.error fired before the overlay script executes, the launcher shows on the app's own
-//      origin, a full Send streams the chat and writes a task file, and a reload re-attaches the
-//      thread (F-95, F-96).
+//   1. The cross-origin loop on the shared embedded server (CRT_ORIGIN; since M18 every browser
+//      spec runs this way on the app origin, baseURL): the fixture's /embedded page loads the
+//      loader from CRT, the loader's hooks catch a console.error fired before the overlay script
+//      executes, the launcher shows on the app's own origin, a full Send streams the chat and
+//      writes a task file, and a reload re-attaches the thread (F-95, F-96). The plain overlay tag
+//      (F-6, the pre-loader script-tag form, still documented) is covered here too — this block
+//      absorbed script-tag.spec.ts in M18.
 //   2. A server of its own (the start.spec.ts pattern: `dist/cli.js serve --yes` from a scratch
 //      project, CRT_SESSION_STUB=1, stdout captured): health `mode: "embedded"`, the landing page at
 //      /, the F-93 ready and reuse lines, the F-94 line when CRT "opened" (CRT_BROWSER, a no-op
@@ -23,7 +26,7 @@ import { validateTaskText, writeIndex } from "../src/tasks.js";
 const here = dirname(fileURLToPath(import.meta.url));
 const CLI = join(here, "..", "dist", "cli.js");
 const LOADER_SRC = join(here, "..", "..", "overlay", "src", "loader.ts");
-const FIXTURE = "http://localhost:3999";
+const FIXTURE = FIXTURE_ORIGIN;
 const NEVER_LOADED = "crt: opened http://localhost:3999 but the page never loaded the CRT loader — add the integration (`crt init` prints the snippet, /crt:init applies it), or run `crt proxy`";
 
 type Snapshot = { sessionId: string | null; state: string | null; taskId: string | null; events: SessionEvent[] };
@@ -126,17 +129,17 @@ test.describe("embedded mode on the shared server (F-95, F-96)", () => {
     await page.evaluate(() => window.__crt.chat.discard()).catch(() => undefined);
   });
 
-  test("the loader is fetched, a console.error fired before the overlay ran is captured, the launcher shows on the app origin, Send streams and writes a task, a reload re-attaches (F-95, F-96)", async ({ page, baseURL, request }) => {
-    const loaderBefore = ((await (await request.get("/__crt/health")).json()) as { overlay: { loader: number } }).overlay.loader;
-    await page.goto(`${FIXTURE}/embedded?crt=${baseURL}`);
+  test("the loader is fetched, a console.error fired before the overlay ran is captured, the launcher shows on the app origin, Send streams and writes a task, a reload re-attaches (F-95, F-96)", async ({ page, request }) => {
+    const loaderBefore = ((await (await request.get(`${CRT_ORIGIN}/__crt/health`)).json()) as { overlay: { loader: number } }).overlay.loader;
+    await page.goto(`${FIXTURE}/embedded?crt=${CRT_ORIGIN}`);
     await expect(page.locator("#crt-host")).toBeAttached();
     expect(await page.evaluate(() => window.__crt.embeddedMode())).toBe(true);
-    expect(await page.evaluate(() => window.__crt.crtOrigin())).toBe(baseURL);
-    expect(await page.evaluate(() => window.__crt.loader?.origin)).toBe(baseURL);
+    expect(await page.evaluate(() => window.__crt.crtOrigin())).toBe(CRT_ORIGIN);
+    expect(await page.evaluate(() => window.__crt.loader?.origin)).toBe(CRT_ORIGIN);
     await expect(shadow(page, ".launcher")).toBeVisible();
     await expect(shadow(page, ".launcher")).toHaveAttribute("data-health", "connected");
     // F-93: health counts the loader request; nothing was injected (no proxy).
-    const h = (await (await request.get("/__crt/health")).json()) as { overlay: { loader: number; injected: number } };
+    const h = (await (await request.get(`${CRT_ORIGIN}/__crt/health`)).json()) as { overlay: { loader: number; injected: number } };
     expect(h.overlay.loader).toBeGreaterThan(loaderBefore);
     // F-96 step 3: the loader's hooks caught what the page logged after the loader tag and before the deferred
     // overlay executed (the head inline error and /app's body inline error); what ran before the loader tag
@@ -177,7 +180,7 @@ test.describe("embedded mode on the shared server (F-95, F-96)", () => {
     const snap = await page.evaluate(() => window.__crt.chat.snapshot());
     const written = snap.events.find((e) => e.type === "task_written") as Extract<SessionEvent, { type: "task_written" }>;
     expect(written.path).toMatch(/^\.crt\/tasks\/CRT-\d{4}-.*\.md$/);
-    const root = ((await (await request.get("/__crt/health")).json()) as { projectRoot: string }).projectRoot;
+    const root = ((await (await request.get(`${CRT_ORIGIN}/__crt/health`)).json()) as { projectRoot: string }).projectRoot;
     const tasksDir = join(root, ".crt", "tasks");
     const file = join(root, written.path);
     try {
@@ -188,6 +191,30 @@ test.describe("embedded mode on the shared server (F-95, F-96)", () => {
       rmSync(join(tasksDir, "assets", written.id), { recursive: true, force: true });
       writeIndex(tasksDir);
     }
+  });
+
+  test("the plain overlay tag (F-6) still loads the overlay from another local origin and runs a full Send cross-origin", async ({ page }) => {
+    // The pre-loader script-tag form: <script src="<crt>/__crt/overlay.js" defer>, no loader, no pill.
+    await page.goto(`${FIXTURE}/script-tag?crt=${CRT_ORIGIN}`);
+    await expect(page.locator("#crt-host")).toBeAttached();
+    expect(await page.evaluate(() => window.__crt.embeddedMode())).toBe(true);
+    expect(await page.evaluate(() => window.__crt.crtOrigin())).toBe(CRT_ORIGIN);
+    expect(await page.evaluate(() => window.__crt.loader)).toBeUndefined();
+    await expect(shadow(page, ".launcher")).toBeVisible();
+
+    await page.evaluate(() => {
+      window.__crt.addSelect("#heading");
+      window.__crt.setNote(1, "loaded by a script tag");
+    });
+    const sent = await page.evaluate(() => window.__crt.send());
+    expect(sent.id).toMatch(/^\d{8}-\d{6}-[a-f0-9]{4}$/);
+    await expect(shadow(page, ".chat")).toBeVisible();
+    // The SSE stream and the first message arrive cross-origin; the page URL is the app's own origin.
+    await expect(shadow(page, ".msg.user").first()).toContainText(`CRT intake for capture ${sent.id}`);
+    await expect(shadow(page, ".msg.user").first()).toContainText(`Page: ${FIXTURE}/script-tag`);
+    await expect(shadow(page, ".perm")).toBeVisible();
+    // Nothing the overlay did leaked into the page's console as an error (a CORS failure would).
+    expect((await page.evaluate(() => window.__crt.consoleEntries())).filter((e) => e.level === "error")).toEqual([]);
   });
 });
 

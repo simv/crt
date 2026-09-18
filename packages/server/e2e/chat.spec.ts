@@ -7,9 +7,12 @@ import { CODEX_CAPABILITIES, codexProfile } from "../src/providers/codex.js";
 import { stubProfile } from "../src/providers/stub.js";
 import type { ProvidersPayload, SessionEvent } from "../src/session-events.js";
 import { parseTask, validateTaskText, writeIndex } from "../src/tasks.js";
-import { CRT_CODEX_PORT, CRT_SANDBOXED_PORT } from "../playwright.config.js";
+import { CRT_CODEX_PORT, CRT_ORIGIN, CRT_SANDBOXED_PORT } from "../playwright.config.js";
 
-// M3 (task CRT-0003 Ask 7): Send opens the chat panel on an intake session. The server runs
+// M3 (task CRT-0003 Ask 7): Send opens the chat panel on an intake session. The pages are the
+// fixture's on the app's own origin (baseURL) and load the overlay from the embedded CRT server
+// through the loader tag (PRD-embedded F-110, M18), so every API call and the SSE stream below go
+// cross-origin; the requests this file makes itself name the CRT origin. The server runs
 // with CRT_SESSION_STUB=1 (e2e/fixture/crt.mjs), so the `stub` provider is resolved (F-43 step 0)
 // and the events come from the scripted driver in src/providers/stub.ts rather than the Agent
 // SDK, but the transport (SSE), the permission policy (F-26), the task writer (F-23, F-32, F-34)
@@ -42,8 +45,8 @@ declare global {
 
 const shadow = (page: Page, sel: string) => page.locator("#crt-host").locator(sel);
 
-async function projectRoot(page: Page): Promise<string> {
-  const res = await page.request.get("/__crt/health");
+async function projectRoot(page: Page, crt = CRT_ORIGIN): Promise<string> {
+  const res = await page.request.get(`${crt}/__crt/health`);
   return ((await res.json()) as { projectRoot: string }).projectRoot;
 }
 
@@ -281,7 +284,7 @@ test.describe("chat panel (F-24, F-25, F-26, F-28, F-29)", () => {
     // F-66: Discard is the one action that also removes the annotation.
     expect(await page.evaluate(() => window.__crt.annotations())).toEqual([]);
     await expect(shadow(page, ".num-badge")).toHaveCount(0);
-    const res = await page.request.get(`/__crt/sessions/${before.sessionId}`);
+    const res = await page.request.get(`${CRT_ORIGIN}/__crt/sessions/${before.sessionId}`);
     expect(((await res.json()) as { session: { state: string } }).session.state).toBe("ended");
   });
 });
@@ -353,7 +356,7 @@ test.describe("anchored threads (F-65, F-66, F-67, F-68)", () => {
     const list = await page.evaluate(() => window.__crt.sessions.list());
     for (const t of threads) {
       expect(list.find((s) => s.id === t.sessionId)?.state).not.toBe("ended");
-      await page.request.delete(`/__crt/sessions/${t.sessionId}`);
+      await page.request.delete(`${CRT_ORIGIN}/__crt/sessions/${t.sessionId}`);
     }
   });
 
@@ -531,23 +534,33 @@ test.describe("provider UX on the stub axis (F-46, F-47, F-49, F-56, F-57, F-61)
       rmSync(local, { force: true });
     }
     // N-8: the page cannot set anything but the two keys or a non-built-in id.
-    expect((await page.request.put("/__crt/config", { data: { provider: { kind: "acp", command: "evil" } } })).status()).toBe(400);
-    expect((await page.request.put("/__crt/config", { data: { provider: "nope" } })).status()).toBe(400);
-    expect((await page.request.put("/__crt/config", { data: { models: { claude: "has space" } } })).status()).toBe(400);
-    expect((await page.request.put("/__crt/config", { data: { providers: { codex: { command: ["x"] } } } })).status()).toBe(400);
-    expect(((await (await page.request.get("/__crt/health")).json()) as { provider: string }).provider).toBe("stub");
+    expect((await page.request.put(`${CRT_ORIGIN}/__crt/config`, { data: { provider: { kind: "acp", command: "evil" } } })).status()).toBe(400);
+    expect((await page.request.put(`${CRT_ORIGIN}/__crt/config`, { data: { provider: "nope" } })).status()).toBe(400);
+    expect((await page.request.put(`${CRT_ORIGIN}/__crt/config`, { data: { models: { claude: "has space" } } })).status()).toBe(400);
+    expect((await page.request.put(`${CRT_ORIGIN}/__crt/config`, { data: { providers: { codex: { command: ["x"] } } } })).status()).toBe(400);
+    expect(((await (await page.request.get(`${CRT_ORIGIN}/__crt/health`)).json()) as { provider: string }).provider).toBe("stub");
   });
 
   test("the internal write_task route refuses browsers and stale tokens, and the server log never carries a token (F-49, N-8)", async ({ page }) => {
     await sendAndWaitForPermission(page);
-    // From the page (Origin present): 403 before anything is read.
-    const fromPage = await page.evaluate(async (path) => {
-      const r = await fetch(path, { method: "POST", headers: { authorization: "Bearer whatever", "content-type": "application/json" }, body: "{}" });
-      return { status: r.status, body: await r.text() };
-    }, INTERNAL_WRITE_TASK_PATH);
-    expect(fromPage).toEqual({ status: 403, body: "" });
+    // From the page (Origin present): 403 before anything is read — cross-origin since M18 (F-110),
+    // so the browser's preflight is what meets the 403 and the fetch itself never gets a response
+    // (N-22: the app origin has exactly the access the proxied origin had — none, here).
+    const fromPage = await page.evaluate(async (url) => {
+      try {
+        const r = await fetch(url, { method: "POST", headers: { authorization: "Bearer whatever", "content-type": "application/json" }, body: "{}" });
+        return { status: r.status, body: await r.text() };
+      } catch (e) {
+        return { error: (e as Error).name };
+      }
+    }, `${CRT_ORIGIN}${INTERNAL_WRITE_TASK_PATH}`);
+    expect(fromPage).toEqual({ error: "TypeError" });
+    // The same request with an Origin header, off the browser: the 403 itself, empty body.
+    const withOrigin = await page.request.post(`${CRT_ORIGIN}${INTERNAL_WRITE_TASK_PATH}`, { headers: { origin: new URL(page.url()).origin, authorization: "Bearer whatever" }, data: {} });
+    expect(withOrigin.status()).toBe(403);
+    expect(await withOrigin.text()).toBe("");
     // From a non-browser client with a wrong token: 404, empty body, one N-7 log line.
-    const stale = await page.request.post(INTERNAL_WRITE_TASK_PATH, { headers: { authorization: "Bearer not-a-token" }, data: {} });
+    const stale = await page.request.post(`${CRT_ORIGIN}${INTERNAL_WRITE_TASK_PATH}`, { headers: { authorization: "Bearer not-a-token" }, data: {} });
     expect(stale.status()).toBe(404);
     expect(await stale.text()).toBe("");
     const log = readFileSync(join(await projectRoot(page), "crt-serve.log"), "utf8");
@@ -556,20 +569,21 @@ test.describe("provider UX on the stub axis (F-46, F-47, F-49, F-56, F-57, F-61)
     expect(log).not.toMatch(/[A-Za-z0-9_-]{43}/); // a 32-byte base64url token never reaches the log
     // Nor does it reach the page: the session info and events carry no token.
     const snap = await page.evaluate(() => window.__crt.chat.snapshot());
-    const info = await (await page.request.get(`/__crt/sessions/${snap.sessionId}`)).text();
+    const info = await (await page.request.get(`${CRT_ORIGIN}/__crt/sessions/${snap.sessionId}`)).text();
     expect(info).not.toMatch(/token/i);
     expect(JSON.stringify(snap.events)).not.toMatch(/[A-Za-z0-9_-]{43}/);
   });
 });
 
 test.describe("sandboxed stub (F-46, F-50, F-51, F-61)", () => {
-  test.use({ baseURL: `http://localhost:${CRT_SANDBOXED_PORT}` });
+  // The same app origin; the page asks for the sandboxed server's loader with `?crt=` (F-110).
+  const SANDBOXED = `http://localhost:${CRT_SANDBOXED_PORT}`;
   test.afterEach(async ({ page }) => {
     await page.evaluate(() => window.__crt.chat.discard()).catch(() => undefined);
   });
 
   test("no Allow/Deny cards, a read-only badge, instructions in the first message, images by path, a valid task (F-46, F-50, F-51, F-61)", async ({ page }) => {
-    await page.goto("/app");
+    await page.goto(`/app?crt=${SANDBOXED}`);
     await page.evaluate(() => {
       window.__crt.addSelect("[data-testid=card-1] .price");
       window.__crt.setNote(1, "total excludes discount");
@@ -609,7 +623,7 @@ test.describe("sandboxed stub (F-46, F-50, F-51, F-61)", () => {
     await expect(shadow(page, ".chat-task b")).toHaveText(/^CRT-\d{4}$/);
     const after = await page.evaluate(() => window.__crt.chat.snapshot());
     const written = after.events.find((e) => e.type === "task_written") as Extract<SessionEvent, { type: "task_written" }>;
-    const root = await projectRoot(page);
+    const root = await projectRoot(page, SANDBOXED);
     const tasksDir = join(root, ".crt", "tasks");
     try {
       const text = readFileSync(join(root, written.path), "utf8");
@@ -624,21 +638,21 @@ test.describe("sandboxed stub (F-46, F-50, F-51, F-61)", () => {
 });
 
 test.describe("codex provider on the fake codex CLI (F-49, F-53, F-56, F-61)", () => {
-  test.use({ baseURL: `http://localhost:${CRT_CODEX_PORT}` });
+  const CODEX = `http://localhost:${CRT_CODEX_PORT}`;
   test.afterEach(async ({ page }) => {
     await page.evaluate(() => window.__crt.chat.discard()).catch(() => undefined);
   });
 
   test("Send to Codex: replayed text and tool lines, the read-only badge and no cards, a resumable thread id in the footer that survives a reload, write_task through crt mcp, Stop kills the turn (F-49, F-53, F-56, F-61)", async ({ page }) => {
     // F-43 step 2 / F-57: the server runs on codex and says so.
-    const health = (await (await page.request.get("/__crt/health")).json()) as { provider: string };
+    const health = (await (await page.request.get(`${CODEX}/__crt/health`)).json()) as { provider: string };
     expect(health.provider).toBe("codex");
-    const payload = (await (await page.request.get("/__crt/providers")).json()) as ProvidersPayload;
+    const payload = (await (await page.request.get(`${CODEX}/__crt/providers`)).json()) as ProvidersPayload;
     expect(payload.active).toBe("codex");
     expect(payload.providers.find((p) => p.id === "codex")).toMatchObject({ installed: true, loggedIn: true, version: "0.154.0", problem: null, capabilities: CODEX_CAPABILITIES });
     expect(payload.providers.map((p) => p.id)).toEqual(["claude", "codex"]); // no stub without CRT_SESSION_STUB (F-42)
 
-    await page.goto("/app");
+    await page.goto(`/app?crt=${CODEX}`);
     await shadow(page, ".launcher").click();
     await expect(shadow(page, ".pop.page [data-action=send]")).toHaveText(`Send to ${codexProfile.displayName}`);
     await page.evaluate(() => {
@@ -694,7 +708,7 @@ test.describe("codex provider on the fake codex CLI (F-49, F-53, F-56, F-61)", (
     expect(after.events.filter((e) => e.type === "task_written")).toHaveLength(1);
     expect(after.events.filter((e) => e.type === "init")).toHaveLength(1);
     expect(after.events.filter((e) => e.type === "error")).toEqual([]);
-    const root = await projectRoot(page);
+    const root = await projectRoot(page, CODEX);
     const tasksDir = join(root, ".crt", "tasks");
     try {
       const text = readFileSync(join(root, written.path), "utf8");

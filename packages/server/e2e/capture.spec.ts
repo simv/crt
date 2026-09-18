@@ -2,10 +2,13 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { type CaptureBundle, validateCaptureBundle } from "../src/capture-schema.js";
+import { CRT_ORIGIN, FIXTURE_ORIGIN } from "../playwright.config.js";
 
-// M2 (task CRT-0002 Ask 8): the fixture's /app and /react pages go through `crt serve`, and the
-// overlay is driven through its `window.__crt` hooks plus real pointer/keyboard input.
-// Everything here runs on the same machine as the server, so written captures are read from disk.
+// M2 (task CRT-0002 Ask 8): the fixture's /app and /react pages are loaded on the app's own origin
+// (baseURL) with the overlay coming from the embedded `crt serve` through the loader tag
+// (PRD-embedded F-110, M18), and the overlay is driven through its `window.__crt` hooks plus real
+// pointer/keyboard input. Everything here runs on the same machine as the server, so written
+// captures are read from disk.
 
 type Hooks = {
   annotations(): Array<{ n: number; kind: string; note: string; label: string | null; detached: boolean }>;
@@ -43,7 +46,7 @@ declare global {
 const shadow = (page: Page, sel: string) => page.locator("#crt-host").locator(sel);
 
 async function projectRoot(page: Page): Promise<string> {
-  const res = await page.request.get("/__crt/health");
+  const res = await page.request.get(`${CRT_ORIGIN}/__crt/health`);
   return ((await res.json()) as { projectRoot: string }).projectRoot;
 }
 
@@ -133,7 +136,8 @@ test.describe("failed network requests (F-21)", () => {
     expect(validateCaptureBundle(bundle)).toEqual([]);
     expect(bundle.network.map((e) => e.via)).toEqual(expect.arrayContaining(["fetch", "xhr", "resource"]));
     expect(bundle.network.length).toBeLessThanOrEqual(50);
-    expect(await page.evaluate(() => window.__crt.embeddedMode())).toBe(false);
+    // F-95: the overlay came from the loader on the app's origin, not from injection.
+    expect(await page.evaluate(() => window.__crt.embeddedMode())).toBe(true);
   });
 });
 
@@ -321,7 +325,7 @@ test.describe("capture and send (F-13, F-15…F-20, F-22, F-23)", () => {
 
       // F-15
       expect(bundle.page).toMatchObject({ pathname: "/app", title: "CRT fixture app", query: "", hash: "" });
-      expect(bundle.page.url).toBe("http://localhost:4499/app");
+      expect(bundle.page.url).toBe(`${FIXTURE_ORIGIN}/app`);
       expect(bundle.page.viewport.width).toBeGreaterThan(0);
       expect(bundle.page.userAgent).toContain("Chrome");
 
