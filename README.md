@@ -28,6 +28,35 @@ Other ways to install:
 
 **Older task files:** v0.2 added `provider:` to the task frontmatter and made the validator ignore unknown keys. A project pinned to `claude-review-tool@0.1.x` fails `crt task --validate` on files written by 0.2 or later — update to `0.2.0` or newer.
 
+## Add CRT to your app
+
+Embedded mode (the default since v0.4) needs one dev-only line in the app, so the CRT button appears on the app's own URL. Install the package in the project (`npm i -D claude-review-tool`; `react` and `vite` are optional peer dependencies) and pick the form for your setup — `crt init` will print it for you from v0.4's next milestone:
+
+```tsx
+// Next.js (App Router) — app/layout.tsx
+import { CrtDevTools } from "claude-review-tool/react";
+…
+<body>{children}<CrtDevTools /></body>
+```
+
+```ts
+// Vite — vite.config.ts
+import { crt } from "claude-review-tool/vite";
+export default defineConfig({ plugins: [react(), crt()] });
+```
+
+```ts
+// any bundled app — the client entry (src/main.tsx, src/index.ts, …)
+import { mountCrt } from "claude-review-tool/loader";
+if (process.env.NODE_ENV !== "production") mountCrt();   // the guard is optional (F-98); it lets the bundler drop the import
+```
+
+`<CrtDevTools />` renders nothing and mounts the loader from its first effect, so the console/network hooks start capturing once the tree has hydrated; `crt()` prepends the loader module to `<head>` under `vite` only, before the app's own module runs; `mountCrt()` is the loader itself and captures from wherever you call it — as early in the client entry as you can. Each takes `{ port }` (or `{ origin }`) when `port` in `.crt/config.json` is not 4400; the Vite plugin reads the config files itself. For a page without a bundler, see [Script-tag fallback](#script-tag-fallback).
+
+## Production
+
+Nothing from CRT ships in a production build of an app that uses any of the entries, in four layers, each sufficient on its own: (1) the package's `production` export condition maps `claude-review-tool/loader` and `claude-review-tool/react` to no-op modules with the same exports — Vite, webpack 5 / Next, Rspack, Turbopack and esbuild (`--conditions=production`) honour it; (2) every entry's body sits behind `process.env.NODE_ENV !== "production"`, which those bundlers define statically, so the loader code is dropped even where the condition is not; (3) `mountCrt` does nothing unless the page is on `localhost`, `*.localhost`, `127.0.0.1` or `[::1]`; (4) the Vite plugin is `apply: "serve"`, and the script tag lives in the development page only. Verify any build with `grep -r "__crt" dist/` (or `.next/static`) after a production build — it finds nothing — and by checking that the production page never requests the CRT port. The package's own test builds a fixture app with esbuild 0.25 and Vite 8 and asserts the outputs contain none of `__crt`, `/loader.js`, `overlay.js`, `mountCrt`, `4400`.
+
 ## The loop
 
 ```bash
@@ -87,7 +116,7 @@ crt --version                                  # crt <version> (agent sdk <versi
 | `crt setup [--claude <path>]` | `claude` on PATH | Registers the plugin bundled in the package with Claude Code and installs (or updates) `crt@crt`; says `already installed` when it is. `--claude` names the Claude Code executable when it is not on PATH. |
 | `crt --version` | | `crt 0.3.0 (agent sdk 0.3.270)`, read from local files — CRT never checks a registry. |
 
-On success it prints one line — `CRT ready at http://localhost:4400 for http://localhost:3000 (embedded; project: C:\my-app, 3 tasks in .crt\tasks, provider: claude (default), login: ok)` (`for <app>` is omitted when no dev server was found; `CRT ready at http://localhost:4400 → http://localhost:3000 (proxy; project: …)` under `crt proxy`) — and, on a terminal, `Open http://localhost:3000 → CRT button bottom-right (Ctrl/Cmd+Shift+.) → Select · note · Send. Ctrl+C stops CRT; your dev server keeps running.` (`Open http://localhost:4400 → …` in proxy mode), then keeps running until Ctrl+C (`Stopping CRT … 1 session ended; written task files are kept.`). In embedded mode the CRT button appears on your app's own URL once the page loads the CRT loader — `<script src="http://localhost:4400/__crt/loader.js"></script>` first in `<head>` of your development page (the framework entries and `crt init`'s snippet arrive with v0.4's later milestones); `http://localhost:4400` itself shows a landing page that says so, and when CRT opened your app but the page never asked for the loader it says `crt: opened http://localhost:3000 but the page never loaded the CRT loader — add the integration (\`crt init\` prints the snippet, /crt:init applies it), or run \`crt proxy\``. When a CRT from an earlier session already serves the same project in the same mode on the port, `crt` says `CRT <version> is already serving this project (embedded) at http://localhost:4400 (since 09:12) — opened http://localhost:3000.` (`CRT <version> is already serving … for this project at … — opened it.` in proxy mode) and exits 0; when it serves something else, or the port is held by something that is not CRT, `crt` takes the next free port and says so (`crt: port 4400 is held by another CRT (→ <target>, project <root>); using 4401` / `crt: port 4400 is in use by a process that is not CRT; using 4401`). `crt` first runs `crt init`, which creates `.crt/tasks/`, `.crt/config.json` and adds `.crt/captures/` and `.crt/config.local.json` to `.gitignore` (idempotent; the first run prints `crt init: created … — commit .crt/`). Every failure is a single `crt: …` line on stderr and a non-zero exit — run `crt doctor` first, then see [Troubleshooting](#troubleshooting) for what each one means.
+On success it prints one line — `CRT ready at http://localhost:4400 for http://localhost:3000 (embedded; project: C:\my-app, 3 tasks in .crt\tasks, provider: claude (default), login: ok)` (`for <app>` is omitted when no dev server was found; `CRT ready at http://localhost:4400 → http://localhost:3000 (proxy; project: …)` under `crt proxy`) — and, on a terminal, `Open http://localhost:3000 → CRT button bottom-right (Ctrl/Cmd+Shift+.) → Select · note · Send. Ctrl+C stops CRT; your dev server keeps running.` (`Open http://localhost:4400 → …` in proxy mode), then keeps running until Ctrl+C (`Stopping CRT … 1 session ended; written task files are kept.`). In embedded mode the CRT button appears on your app's own URL once the page loads the CRT loader — `<script src="http://localhost:4400/__crt/loader.js"></script>` first in `<head>` of your development page, or one of the entries in [Add CRT to your app](#add-crt-to-your-app) (`crt init`'s snippet arrives with v0.4's next milestone); `http://localhost:4400` itself shows a landing page that says so, and when CRT opened your app but the page never asked for the loader it says `crt: opened http://localhost:3000 but the page never loaded the CRT loader — add the integration (\`crt init\` prints the snippet, /crt:init applies it), or run \`crt proxy\``. When a CRT from an earlier session already serves the same project in the same mode on the port, `crt` says `CRT <version> is already serving this project (embedded) at http://localhost:4400 (since 09:12) — opened http://localhost:3000.` (`CRT <version> is already serving … for this project at … — opened it.` in proxy mode) and exits 0; when it serves something else, or the port is held by something that is not CRT, `crt` takes the next free port and says so (`crt: port 4400 is held by another CRT (→ <target>, project <root>); using 4401` / `crt: port 4400 is in use by a process that is not CRT; using 4401`). `crt` first runs `crt init`, which creates `.crt/tasks/`, `.crt/config.json` and adds `.crt/captures/` and `.crt/config.local.json` to `.gitignore` (idempotent; the first run prints `crt init: created … — commit .crt/`). Every failure is a single `crt: …` line on stderr and a non-zero exit — run `crt doctor` first, then see [Troubleshooting](#troubleshooting) for what each one means.
 
 ### What Claude gets
 
@@ -249,7 +278,7 @@ Since v0.4 this is the default, productised as **embedded mode** (`crt`): your a
 <script src="http://localhost:4400/__crt/loader.js"></script>
 ```
 
-(`data-crt-port="4401"` on that tag when `port` in `.crt/config.json` is not 4400. With this form the script itself is missing when the server is down, so there is no pill — the pill needs the bundled ES module form, which the framework entries and `crt init`'s snippet bring in v0.4's later milestones.) The plain overlay tag still works too:
+(`data-crt-port="4401"` on that tag when `port` in `.crt/config.json` is not 4400. With this form the script itself is missing when the server is down, so there is no pill — the pill needs the bundled ES module form, which the entries in [Add CRT to your app](#add-crt-to-your-app) bring.) The plain overlay tag still works too:
 
 ```html
 <script src="http://localhost:4400/__crt/overlay.js" defer></script>

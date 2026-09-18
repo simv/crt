@@ -95,7 +95,14 @@ function crtGlobal(): { loader?: CrtLoader } {
  * this page gets nothing: a non-loopback host, a frame, no DOM, or a production build.
  */
 export function mountCrt(options?: MountOptions): CrtLoader | null {
-  if (process.env.NODE_ENV === "production") return null; // F-98: the bundler folds this away
+  // F-98: the positive form, so a bundler that defines NODE_ENV drops the branch and everything
+  // only it referenced (esbuild counts symbol uses in code after a folded `return`, not in a
+  // folded-away branch).
+  if (process.env.NODE_ENV !== "production") return mount(options);
+  return null;
+}
+
+function mount(options?: MountOptions): CrtLoader | null {
   if (typeof window === "undefined" || typeof document === "undefined" || typeof location === "undefined") return null;
   if (!isLoopbackHost(location.hostname) || window.top !== window) return null; // step 1
   const crt = crtGlobal();

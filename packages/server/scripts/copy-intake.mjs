@@ -3,10 +3,12 @@
 // (PRD-providers F-58) every plugin skill to dist/skills/<name>/SKILL.md for `crt skills install`,
 // and (PRD-setup F-85) the whole plugin plus a generated marketplace manifest to
 // dist/plugin-marketplace/ for `crt setup`. The repo LICENSE is copied into the package dir too
-// (gitignored there) so npm bundles it.
+// (gitignored there) so npm bundles it. Last, the package entries' no-op modules and .d.ts files
+// (PRD-embedded F-97, F-98) go into dist/integrations/ (integrations.mjs).
 import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildIntegrations } from "./integrations.mjs";
 import { buildPluginMarketplace } from "./plugin-marketplace.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -25,3 +27,4 @@ for (const [from, to] of copies) {
 const marketplace = join(here, "..", "dist", "plugin-marketplace");
 const manifest = buildPluginMarketplace({ repo, pkg: join(here, "..", "package.json"), out: marketplace });
 console.log(`built marketplace ${manifest.name} ${manifest.metadata.version} -> ${marketplace}`);
+for (const p of buildIntegrations()) console.log(`wrote ${p}`);

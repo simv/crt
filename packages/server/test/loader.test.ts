@@ -7,6 +7,7 @@ import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LOADER_ESM, LOADER_IIFE } from "../../overlay/build.mjs";
 import { DEFAULT_ORIGIN, isLoopbackHost, mountCrt, PILL_DISMISSED_KEY, pillText, resolveOrigin } from "../../overlay/src/loader.js";
+import { fakeDom } from "./helpers/fake-dom.js";
 
 // PRD-embedded F-96 / N-20: the loader's pure parts (the loopback guard, the origin resolution,
 // idempotence), tested from the source the way owner-stack.test.ts tests component.ts, and the
@@ -16,41 +17,6 @@ import { DEFAULT_ORIGIN, isLoopbackHost, mountCrt, PILL_DISMISSED_KEY, pillText,
 const SIZE_BUDGET = 5 * 1024; // N-20: ≤ 5 KB gzipped
 
 afterEach(() => vi.unstubAllGlobals());
-
-/** A DOM small enough for mountCrt: the guard, the global, the hooks and the appended tag. */
-function fakeDom(o: { hostname: string; top?: "self" | "other"; scriptSrc?: string | null; port?: string }) {
-  class FakeScript {
-    src = "";
-    defer = false;
-    dataset: Record<string, string> = {};
-    listeners: Record<string, () => void> = {};
-    addEventListener(name: string, fn: () => void) {
-      this.listeners[name] = fn;
-    }
-    remove() {}
-  }
-  const appended: FakeScript[] = [];
-  const current = o.scriptSrc === undefined ? null : new FakeScript();
-  if (current) {
-    current.src = o.scriptSrc ?? "";
-    if (o.port) current.dataset.crtPort = o.port;
-  }
-  const document = {
-    currentScript: current,
-    createElement: () => new FakeScript(),
-    head: { appendChild: (s: FakeScript) => appended.push(s) },
-    documentElement: { appendChild: (s: FakeScript) => appended.push(s) },
-    addEventListener: () => undefined,
-    visibilityState: "visible",
-  };
-  const window: Record<string, unknown> = { addEventListener: () => undefined };
-  window.top = o.top === "other" ? {} : window;
-  vi.stubGlobal("HTMLScriptElement", FakeScript);
-  vi.stubGlobal("document", document);
-  vi.stubGlobal("window", window);
-  vi.stubGlobal("location", { hostname: o.hostname, href: `http://${o.hostname}:3000/page` });
-  return { window, appended };
-}
 
 describe("loader — pure parts (F-96)", () => {
   it("step 1: only loopback hostnames qualify, the F-6 list (F-96)", () => {
@@ -147,7 +113,7 @@ describe("loader — the two builds (F-96, F-98, N-20)", () => {
   it("the ES module exports mountCrt, keeps process.env.NODE_ENV for the app's bundler, and has no side effect on import (F-96, F-98)", async () => {
     const out = await build({ ...LOADER_ESM, write: false });
     const js = out.outputFiles![0]!.text;
-    expect(js).toContain('process.env.NODE_ENV === "production"');
+    expect(js).toContain('process.env.NODE_ENV !== "production"');
     expect(js).toMatch(/export \{[^}]*\bmountCrt\b/);
     // The only call to mountCrt is its definition: nothing runs at import.
     expect(js.match(/mountCrt\(/g)).toHaveLength(1);
