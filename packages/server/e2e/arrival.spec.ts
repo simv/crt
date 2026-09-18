@@ -3,6 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
+import { CRT_ORIGIN } from "../playwright.config.js";
 
 // PRD-setup F-80, F-81, F-82 (the M13 half of F-90): the launcher dot, the welcome card and the
 // "never fetched the overlay" line. The dot and the F-80 line need a server of their own (the
@@ -10,7 +11,8 @@ import { expect, test } from "@playwright/test";
 // those specs spawn `dist/cli.js proxy --yes` (proxy mode: F-80 and the injected page are proxy-only, PRD-embedded F-92) from scratch projects with `CRT_SESSION_STUB=1` and
 // stdout captured, the way start.spec.ts does; ports 4470–4479 are this file's. The welcome card
 // is suppressed under the stub, so it is opened explicitly with `window.__crt.welcome()` on the
-// shared stub server (baseURL) and never shows on the pages the other specs load.
+// fixture page (baseURL, the app origin) that loads the overlay from the shared embedded server
+// (F-110, M18) — the F-95 embedded copy — and never shows on the pages the other specs load.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CLI = join(here, "..", "dist", "cli.js");
@@ -115,7 +117,7 @@ test("launcher dot reaches `connected` with the project in its tooltip, and turn
   await expect(launcher).toHaveAttribute("title", "CRT server not answering — is crt serve still running? (Send will fail)");
 });
 
-test("`window.__crt.welcome()` shows the card with health's target, project and agent line; Got it remembers it per project (F-82)", async ({ page, request }) => {
+test("`window.__crt.welcome()` shows the card with the CRT origin, project and agent line (embedded copy); Got it remembers it per project (F-82, F-95)", async ({ page, request }) => {
   await page.goto("/");
   const host = page.locator("#crt-host");
   await expect(host.locator(".launcher")).toBeVisible();
@@ -123,12 +125,13 @@ test("`window.__crt.welcome()` shows the card with health's target, project and 
   await expect(host.locator(".launcher")).toHaveAttribute("data-health", "connected");
   await expect(host.locator(".welcome")).toHaveCount(0);
 
-  const h = (await (await request.get("/__crt/health")).json()) as { target: string; projectRoot: string; tasks: number };
+  const h = (await (await request.get(`${CRT_ORIGIN}/__crt/health`)).json()) as { mode: string; projectRoot: string; tasks: number };
+  expect(h.mode).toBe("embedded");
   await page.evaluate(() => (window as unknown as { __crt: { welcome(): Promise<void> } }).__crt.welcome());
   const card = host.locator(".welcome");
   await expect(card).toBeVisible();
   await expect(card.locator("h2")).toHaveText("CRT is on this page");
-  await expect(card.locator("p.where")).toContainText(`Proxying ${h.target} for ${h.projectRoot}. Tasks are written to `);
+  await expect(card.locator("p.where")).toContainText(`Talking to CRT at ${CRT_ORIGIN} for ${h.projectRoot}. Tasks are written to `);
   await expect(card.locator("p.where")).toContainText(`(${h.tasks} there now).`);
   await expect(card.locator("p.agent")).toHaveText("Agent: Claude — login not checked yet; the first Send will tell you");
   await expect(card.locator("ol li")).toHaveText(["Open the toolbar: the CRT button, or Ctrl/Cmd+Shift+.", "Select, Box or Pin the thing.", "Type a note and Send."]);

@@ -7,7 +7,7 @@ allowed-tools: Bash(npx *) Read Glob
 
 Show task `$ARGUMENTS` (PRD F-33/F-38), from the project root `${CLAUDE_PROJECT_DIR}`.
 
-1. Run `npx --no crt task $ARGUMENTS` (the project's own install), else `npx -y claude-review-tool@0.3 task $ARGUMENTS`; it prints the whole file. If neither works, read `.crt/tasks/$ARGUMENTS-*.md` directly. If the CLI says `no task …`, list the IDs that do exist (`Glob .crt/tasks/CRT-*.md`) and stop.
+1. Run `npx --no crt task $ARGUMENTS` (the project's own install), else `npx -y claude-review-tool@0.4 task $ARGUMENTS`; it prints the whole file. If neither works, read `.crt/tasks/$ARGUMENTS-*.md` directly. If the CLI says `no task …`, list the IDs that do exist (`Glob .crt/tasks/CRT-*.md`) and stop.
 2. Summarise: title, status, provider (one word after the status, from `provider:`; omit when absent), priority, created/updated; the **Summary**; the **Ask**; the **Definition of Done** with its tick state; and the last three **Log** entries. Mention `.crt/tasks/assets/$ARGUMENTS/` if it exists.
 3. Offer the one next action that fits the status:
    - `backlog` → `/crt:next $ARGUMENTS`

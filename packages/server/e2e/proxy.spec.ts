@@ -2,8 +2,13 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
+import { CRT_PROXY_ORIGIN } from "../playwright.config.js";
 
-// Everything here goes through `crt serve` in front of the fixture (see playwright.config.ts).
+// Everything here goes through `crt proxy` in front of the fixture — the dedicated proxy-mode
+// server in playwright.config.ts (PRD-embedded F-92, N-21: the v0.3 shape, unchanged). The primary
+// servers run embedded since M18 (F-110), so this file sets its own baseURL.
+
+test.use({ baseURL: CRT_PROXY_ORIGIN });
 
 test("page served through CRT has the overlay launcher in a shadow root (F-2, F-7)", async ({ page }) => {
   await page.goto("/");
@@ -75,13 +80,13 @@ test("/__crt/health reports target, project root and the rest of the F-78 story 
   expect(body.overlay.injected).toBeGreaterThan(0);
   expect(body.overlay.fetched).toBeGreaterThan(0);
   // F-75: the server said so on its first overlay fetch (crt.mjs mirrors stdout into crt-serve.log).
-  const log = readFileSync(join(dirname(fileURLToPath(import.meta.url)), ".project", "crt-serve.log"), "utf8");
+  const log = readFileSync(join(dirname(fileURLToPath(import.meta.url)), ".project", "proxy", "crt-serve.log"), "utf8");
   expect(log).toMatch(/^crt: overlay loaded in the browser \(GET \/.*\)$/m);
 });
 
 test("absolute redirects to the target are rewritten to the CRT origin (F-4)", async ({ page }) => {
   await page.goto("/redirect");
-  expect(new URL(page.url()).origin).toBe("http://localhost:4499");
+  expect(new URL(page.url()).origin).toBe(CRT_PROXY_ORIGIN);
   expect(new URL(page.url()).search).toBe("?from=redirect");
   await expect(page.locator("#crt-host .launcher")).toBeVisible();
 });

@@ -1,15 +1,25 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// E2E smoke (PRD §9, task CRT-0001 Ask 8): the static fixture app sits behind a real
-// `crt proxy --target` (PRD-embedded §13 decision 10: the primary servers stay in proxy mode until
-// M18 flips them; embedded.spec.ts spawns its own embedded server), and Chromium loads pages through the CRT origin.
-// Playwright starts the web servers in order, so the fixture is up before crt probes it.
+// E2E smoke (PRD §9, task CRT-0001 Ask 8; PRD-embedded F-110, M18): the static fixture app is the
+// app under test on its own origin (baseURL) and carries the CRT loader tag for the primary
+// embedded `crt serve` (FIXTURE_CRT_ORIGIN), so capture, chat, arrival and focus run the way a
+// real app does since v0.4 — the overlay loaded cross-origin from the CRT server. A dedicated
+// `crt proxy` server on its own scratch root serves proxy.spec.ts (and the proxy rows in
+// arrival.spec.ts / start.spec.ts spawn their own). Playwright starts the web servers in order,
+// so the fixture is up before crt probes it.
 const FIXTURE_PORT = 3999;
+/** The app origin: what every browser spec navigates to (F-110). */
+export const FIXTURE_ORIGIN = `http://localhost:${FIXTURE_PORT}`;
 const CRT_PORT = 4499;
+/** The primary embedded CRT server: `/__crt/*` for the pages on FIXTURE_ORIGIN. */
+export const CRT_ORIGIN = `http://localhost:${CRT_PORT}`;
 /** PRD-providers F-61 `stub` axis, `sandboxed` variant (F-46): a second CRT on its own scratch root. */
 export const CRT_SANDBOXED_PORT = 4498;
 /** PRD-providers F-61 `codex` axis: a third CRT on `--provider codex` against the fake Codex CLI (e2e/fixture/fake-codex.mjs). */
 export const CRT_CODEX_PORT = 4497;
+/** PRD-embedded F-92 / N-21: the proxy-mode server for proxy.spec.ts — the v0.3 shape, on its own scratch root. */
+export const CRT_PROXY_PORT = 4496;
+export const CRT_PROXY_ORIGIN = `http://localhost:${CRT_PROXY_PORT}`;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -19,30 +29,31 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
-    baseURL: `http://localhost:${CRT_PORT}`,
+    baseURL: FIXTURE_ORIGIN,
     trace: "retain-on-failure",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: [
     {
       command: "node e2e/fixture/server.mjs",
-      env: { FIXTURE_PORT: String(FIXTURE_PORT) },
-      url: `http://localhost:${FIXTURE_PORT}/`,
+      env: { FIXTURE_PORT: String(FIXTURE_PORT), FIXTURE_CRT_ORIGIN: CRT_ORIGIN },
+      url: `${FIXTURE_ORIGIN}/`,
       reuseExistingServer: false,
       timeout: 15_000,
     },
     {
-      // e2e/fixture/crt.mjs runs `crt serve` from a scratch project (e2e/.project/) with the
-      // scripted session driver, so the chat spec never needs a Claude login and nothing is
-      // written under this repo's .crt/.
-      command: `node e2e/fixture/crt.mjs --proxy --target http://localhost:${FIXTURE_PORT} --port ${CRT_PORT}`,
-      url: `http://localhost:${CRT_PORT}/__crt/health`,
+      // e2e/fixture/crt.mjs runs `crt serve` (embedded, F-91) from a scratch project (e2e/.project/)
+      // with the scripted session driver, so the chat spec never needs a Claude login and nothing
+      // is written under this repo's .crt/. The target is only the app URL it would open (--no-open).
+      command: `node e2e/fixture/crt.mjs --target ${FIXTURE_ORIGIN} --port ${CRT_PORT} --no-open`,
+      url: `${CRT_ORIGIN}/__crt/health`,
       reuseExistingServer: false,
       timeout: 15_000,
     },
     {
-      // The same, with the stub in its `sandboxed` variant (chat.spec.ts "sandboxed stub" block).
-      command: `node e2e/fixture/crt.mjs --proxy --target http://localhost:${FIXTURE_PORT} --port ${CRT_SANDBOXED_PORT}`,
+      // The same, with the stub in its `sandboxed` variant (chat.spec.ts "sandboxed stub" block);
+      // its pages ask for it with `?crt=`.
+      command: `node e2e/fixture/crt.mjs --target ${FIXTURE_ORIGIN} --port ${CRT_SANDBOXED_PORT} --no-open`,
       env: { CRT_SESSION_STUB: "sandboxed", CRT_E2E_PROJECT: "sandboxed" },
       url: `http://localhost:${CRT_SANDBOXED_PORT}/__crt/health`,
       reuseExistingServer: false,
@@ -51,11 +62,20 @@ export default defineConfig({
     {
       // The codex axis (chat.spec.ts "codex provider" block): no stub (the variable is present but
       // empty), the fake `codex` first on PATH, and the provider fixed by CRT_PROVIDER (F-43 step 2).
-      command: `node e2e/fixture/crt.mjs --proxy --target http://localhost:${FIXTURE_PORT} --port ${CRT_CODEX_PORT}`,
+      command: `node e2e/fixture/crt.mjs --target ${FIXTURE_ORIGIN} --port ${CRT_CODEX_PORT} --no-open`,
       env: { CRT_SESSION_STUB: "", CRT_PROVIDER: "codex", CRT_E2E_PROJECT: "codex", CRT_E2E_FAKE_CODEX: "1" },
       url: `http://localhost:${CRT_CODEX_PORT}/__crt/health`,
       reuseExistingServer: false,
       timeout: 30_000,
+    },
+    {
+      // Proxy mode (F-92): `crt proxy` in front of the fixture, which serves its plain pages to the
+      // proxy (no loader tag on a forwarded request) so injection is what puts the overlay there.
+      command: `node e2e/fixture/crt.mjs --proxy --target ${FIXTURE_ORIGIN} --port ${CRT_PROXY_PORT}`,
+      env: { CRT_E2E_PROJECT: "proxy" },
+      url: `${CRT_PROXY_ORIGIN}/__crt/health`,
+      reuseExistingServer: false,
+      timeout: 15_000,
     },
   ],
 });
