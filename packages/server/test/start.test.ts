@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CrtError } from "../src/errors.js";
-import { bindPort, chooseTarget, type CrtHealth, isYes, type PortInput, type Prompter, sameProject, since, type StartDeps, type TargetInput, type WaitOutcome } from "../src/start.js";
+import { bindPort, chooseTarget, type CrtHealth, ensureInitialised, type InitStepDeps, type InitStepInput, isYes, type PortInput, type Prompter, sameProject, since, type StartDeps, type TargetInput, type WaitOutcome } from "../src/start.js";
 import type { ProbeHit } from "../src/target.js";
 
 // PRD-setup §5.1 / F-90: every §6.1 transcript (F-70…F-73, F-79) as a row over the pure state
@@ -489,6 +489,78 @@ describe("bindPort — reuse compares the mode (PRD-embedded F-93)", () => {
     const same = world({ interactive: false, busy: [4400], health: { 4400: mine() } });
     expect(await bindPort(port({ mode: "proxy" }), same.deps)).toMatchObject({ kind: "reused" });
     expect(same.logs).toEqual([expect.stringMatching(/^CRT 0\.3\.0 is already serving http:\/\/localhost:3000 for this project at http:\/\/localhost:4400 \(since \d\d:\d\d\) — opened it\.$/)]);
+  });
+});
+
+// PRD-embedded F-99: the step before the target and port steps — an un-initialised project is set
+// up only after the F-100 plan and a question, or under --yes; never silently.
+describe("ensureInitialised — no implicit init (PRD-embedded F-99)", () => {
+  const PLAN = ["crt init will, in C:\\my-app:", "  create .crt/README.md", "  create .crt/tasks/", "  create .crt/config.json", "  add .crt/captures/ and .crt/config.local.json to .gitignore", "  create CLAUDE.md with a CRT section"];
+  const APPLIED = ["crt init: created .crt/README.md", "crt init: created .crt/tasks/", "crt init: created .crt/config.json", "crt init: added .crt/captures/ and .crt/config.local.json to .gitignore", "crt init: created CLAUDE.md with the CRT section"];
+  const step = (w: World, input: Partial<InitStepInput> = {}) => {
+    const run = world(w);
+    let planned = 0;
+    let applied = 0;
+    const deps: InitStepDeps = {
+      ...run.deps,
+      plan: async () => {
+        planned++;
+        return PLAN;
+      },
+      apply: async () => {
+        applied++;
+        for (const line of APPLIED) run.logs.push(line);
+      },
+    };
+    const outcome = ensureInitialised({ initialised: false, root: "C:\\my-app", yes: false, ...input }, deps);
+    return { run, outcome, counts: () => ({ planned, applied }) };
+  };
+
+  it("does nothing when .crt/tasks exists, interactive or not (F-99)", async () => {
+    for (const interactive of [true, false]) {
+      const s = step({ interactive }, { initialised: true });
+      expect(await s.outcome).toBe("ready");
+      expect(s.counts()).toEqual({ planned: 0, applied: 0 });
+      expect(s.run.logs).toEqual([]);
+      expect(s.run.questions).toEqual([]);
+    }
+  });
+
+  it("non-interactive without --yes: refuses with the F-99 line, exit 1, nothing planned or written (F-99)", async () => {
+    const s = step({ interactive: false });
+    await fails(s.outcome, "C:\\my-app is not set up for CRT — run `crt init` (or `crt --yes`)");
+    expect(s.counts()).toEqual({ planned: 0, applied: 0 });
+    expect(s.run.logs).toEqual([]);
+  });
+
+  it("non-interactive with --yes: the plan, then every crt init: line, no question (F-99, F-100)", async () => {
+    const s = step({ interactive: false }, { yes: true });
+    expect(await s.outcome).toBe("initialised");
+    expect(s.counts()).toEqual({ planned: 1, applied: 1 });
+    expect(s.run.logs).toEqual([...PLAN, ...APPLIED]);
+    expect(s.run.questions).toEqual([]);
+  });
+
+  it.each([
+    ["Enter", ""],
+    ["y", "y"],
+    ["yes", "Yes"],
+  ])("interactive: the plan, `Set up CRT in <root>? [Y/n]`, %s → init runs and the start continues (F-99)", async (_name, answer) => {
+    const s = step({ interactive: true, answers: [answer] });
+    expect(await s.outcome).toBe("initialised");
+    expect(s.run.questions).toEqual(["Set up CRT in C:\\my-app? [Y/n]"]);
+    expect(s.run.logs).toEqual([...PLAN, ...APPLIED]);
+    expect(s.counts()).toEqual({ planned: 1, applied: 1 });
+    // The plan is printed before the question, not after.
+    expect(s.run.beforePrompt).toBe(0);
+  });
+
+  it("interactive: n → `crt: cancelled`, exit 130, nothing written (F-99)", async () => {
+    const s = step({ interactive: true, answers: ["n"] });
+    await fails(s.outcome, "cancelled", 130);
+    expect(s.run.questions).toEqual(["Set up CRT in C:\\my-app? [Y/n]"]);
+    expect(s.run.logs).toEqual(PLAN);
+    expect(s.counts()).toEqual({ planned: 1, applied: 0 });
   });
 });
 

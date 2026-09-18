@@ -39,5 +39,6 @@ for (const name of ["log", "error"]) {
 // them; playwright.config.ts passes `--proxy`, which becomes the `crt proxy` command (≡ `crt serve --mode proxy`).
 const args = process.argv.slice(2);
 const proxy = args.includes("--proxy");
-process.argv = [process.argv[0], join(here, "..", "..", "dist", "cli.js"), proxy ? "proxy" : "serve", ...args.filter((a) => a !== "--proxy")];
+// PRD-embedded F-99: the scratch project is created here, so `--yes` sets it up (no terminal to ask on).
+process.argv = [process.argv[0], join(here, "..", "..", "dist", "cli.js"), proxy ? "proxy" : "serve", ...args.filter((a) => a !== "--proxy"), ...(args.includes("--yes") ? [] : ["--yes"])];
 await import("../../dist/cli.js");

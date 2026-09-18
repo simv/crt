@@ -8,7 +8,7 @@
  *   crt proxy [target] …                                                 ≡ crt serve --mode proxy (F-92: the v0.3 reverse proxy)
  *   crt doctor                                                           F-76
  *   crt setup [--claude <path>]                                          F-86 (registers the bundled plugin with Claude Code)
- *   crt init                                                             F-35
+ *   crt init [--yes] [--no-instructions] [--snippet [--json]]              F-100 (explicit, itemised, idempotent; the F-101 section, the F-102 snippet)
  *   crt tasks [--json]                                                   F-33 (also refreshes the README index, F-34)
  *   crt task <ID> [--validate]                                           F-33 (F-32 format check)
  *   crt providers [--json] [--refresh]                                   F-45 (every provider's state + the F-44 decision)
@@ -20,12 +20,12 @@
  * and provider modules (and with them the Agent SDK) are imported only by the commands that
  * need them, so `crt mcp` starts fast and prints nothing but protocol frames on stdout.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "./args.js";
 import { CrtError } from "./errors.js";
-import { describeInit, initProject, readConfig } from "./init.js";
+import { readConfig, runInit } from "./init.js";
 import { findProjectRoot } from "./project.js";
 import { looksLikeTarget } from "./target.js";
 import { findTaskFile, listTasks, validateTaskText, writeIndex } from "./tasks.js";
@@ -39,9 +39,10 @@ const USAGE = [
   "  crt serve [target]      the same, under its explicit name",
   "      [--mode <embedded|proxy>] [--target <url>] [--port <n>] [--open | --no-open] [--yes] [--replace] [--provider <id>]",
   "  crt proxy [target]      proxy the dev server through http://localhost:4400 instead (the same flags; = crt serve --mode proxy)",
-  "  crt doctor              check node, project, .crt, target, port, providers, plugin",
+  "  crt doctor              check node, project, .crt, mode, target, integration, instructions, port, providers, plugin",
   "  crt setup               register the bundled Claude Code plugin (/crt:serve, /crt:next, …) [--claude <path>]",
-  "  crt init",
+  "  crt init                set the project up: .crt/ (README, tasks, config), 2 .gitignore lines, a CRT section in CLAUDE.md — each announced — then the snippet for your framework",
+  "      [--yes] [--no-instructions] [--snippet [--json]]",
   "  crt tasks [--json]",
   "  crt task <ID> [--validate]",
   "  crt providers [--json] [--refresh]",
@@ -107,6 +108,7 @@ async function main(argv: string[]): Promise<number> {
         port: portFlag(flags.port),
         open,
         replace: flags.replace === true,
+        yes: flags.yes === true,
         provider: stringFlag(flags.provider, "--provider <id>"),
         interactive,
         ...(interactive ? { prompt: createTerminalPrompter({ input: process.stdin, output: process.stdout }) } : {}),
@@ -147,13 +149,38 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     case "init": {
+      // F-100: the plan, `Go ahead? [Y/n]` on a terminal without --yes (off a terminal it applies without asking:
+      // the command is explicit), one line per write, then the F-102 snippet. The provider decides which file
+      // to create when neither CLAUDE.md nor AGENTS.md exists (F-101): the F-43 resolution, as `crt providers`
+      // gets it, resolved only then (preflight is the only spawn).
       const root = findProjectRoot();
-      const r = initProject(root);
-      console.log(describeInit(root, r) ?? `crt init: ${root} already initialised`);
+      const { isInteractive, createTerminalPrompter } = await import("./prompt.js");
+      const interactive = isInteractive({ yes: flags.yes === true });
+      await runInit(root, {
+        yes: flags.yes === true,
+        instructions: flags["no-instructions"] !== true,
+        snippet: flags.snippet === true,
+        json: flags.json === true,
+        interactive,
+        ...(interactive ? { prompt: createTerminalPrompter({ input: process.stdin, output: process.stdout }) } : {}),
+        version: packageVersion(),
+        provider: async () => {
+          const { ProviderRegistry } = await import("./session.js");
+          const providers = new ProviderRegistry({ root, config: readConfig(root) });
+          await providers.refresh();
+          return providers.resolve(null).provider;
+        },
+        log: (line) => console.log(line),
+      });
       return 0;
     }
     case "tasks": {
       const tasksDir = tasksDirOf(findProjectRoot());
+      if (!existsSync(tasksDir)) {
+        // F-99: an un-initialised project is not an error here.
+        console.log(flags.json === true ? JSON.stringify({ tasksDir: null, tasks: [] }, null, 2) : "no tasks (CRT is not set up here — run crt init)");
+        return 0;
+      }
       const tasks = listTasks(tasksDir);
       writeIndex(tasksDir);
       if (flags.json === true) {

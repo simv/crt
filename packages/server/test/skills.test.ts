@@ -10,7 +10,7 @@ import { makeStubProfile } from "../src/providers/stub.js";
 import { CLAUDE_REFUSAL, INSTALLED_PARAGRAPH, installSkills, rewriteSkill, SKILL_NAMES, skillsTargetDir } from "../src/skills.js";
 import { parseFrontmatter } from "../src/tasks.js";
 
-// `crt skills install` (PRD-providers F-58): six Agent Skills, rewritten from the plugin's text,
+// `crt skills install` (PRD-providers F-58): seven Agent Skills, rewritten from the plugin's text,
 // idempotent, refused for Claude, `--dir` required when the profile records no directory.
 
 const here = import.meta.dirname;
@@ -26,7 +26,7 @@ afterEach(() => {
 });
 
 describe("crt skills install (F-58)", () => {
-  it("--provider codex --dir <tmp> writes six SKILL.md files with no ${CLAUDE_ token and no AskUserQuestion; a second run changes nothing (F-58)", () => {
+  it("--provider codex --dir <tmp> writes seven SKILL.md files with no ${CLAUDE_ token and no AskUserQuestion; a second run changes nothing (F-58, F-104)", () => {
     const dir = join(root, "skills");
     const first = installSkills({ sourceDir: pluginSkills, root, profile: codexProfile, dir });
     expect(first.dir).toBe(dir);
@@ -49,7 +49,7 @@ describe("crt skills install (F-58)", () => {
     const stamps = SKILL_NAMES.map((n) => statSync(join(dir, n, "SKILL.md")).mtimeMs);
     const second = installSkills({ sourceDir: pluginSkills, root, profile: codexProfile, dir });
     expect(second.written).toEqual([]);
-    expect(second.unchanged.length).toBe(6);
+    expect(second.unchanged.length).toBe(7);
     expect(SKILL_NAMES.map((n) => statSync(join(dir, n, "SKILL.md")).mtimeMs)).toEqual(stamps);
   });
 
@@ -95,6 +95,6 @@ describe("crt skills install (F-58)", () => {
     }
     const r = installSkills({ sourceDir: distSkills, root, profile: codexProfile });
     expect(r.dir).toBe(join(root, ".agents", "skills"));
-    expect(r.written.length).toBe(6);
+    expect(r.written.length).toBe(7);
   }, 30_000); // copy-intake.mjs also emits the entry declarations through the TypeScript API (F-97), ~3 s cold
 });

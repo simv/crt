@@ -36,14 +36,14 @@ describe("bundled plugin marketplace (F-85)", () => {
     expect(written.owner).toEqual((JSON.parse(readFileSync(join(REPO, ".claude-plugin", "marketplace.json"), "utf8")) as typeof manifest).owner);
   });
 
-  it("copies the whole plugin: manifest, hooks and the six skills (F-85)", () => {
+  it("copies the whole plugin: manifest, hooks and the seven skills (F-85, F-104)", () => {
     const plugin = join(out, "plugin");
     const pluginJson = JSON.parse(readFileSync(join(plugin, ".claude-plugin", "plugin.json"), "utf8")) as { name: string; version: string };
     expect(pluginJson.name).toBe("crt");
     expect(pluginJson.version).toBe(manifest.metadata.version);
     expect(readFileSync(join(plugin, "hooks", "hooks.json"), "utf8")).toBe(readFileSync(join(REPO, "plugin", "hooks", "hooks.json"), "utf8"));
     expect(existsSync(join(plugin, "hooks", "session-start.mjs"))).toBe(true);
-    for (const skill of ["serve", "next", "tasks", "task", "done", "intake"]) {
+    for (const skill of ["serve", "next", "tasks", "task", "done", "intake", "init"]) {
       expect(readFileSync(join(plugin, "skills", skill, "SKILL.md"), "utf8")).toBe(readFileSync(join(REPO, "plugin", "skills", skill, "SKILL.md"), "utf8"));
     }
   });

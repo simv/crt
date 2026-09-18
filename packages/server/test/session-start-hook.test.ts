@@ -26,6 +26,12 @@ function runHook(projectDir: string) {
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 
+const SECTION = "<!-- BEGIN:crt v0.4 -->\n## CRT (Claude Review Tool)\n<!-- END:crt -->\n";
+/** A project whose CLAUDE.md carries the CRT section (F-101), so the F-106 line stays out of the backlog/drift rows. */
+function withSection(dir: string): void {
+  writeFileSync(join(dir, "CLAUDE.md"), `# App\n\n${SECTION}`);
+}
+
 function task(id: string, status: string): string {
   return `---\nid: ${id}\ntitle: t\nstatus: ${status}\npriority: normal\ncreated: 2026-09-14T10:00:00+08:00\nupdated: 2026-09-14T10:00:00+08:00\nurl: null\nroute: null\nsession: null\ntags: []\nfiles: []\n---\n\n## Summary\nx\n`;
 }
@@ -41,6 +47,7 @@ describe("SessionStart hook (F-41)", () => {
   it("prints nothing when no task is in backlog", () => {
     const dir = join(tmp, ".crt", "tasks");
     mkdirSync(dir, { recursive: true });
+    withSection(tmp);
     writeFileSync(join(dir, "CRT-0001-a.md"), task("CRT-0001", "done"));
     writeFileSync(join(dir, "CRT-0002-b.md"), task("CRT-0002", "review"));
     writeFileSync(join(dir, "README.md"), "# index\n");
@@ -52,6 +59,7 @@ describe("SessionStart hook (F-41)", () => {
   it("prints exactly one line naming the backlog count when backlog > 0", () => {
     const dir = join(tmp, ".crt", "tasks");
     mkdirSync(dir, { recursive: true });
+    withSection(tmp);
     writeFileSync(join(dir, "CRT-0001-a.md"), task("CRT-0001", "done"));
     writeFileSync(join(dir, "CRT-0002-b.md"), task("CRT-0002", "backlog"));
     writeFileSync(join(dir, "CRT-0003-c.md"), task("CRT-0003", "backlog"));
@@ -76,6 +84,7 @@ describe("SessionStart hook (F-41)", () => {
   it("falls back to cwd when CLAUDE_PROJECT_DIR is unset", () => {
     const dir = join(tmp, ".crt", "tasks");
     mkdirSync(dir, { recursive: true });
+    withSection(tmp);
     writeFileSync(join(dir, "CRT-0001-a.md"), task("CRT-0001", "backlog"));
     const env = { ...process.env };
     delete env.CLAUDE_PROJECT_DIR;
@@ -125,6 +134,7 @@ describe("SessionStart hook version drift line (PRD-setup F-84)", () => {
   it("prints the backlog line first and the drift line second when both apply (F-41, F-84)", () => {
     const dir = join(tmp, ".crt", "tasks");
     mkdirSync(dir, { recursive: true });
+    withSection(tmp);
     writeFileSync(join(dir, "CRT-0001-a.md"), task("CRT-0001", "backlog"));
     installed(`${major + 1}.0.0`);
     const r = runHook(tmp);
@@ -132,5 +142,53 @@ describe("SessionStart hook version drift line (PRD-setup F-84)", () => {
       "CRT: 1 of 1 tasks in backlog under .crt/tasks. Run /crt:next to work the next one, /crt:tasks to list.",
       `CRT: plugin ${PLUGIN_VERSION} but the project's claude-review-tool is ${major + 1}.0.0 — npm update claude-review-tool (or crt setup after updating)`,
     ]);
+  });
+});
+
+describe("SessionStart hook missing-section line (PRD-embedded F-106)", () => {
+  const LINE = "CRT: .crt/ is set up but CLAUDE.md has no CRT section — run crt init to add it";
+
+  it("prints exactly the F-106 line when .crt/tasks/ exists and neither CLAUDE.md nor AGENTS.md carries the marker (F-106)", () => {
+    mkdirSync(join(tmp, ".crt", "tasks"), { recursive: true });
+    const none = runHook(tmp);
+    expect(none.status).toBe(0);
+    expect(none.stderr).toBe("");
+    expect(none.stdout).toBe(`${LINE}\n`);
+    writeFileSync(join(tmp, "CLAUDE.md"), "# App\n");
+    writeFileSync(join(tmp, "AGENTS.md"), "# Agents\n");
+    expect(runHook(tmp).stdout).toBe(`${LINE}\n`);
+  });
+
+  it("is silent when either file carries the marker, or when .crt/tasks/ does not exist (F-106)", () => {
+    // No .crt/tasks: nothing, even without any instruction file.
+    expect(runHook(tmp).stdout).toBe("");
+    mkdirSync(join(tmp, ".crt", "tasks"), { recursive: true });
+    writeFileSync(join(tmp, "AGENTS.md"), `# Agents\n\n${SECTION}`);
+    expect(runHook(tmp).stdout).toBe("");
+    rmSync(join(tmp, "AGENTS.md"));
+    writeFileSync(join(tmp, "CLAUDE.md"), `# App\n\n${SECTION}`);
+    expect(runHook(tmp).stdout).toBe("");
+  });
+
+  it("comes after the backlog and drift lines when all three apply, and stays out when .crt/tasks is a file (F-41, F-84, F-106)", () => {
+    const dir = join(tmp, ".crt", "tasks");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "CRT-0001-a.md"), task("CRT-0001", "backlog"));
+    const pluginVersion = (JSON.parse(readFileSync(resolve(dirname(HOOK), "..", ".claude-plugin", "plugin.json"), "utf8")) as { version: string }).version;
+    const major = Number(pluginVersion.split(".")[0]);
+    const nm = join(tmp, "node_modules", "claude-review-tool");
+    mkdirSync(nm, { recursive: true });
+    writeFileSync(join(nm, "package.json"), JSON.stringify({ name: "claude-review-tool", version: `${major + 1}.0.0` }));
+    const r = runHook(tmp);
+    expect(r.stdout.split("\n").filter(Boolean)).toEqual([
+      "CRT: 1 of 1 tasks in backlog under .crt/tasks. Run /crt:next to work the next one, /crt:tasks to list.",
+      `CRT: plugin ${pluginVersion} but the project's claude-review-tool is ${major + 1}.0.0 — npm update claude-review-tool (or crt setup after updating)`,
+      LINE,
+    ]);
+    rmSync(join(tmp, ".crt"), { recursive: true, force: true });
+    rmSync(nm, { recursive: true, force: true });
+    mkdirSync(join(tmp, ".crt"));
+    writeFileSync(join(tmp, ".crt", "tasks"), "not a directory");
+    expect(runHook(tmp).stdout).toBe("");
   });
 });

@@ -24,8 +24,8 @@ import { type Executable, findOnPath, resolveExecutable, runExecutable } from ".
 export const PLUGIN_ID = "crt@crt";
 /** The GitHub form of the same two commands, for the "claude not found" line. */
 export const MANUAL_INSTALL = "claude plugin marketplace add simv/crt && claude plugin install crt@crt";
-/** The six skills the plugin loads, in the F-86 line's order. */
-export const SKILL_NAMES = ["/crt:serve", "/crt:next", "/crt:tasks", "/crt:task", "/crt:done", "/crt:intake"] as const;
+/** The seven skills the plugin loads, in the F-86 line's order (PRD-embedded §9: `/crt:init` joined in v0.4). */
+export const SKILL_NAMES = ["/crt:serve", "/crt:next", "/crt:tasks", "/crt:task", "/crt:done", "/crt:intake", "/crt:init"] as const;
 
 export const CLAUDE_NOT_FOUND = `claude not found on PATH — install Claude Code (npm i -g @anthropic-ai/claude-code), or run: ${MANUAL_INSTALL}`;
 

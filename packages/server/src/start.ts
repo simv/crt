@@ -14,6 +14,10 @@
  * `chooseTarget` has two shapes (F-91): `required` (proxy mode — the F-71 machine verbatim, it
  * may wait and may fail) and soft (embedded mode — the target is only the app URL CRT opens, so
  * the same resolution runs but never waits and never fails).
+ *
+ * `ensureInitialised` is the step before both (PRD-embedded F-99): a project without
+ * `.crt/tasks/` is set up only after the F-100 plan and a question on a terminal, or under
+ * `--yes`; a non-interactive run without it refuses with one line.
  */
 import { CrtError } from "./errors.js";
 import type { CrtMode } from "./init.js";
@@ -61,6 +65,44 @@ export interface StartDeps {
   replace(port: number): Promise<{ ok: true } | { ok: false; reason: string }>;
   /** F-76: called before every prompt; serve.ts prints the FAIL/warn doctor rows once. */
   beforePrompt?(): Promise<void>;
+}
+
+// ---- init (PRD-embedded F-99, F-100) ------------------------------------------------------------------
+
+export interface InitStepInput {
+  /** `<root>/.crt/tasks` exists: nothing to do (init.ts `isInitialised`). */
+  initialised: boolean;
+  root: string;
+  /** `--yes`: set the project up without asking (the run is then non-interactive). */
+  yes: boolean;
+}
+
+export interface InitStepDeps {
+  interactive: boolean;
+  log(line: string): void;
+  prompt: Prompter;
+  /** The F-100 plan lines (init.ts `renderPlan`), computed only when the project is not set up. */
+  plan(): Promise<string[]>;
+  /** Apply the plan, printing one `crt init:` line per write (init.ts `applyInit`). */
+  apply(): Promise<void>;
+}
+
+/**
+ * F-99: `crt`, `crt serve` and `crt proxy` create nothing on their own. Interactive → the plan,
+ * then `Set up CRT in <root>? [Y/n]` (Enter → init runs, start continues; `n` → `crt: cancelled`,
+ * 130); non-interactive without `--yes` → the one-line refusal, exit 1; with `--yes` → init runs,
+ * every line printed, start continues.
+ */
+export async function ensureInitialised(input: InitStepInput, deps: InitStepDeps): Promise<"ready" | "initialised"> {
+  if (input.initialised) return "ready";
+  if (!deps.interactive && !input.yes) throw new CrtError(`${input.root} is not set up for CRT — run \`crt init\` (or \`crt --yes\`)`);
+  for (const line of await deps.plan()) deps.log(line);
+  if (deps.interactive) {
+    const answer = await deps.prompt.ask(`Set up CRT in ${input.root}? [Y/n]`);
+    if (!isYes(answer)) throw new CrtError("cancelled", 130);
+  }
+  await deps.apply();
+  return "initialised";
 }
 
 // ---- target (F-71, F-72) --------------------------------------------------------------------------
