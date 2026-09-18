@@ -270,7 +270,7 @@ describe("README › F-107 (PRD-embedded, M18): the four snippets, Production, W
     expect(packageReadme).not.toContain("local proxy that injects");
   });
 
-  it("Production names the verified bundlers and the no-request check (F-98, N-18, §12 rule 2)", () => {
+  it("Production names the verified bundlers (PRD-embedded §12 rule 2) and the no-request check (F-98, N-18)", () => {
     expect(production).toContain("esbuild 0.25 and Vite 8.3");
     expect(production).toContain("Next.js 16.3 (Turbopack)");
     expect(production).toContain("never requests the CRT port");

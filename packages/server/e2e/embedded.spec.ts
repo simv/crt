@@ -193,7 +193,7 @@ test.describe("embedded mode on the shared server (F-95, F-96)", () => {
     }
   });
 
-  test("the plain overlay tag (F-6) still loads the overlay from another local origin and runs a full Send cross-origin", async ({ page }) => {
+  test("the plain overlay tag still loads the overlay from another local origin and runs a full Send cross-origin (F-6)", async ({ page }) => {
     // The pre-loader script-tag form: <script src="<crt>/__crt/overlay.js" defer>, no loader, no pill.
     await page.goto(`${FIXTURE}/script-tag?crt=${CRT_ORIGIN}`);
     await expect(page.locator("#crt-host")).toBeAttached();
