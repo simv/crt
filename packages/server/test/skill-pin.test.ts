@@ -27,8 +27,8 @@ describe("one version rule (F-87)", () => {
     expect(marketplace.plugins.map((p) => p.version)).toEqual([pkgVersion]);
   });
 
-  it("there are six skills (F-36…F-40, F-87)", () => {
-    expect(skills.map((s) => s.name).sort()).toEqual(["done", "intake", "next", "serve", "task", "tasks"]);
+  it("there are seven skills (F-36…F-40, F-87, PRD-embedded F-104)", () => {
+    expect(skills.map((s) => s.name).sort()).toEqual(["done", "init", "intake", "next", "serve", "task", "tasks"]);
   });
 
   it.each(skills.map((s) => [s.name, s.text] as const))("%s pins npx -y claude-review-tool@<major.minor> after npx --no crt, and never @latest (F-87)", (_name, text) => {

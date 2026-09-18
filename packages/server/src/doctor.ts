@@ -1,9 +1,11 @@
 /**
- * `crt doctor` (PRD-setup F-76): a read-only checklist, one row per check — node, project, .crt,
- * target, port, one per provider, plugin — with `ok` / `FAIL` / `warn` / `--` as words (N-17),
- * exit 1 on any `FAIL`. `FAIL` is reserved for what stops `crt` from serving: Node too old, no
- * target or target down, port held, the *resolved* provider unusable. Every other provider's
- * problem and the plugin row are `warn`, so a Claude-only machine passes.
+ * `crt doctor` (PRD-setup F-76; PRD-embedded F-103): a read-only checklist, one row per check —
+ * node, project, .crt, mode, target, integration, instructions, port, one per provider, plugin —
+ * with `ok` / `FAIL` / `warn` / `--` as words (N-17), exit 1 on any `FAIL`. `FAIL` is reserved
+ * for what stops `crt` from serving: Node too old, no target or target down (proxy mode only —
+ * embedded mode's target is soft, F-91), port held, the *resolved* provider unusable. Every other
+ * provider's problem, the plugin row and the v0.4 rows (`.crt` without a README, `integration`,
+ * `instructions`) are `warn` or `--`, so a Claude-only machine and an un-initialised project pass.
  *
  * Split in two so the rows are unit rows (test/doctor.test.ts): `doctorRows(facts)` is pure over
  * `DoctorFacts`; `collectDoctorFacts` gathers them from the machine with localhost probes only
@@ -13,7 +15,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { ignoreEntriesPresent, readConfig } from "./init.js";
+import { type CrtMode, detectIntegration, type Framework, ignoreEntriesPresent, type InstructionFile, instructionsStatus, INTEGRATION_CANDIDATES, isInitialised, README_FILE, readConfig } from "./init.js";
 import { fetchHealth, isPortFree } from "./probes.js";
 import { findProjectRoot } from "./project.js";
 import { findOnPath, runExecutable } from "./providers/exec.js";
@@ -37,10 +39,16 @@ export interface DoctorFacts {
   /** `process.version`, e.g. `v22.4.0`. */
   node: string;
   project: { root: string; git: boolean };
-  /** null when `.crt/` does not exist. */
-  crt: { tasks: number | null; config: boolean; localConfig: boolean; ignore: boolean } | null;
+  /** null when `.crt/tasks/` does not exist (F-99: not initialised); `readme` is `.crt/README.md` (F-100). */
+  crt: { readme: boolean; tasks: number; config: boolean; localConfig: boolean; ignore: boolean } | null;
+  /** F-103: the mode and which config file set it (null: the embedded default, or a flag). */
+  mode: { mode: CrtMode; source: "local" | "project" | null };
   /** Omitted (undefined) when not checked; null when none is set and nothing was found. */
   target?: { origin: string; source: "local" | "project" | "probe"; up: boolean } | null;
+  /** F-103: proxy mode has no integration to check; embedded mode names what the F-102 candidate files carry. */
+  integration: { kind: "proxy" } | { kind: "embedded"; framework: Framework; file: string | null; found: IntegrationFound | null };
+  /** F-103: the existing instruction files (an import-only `CLAUDE.md` skipped) and whether each carries the markers. */
+  instructions: Array<{ file: InstructionFile; hasBlock: boolean }>;
   port: { port: number; state: "free" } | { port: number; state: "crt"; health: CrtHealth; thisProject: boolean } | { port: number; state: "busy" };
   providers: ProviderStatus[];
   resolution: Resolution;
@@ -49,6 +57,9 @@ export interface DoctorFacts {
   /** Omitted (undefined) when not checked (the start path). */
   plugin?: { claudeOnPath: false } | { claudeOnPath: true; installed: string | null; error?: string };
 }
+
+/** Which CRT string a candidate file carries: an entry import, or the script tag's URL. */
+export type IntegrationFound = "react" | "vite" | "loader" | "script";
 
 export interface DoctorReport {
   rows: DoctorRow[];
@@ -71,27 +82,36 @@ export function doctorRows(f: DoctorFacts): DoctorReport {
       : { status: "warn", name: "project", detail: `${f.project.root} — no .git above; .crt/ will be created here (run from the repo root, or git init)` },
   );
   if (f.crt === null) {
-    rows.push({ status: "--", name: ".crt", detail: "not initialised — crt creates it" });
+    // F-99/F-103: nothing is created on its own any more.
+    rows.push({ status: "--", name: ".crt", detail: "not initialised — run crt init" });
   } else {
     const parts = [
-      f.crt.tasks === null ? "no tasks/" : `tasks/ (${f.crt.tasks} task${f.crt.tasks === 1 ? "" : "s"})`,
+      ...(f.crt.readme ? ["README.md"] : []),
+      `tasks/ (${f.crt.tasks} task${f.crt.tasks === 1 ? "" : "s"})`,
       f.crt.config ? "config.json" : "no config.json",
       ...(f.crt.localConfig ? ["config.local.json"] : []),
       f.crt.ignore ? ".gitignore entries" : "no .gitignore entries",
     ];
-    rows.push({ status: "ok", name: ".crt", detail: parts.join(", ") });
+    // F-103: a folder that predates v0.4 has no README — a warn, never a FAIL.
+    rows.push(f.crt.readme ? { status: "ok", name: ".crt", detail: parts.join(", ") } : { status: "warn", name: ".crt", detail: `${parts.join(", ")} — no README.md — run crt init` });
   }
+  const embedded = f.mode.mode === "embedded";
+  rows.push({ status: "ok", name: "mode", detail: `${f.mode.mode}${f.mode.source ? ` (.crt/${f.mode.source === "local" ? "config.local.json" : "config.json"})` : ""}` });
   if (f.target !== undefined) {
-    if (f.target === null) rows.push({ status: "FAIL", name: "target", detail: "none set and nothing on the probed ports — crt <port>" });
-    else {
+    if (f.target === null) {
+      // F-103: in embedded mode the target is only what `crt` opens (F-91) — never a FAIL.
+      rows.push(embedded ? { status: "--", name: "target", detail: "none set; crt opens nothing (crt <port> to remember one)" } : { status: "FAIL", name: "target", detail: "none set and nothing on the probed ports — crt <port>" });
+    } else {
       const label = f.target.source === "local" ? "(remembered)" : f.target.source === "project" ? "(.crt/config.json)" : "(found)";
       rows.push(
         f.target.up
           ? { status: "ok", name: "target", detail: `${f.target.origin} ${label} — responding` }
-          : { status: "FAIL", name: "target", detail: `${f.target.origin} ${label} — not responding` },
+          : { status: embedded ? "warn" : "FAIL", name: "target", detail: `${f.target.origin} ${label} — not responding` },
       );
     }
   }
+  rows.push(integrationRow(f.integration));
+  rows.push(instructionsRow(f.instructions));
   const p = f.port;
   if (p.state === "free") rows.push({ status: "ok", name: "port", detail: `${p.port} free` });
   else if (p.state === "crt") {
@@ -123,6 +143,24 @@ export function doctorRows(f: DoctorFacts): DoctorReport {
   return { rows, decision: `→ ${describeResolution(f.resolution)}`, exitCode: rows.some((r) => r.status === "FAIL") ? 1 : 0 };
 }
 
+/** F-103 `integration`: what the F-102 candidate files of the detected framework carry; `--` in proxy mode and for a static page. */
+function integrationRow(i: DoctorFacts["integration"]): DoctorRow {
+  if (i.kind === "proxy") return { status: "--", name: "integration", detail: "proxy mode" };
+  if (i.framework === "static") return { status: "--", name: "integration", detail: "static page — add the <script> tag (crt init --snippet)" };
+  if (i.found === null || i.file === null) return { status: "warn", name: "integration", detail: `not found (${i.framework}) — run crt init for the snippet, or crt proxy` };
+  const label = i.framework === "next" ? "next" : i.framework === "vite" ? "vite" : "loader";
+  const what = i.found === "script" ? "loads /__crt/loader.js" : i.found === "vite" ? "uses claude-review-tool/vite" : `imports claude-review-tool/${i.found}`;
+  return { status: "ok", name: "integration", detail: `${label} — ${i.file} ${what}` };
+}
+
+/** F-103 `instructions`: every existing instruction file carries the markers, or which ones do not. */
+function instructionsRow(files: DoctorFacts["instructions"]): DoctorRow {
+  if (!files.length) return { status: "--", name: "instructions", detail: "no CLAUDE.md or AGENTS.md — crt init creates one" };
+  const lacking = files.filter((f) => !f.hasBlock).map((f) => f.file);
+  if (!lacking.length) return { status: "ok", name: "instructions", detail: `${files.map((f) => f.file).join(" and ")} ${files.length === 1 ? "carries" : "carry"} the CRT section` };
+  return { status: "warn", name: "instructions", detail: `${lacking.join(" and ")} ${lacking.length === 1 ? "has" : "have"} no CRT section — crt init adds it` };
+}
+
 /** `Claude Code (Agent SDK)` + `0.3.270` → `Claude Code (Agent SDK 0.3.270)`; `Codex CLI` + `0.154.0` → `Codex CLI 0.154.0`. */
 function withVersion(agentName: string, version: string | null): string {
   if (!version) return agentName;
@@ -131,7 +169,9 @@ function withVersion(agentName: string, version: string | null): string {
 
 /** The F-76 layout: `ok    node      v22.4.0 (needs 20 or newer)`. */
 export function renderRow(r: DoctorRow): string {
-  return `${r.status.padEnd(6)}${r.name.padEnd(10)}${r.detail}`;
+  // The v0.4 names `integration` and `instructions` (F-103) outgrow the 10-column name field: one space, not a wider table.
+  const name = r.name.length < 10 ? r.name.padEnd(10) : `${r.name} `;
+  return `${r.status.padEnd(6)}${name}${r.detail}`;
 }
 
 export function renderDoctor(report: DoctorReport): string {
@@ -147,6 +187,8 @@ export interface CollectOptions {
   plugin: boolean;
   /** An already-refreshed registry (the start path's); otherwise one is built and refreshed here. */
   providers?: ProviderRegistry;
+  /** The resolved mode (the start path's `crt proxy` / `--mode`); `crt doctor` reads the config files. */
+  mode?: CrtMode;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -159,17 +201,22 @@ export async function collectDoctorFacts(opts: CollectOptions): Promise<DoctorFa
   const providers = opts.providers ?? new ProviderRegistry({ root, config, env });
   if (!opts.providers) await providers.refresh();
 
+  const mode = opts.mode ?? config.mode;
   const facts: DoctorFacts = {
     node: process.version,
     project: { root, git: existsSync(join(root, ".git")) },
-    crt: existsSync(crtDir)
+    crt: isInitialised(root)
       ? {
-          tasks: existsSync(tasksDir) ? countTaskFiles(tasksDir) : null,
+          readme: existsSync(join(crtDir, README_FILE)),
+          tasks: countTaskFiles(tasksDir),
           config: existsSync(join(crtDir, "config.json")),
           localConfig: existsSync(join(crtDir, "config.local.json")),
           ignore: ignoreEntriesPresent(root),
         }
       : null,
+    mode: { mode, source: opts.mode !== undefined && opts.mode !== config.mode ? null : config.modeSource },
+    integration: mode === "proxy" ? { kind: "proxy" } : integrationFact(root),
+    instructions: instructionsStatus(root),
     port: await portFact(config.port, root),
     providers: providers.status(),
     resolution: providers.resolve(null),
@@ -191,6 +238,30 @@ export async function collectDoctorFacts(opts: CollectOptions): Promise<DoctorFa
   }
   if (opts.plugin) facts.plugin = await pluginFact(env);
   return facts;
+}
+
+/** F-103: read only the F-102 candidate files of the detected framework, looking for an entry import or the loader URL. */
+export function integrationFact(root: string): Extract<DoctorFacts["integration"], { kind: "embedded" }> {
+  const { framework, file } = detectIntegration(root);
+  for (const candidate of INTEGRATION_CANDIDATES[framework]) {
+    let text: string;
+    try {
+      text = readFileSync(join(root, ...candidate.split("/")), "utf8");
+    } catch {
+      continue;
+    }
+    const found: IntegrationFound | null = text.includes("claude-review-tool/react")
+      ? "react"
+      : text.includes("claude-review-tool/vite")
+        ? "vite"
+        : text.includes("claude-review-tool/loader")
+          ? "loader"
+          : text.includes("/__crt/loader.js")
+            ? "script"
+            : null;
+    if (found) return { kind: "embedded", framework, file: candidate, found };
+  }
+  return { kind: "embedded", framework, file, found: null };
 }
 
 async function portFact(port: number, root: string): Promise<DoctorFacts["port"]> {

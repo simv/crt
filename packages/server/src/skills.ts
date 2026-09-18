@@ -21,8 +21,8 @@ import { isAbsolute, join, resolve } from "node:path";
 import { CrtError } from "./errors.js";
 import type { ProviderProfile } from "./providers/types.js";
 
-/** The six skills, in plugin order; the build copies each `plugin/skills/<name>/SKILL.md` to `dist/skills/<name>/SKILL.md`. */
-export const SKILL_NAMES = ["next", "tasks", "task", "done", "intake", "serve"] as const;
+/** The seven skills, in plugin order; the build copies each `plugin/skills/<name>/SKILL.md` to `dist/skills/<name>/SKILL.md`. */
+export const SKILL_NAMES = ["next", "tasks", "task", "done", "intake", "serve", "init"] as const;
 export const SKILL_FILE = "SKILL.md";
 export const INSTALLED_PARAGRAPH = "Installed by `crt skills install`; the no-questions guarantee of `/crt:next` is tested on Claude Code only.";
 export const CLAUDE_REFUSAL = "crt skills install --provider claude is not needed: Claude Code gets the skills from the plugin — claude plugin marketplace add simv/crt && claude plugin install crt@crt";

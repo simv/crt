@@ -77,7 +77,7 @@ describe("crt setup (F-86)", () => {
     expect(r.action).toBe("installed");
     expect(r.lines).toEqual([
       `crt setup: registered marketplace crt from ${marketplaceDir}`,
-      `crt setup: installed crt@crt ${VERSION} — restart Claude Code to load /crt:serve, /crt:next, /crt:tasks, /crt:task, /crt:done, /crt:intake`,
+      `crt setup: installed crt@crt ${VERSION} — restart Claude Code to load /crt:serve, /crt:next, /crt:tasks, /crt:task, /crt:done, /crt:intake, /crt:init`,
     ]);
     expect(calls()).toEqual([
       ["plugin", "list", "--json"],
@@ -89,7 +89,7 @@ describe("crt setup (F-86)", () => {
   it("older version installed → marketplace add, then update crt@crt (F-86)", async () => {
     const r = await runSetup({ version: VERSION, marketplaceDir, env: env({ FAKE_CLAUDE_INSTALLED: "0.2.0" }) });
     expect(r.action).toBe("updated");
-    expect(r.lines[1]).toBe(`crt setup: updated crt@crt ${VERSION} — restart Claude Code to load /crt:serve, /crt:next, /crt:tasks, /crt:task, /crt:done, /crt:intake`);
+    expect(r.lines[1]).toBe(`crt setup: updated crt@crt ${VERSION} — restart Claude Code to load /crt:serve, /crt:next, /crt:tasks, /crt:task, /crt:done, /crt:intake, /crt:init`);
     expect(calls().map((c) => c.slice(0, 2))).toEqual([
       ["plugin", "list"],
       ["plugin", "marketplace"],

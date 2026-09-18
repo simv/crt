@@ -2,7 +2,7 @@
  * Minimal argv parser: first positional is the command, `--k v` / `--k=v` / `--flag` become flags.
  * Switches that never take a value are listed so `crt --yes 3000` keeps `3000` as the target (F-69).
  */
-export const BOOLEAN_FLAGS = new Set(["open", "no-open", "yes", "replace", "json", "refresh", "validate", "global", "help", "h", "version"]);
+export const BOOLEAN_FLAGS = new Set(["open", "no-open", "yes", "replace", "json", "refresh", "validate", "global", "help", "h", "version", "no-instructions", "snippet"]);
 
 export interface ParsedArgs {
   command: string | undefined;

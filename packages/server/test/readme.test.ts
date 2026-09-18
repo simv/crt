@@ -7,9 +7,11 @@ import { CODEX_MCP_NEVER_CALLED, CODEX_NOT_FOUND, CODEX_NOT_LOGGED_IN, codexCoul
 import { CLAUDE_NOT_FOUND } from "../src/setup.js";
 
 // Doc tests on the README: PRD-providers F-62 / §10 (every N-7 provider line verbatim in the
-// Providers section) and PRD-setup F-88 / N-17 (Install is the §4 block, Troubleshooting opens
-// with `crt doctor`, every new `crt:` line from F-71, F-73, F-76, F-80 and F-86 quoted verbatim).
-// Runtime values are written as `<…>` in the README and here alike.
+// Providers section), PRD-setup F-88 / N-17 (Install is the §4 block, Troubleshooting opens
+// with `crt doctor`, every new `crt:` line from F-71, F-73, F-76, F-80 and F-86 quoted verbatim)
+// and PRD-embedded F-99, F-100, F-103 (the "CRT is not set up" entry and the v0.4 doctor rows —
+// the minimal M17 update; the full F-107 rewrite is M18). Runtime values are written as `<…>`
+// in the README and here alike.
 
 const readme = readFileSync(join(import.meta.dirname, "..", "..", "..", "README.md"), "utf8");
 /** The text under `heading` up to the next heading of the same or a higher level (fenced code, where `# comments` live, is skipped). */
@@ -93,6 +95,8 @@ describe("README › Troubleshooting (F-88, N-17)", () => {
   it("opens with `crt doctor` and its sample (F-76, F-88)", () => {
     expect(trouble.trimStart().startsWith("Run `crt doctor` first.")).toBe(true);
     expect(trouble).toContain("$ crt doctor\nok    node      v22.4.0 (needs 20 or newer)");
+    expect(trouble).toContain("ok    .crt      README.md, tasks/ (4 tasks), config.json, config.local.json, .gitignore entries\nok    mode      embedded\n");
+    expect(trouble).toContain("ok    integration next — app/layout.tsx imports claude-review-tool/react\nok    instructions CLAUDE.md carries the CRT section\n");
     expect(trouble).toContain("→ claude — codex not logged in");
   });
 
@@ -111,7 +115,7 @@ describe("README › Troubleshooting (F-88, N-17)", () => {
     // F-76
     "FAIL  node      v18.20.0 — CRT needs Node 20 or newer",
     "warn  project   C:\\my-app\\src — no .git above; .crt/ will be created here (run from the repo root, or git init)",
-    "--    .crt      not initialised — crt creates it",
+    "--    .crt      not initialised — run crt init",
     "FAIL  target    none set and nothing on the probed ports — crt <port>",
     "FAIL  target    http://localhost:3100 (remembered) — not responding",
     "FAIL  port      4400 held by CRT 0.3.0 → http://localhost:3000 (this project) — crt --replace",
@@ -129,12 +133,57 @@ describe("README › Troubleshooting (F-88, N-17)", () => {
     // F-86
     `crt: ${CLAUDE_NOT_FOUND}`,
     "crt setup: registered marketplace crt from <path>",
-    "crt setup: installed crt@crt 0.3.0 — restart Claude Code to load /crt:serve, /crt:next, /crt:tasks, /crt:task, /crt:done, /crt:intake",
+    "crt setup: installed crt@crt 0.3.0 — restart Claude Code to load /crt:serve, /crt:next, /crt:tasks, /crt:task, /crt:done, /crt:intake, /crt:init",
     "crt setup: crt@crt 0.3.0 is already installed",
     // F-84
     "CRT: plugin 0.3.0 but the project's claude-review-tool is 0.2.0 — npm update claude-review-tool (or crt setup after updating)",
   ])("quotes %s (F-88, N-17)", (line) => {
     expect(trouble).toContain(line);
+  });
+
+  it.each([
+    // F-99
+    "crt: C:\\my-app is not set up for CRT — run `crt init` (or `crt --yes`)",
+    "Set up CRT in C:\\my-app? [Y/n]",
+    "no tasks (CRT is not set up here — run crt init)",
+    // F-100
+    "crt init will, in C:\\my-app:\n  create .crt/README.md\n  create .crt/tasks/\n  create .crt/config.json\n  add .crt/captures/ and .crt/config.local.json to .gitignore\n  add a CRT section to CLAUDE.md",
+    "Go ahead? [Y/n]",
+    "crt init: created .crt/README.md",
+    "crt init: created .crt/tasks/",
+    "crt init: created .crt/config.json",
+    "crt init: added .crt/captures/ and .crt/config.local.json to .gitignore",
+    "crt init: added the CRT section to CLAUDE.md",
+    "crt init: created CLAUDE.md with the CRT section",
+    "crt init: updated the CRT section in CLAUDE.md",
+    "crt init: C:\\my-app is set up (.crt/README.md, tasks/, config.json, .gitignore entries, CRT section in CLAUDE.md)",
+    "Add CRT to your app (development only):",
+    "Production builds contain nothing from CRT (README › Production). /crt:init in Claude Code applies this for you.",
+    // F-101
+    "<!-- BEGIN:crt v0.4 -->",
+    "<!-- END:crt -->",
+    // F-103
+    "warn  .crt      tasks/ (4 tasks), config.json, .gitignore entries — no README.md — run crt init",
+    "ok    mode      proxy (.crt/config.json)",
+    "--    target    none set; crt opens nothing (crt <port> to remember one)",
+    "warn  target    http://localhost:3100 (remembered) — not responding",
+    "ok    integration vite — vite.config.ts uses claude-review-tool/vite",
+    "ok    integration loader — src/main.tsx imports claude-review-tool/loader",
+    "warn  integration not found (next) — run crt init for the snippet, or crt proxy",
+    "--    integration static page — add the <script> tag (crt init --snippet)",
+    "--    integration proxy mode",
+    "warn  instructions CLAUDE.md has no CRT section — crt init adds it",
+    "--    instructions no CLAUDE.md or AGENTS.md — crt init creates one",
+    // F-106
+    "CRT: .crt/ is set up but CLAUDE.md has no CRT section — run crt init to add it",
+  ])("quotes %s (PRD-embedded F-99, F-100, F-103, F-106)", (line) => {
+    expect(trouble).toContain(line);
+  });
+
+  it("has the CRT is not set up entry, and the loop no longer claims an implicit init (F-99)", () => {
+    expect(trouble).toContain("### CRT is not set up");
+    expect(readme).not.toContain("`crt` first runs `crt init`");
+    expect(section("## The loop")).toContain("`crt` never sets a project up on its own");
   });
 
   it("every quoted crt: line is one line (N-17)", () => {

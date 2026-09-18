@@ -1,10 +1,12 @@
-// SessionStart hook (PRD F-41; PRD-setup F-84): if this project has CRT tasks in backlog, add one
-// line of context, and if the project's installed claude-review-tool is a different major.minor
-// than this plugin, add one drift line. Reads nothing but .crt/tasks/*.md frontmatter, this
-// plugin's plugin.json and <project>/node_modules/claude-review-tool/package.json (local files
-// only, never npm — N-16); prints nothing when there is nothing to say, and never fails the
-// session start: any error (unreadable dir, odd file, missing project) is swallowed.
-import { readdirSync, readFileSync } from "node:fs";
+// SessionStart hook (PRD F-41; PRD-setup F-84; PRD-embedded F-106): if this project has CRT tasks
+// in backlog, add one line of context; if the project's installed claude-review-tool is a
+// different major.minor than this plugin, add one drift line; if `.crt/tasks/` exists but neither
+// CLAUDE.md nor AGENTS.md carries the CRT section, add one line saying so. Reads nothing but
+// .crt/tasks/*.md frontmatter, this plugin's plugin.json, <project>/node_modules/claude-review-tool/
+// package.json and the two instruction files (local files only, never npm — N-16); prints nothing
+// when there is nothing to say, and never fails the session start: any error (unreadable dir, odd
+// file, missing project) is swallowed.
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -66,11 +68,31 @@ export function pluginVersion() {
   return readVersion(join(dirname(fileURLToPath(import.meta.url)), "..", ".claude-plugin", "plugin.json"));
 }
 
+/**
+ * F-106: one line when `.crt/tasks/` exists and neither CLAUDE.md nor AGENTS.md in the project
+ * contains the `<!-- BEGIN:crt` marker `crt init` writes (F-101); silent otherwise. Two file reads.
+ */
+export function instructionsLine(projectDir) {
+  try {
+    if (!statSync(join(projectDir, ".crt", "tasks")).isDirectory()) return null;
+  } catch {
+    return null; // no .crt/tasks here — CRT is not set up in this project
+  }
+  for (const name of ["CLAUDE.md", "AGENTS.md"]) {
+    try {
+      if (readFileSync(join(projectDir, name), "utf8").includes("<!-- BEGIN:crt")) return null;
+    } catch {
+      // absent or unreadable: counts as "no section"
+    }
+  }
+  return "CRT: .crt/ is set up but CLAUDE.md has no CRT section — run crt init to add it";
+}
+
 // Only act when run as the hook itself (not when imported by a test).
 if (process.argv[1] && /session-start\.mjs$/.test(process.argv[1])) {
   try {
     const projectDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
-    for (const line of [backlogLine(projectDir), driftLine(projectDir, pluginVersion())]) {
+    for (const line of [backlogLine(projectDir), driftLine(projectDir, pluginVersion()), instructionsLine(projectDir)]) {
       if (line) process.stdout.write(`${line}\n`);
     }
   } catch {

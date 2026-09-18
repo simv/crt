@@ -1,7 +1,10 @@
 /**
  * `crt [target]` / `crt serve [target]` / `crt proxy [target]` (PRD F-1, F-4, F-5, F-23, F-24,
- * N-6; PRD-providers F-43, F-44; PRD-setup F-70…F-75, F-78, F-79; PRD-embedded F-91…F-94): run
- * `init`, prune stale captures, preflight the providers and pick one, resolve the mode
+ * N-6; PRD-providers F-43, F-44; PRD-setup F-70…F-75, F-78, F-79; PRD-embedded F-91…F-94, F-99):
+ * preflight the providers and pick one, make sure the project is set up (start.ts
+ * `ensureInitialised` — never silently: the F-100 plan and a question on a terminal, `--yes`
+ * otherwise, else one refusal line; nothing here creates `.crt/`, N-19), prune stale captures
+ * when `.crt/captures/` exists, resolve the mode
  * (init.ts `resolveMode`: `crt proxy` / `--mode` / config, default embedded), choose the target
  * (start.ts `chooseTarget` — in proxy mode found, remembered, asked for, or waited on; in
  * embedded mode the soft form: the app URL CRT opens, never waited for), wire the session
@@ -18,19 +21,19 @@
  * with a command that does nothing, so the F-94 timer can be observed without a real browser).
  */
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import type { Server } from "node:http";
 import { relative, resolve } from "node:path";
-import { pruneCaptures } from "./captures.js";
+import { capturesDir, pruneCaptures } from "./captures.js";
 import { collectDoctorFacts, doctorRows, hasDevScript, renderRow } from "./doctor.js";
 import { CrtError } from "./errors.js";
-import { type CrtMode, describeInit, initProject, readConfig, resolveMode, writeLocalConfig } from "./init.js";
+import { applyInit, type CrtMode, isInitialised, planInit, readConfig, renderPlan, resolveMode, writeLocalConfig } from "./init.js";
 import { fetchHealth, isPortFree, requestShutdown } from "./probes.js";
 import { findProjectRoot } from "./project.js";
 import { createProxyServer, type CrtServer } from "./proxy.js";
 import { describeResolution, loginField, ProviderRegistry } from "./session.js";
 import { SessionRegistry } from "./sessions.js";
-import { bindPort, chooseTarget, type CrtHealth, type Prompter, type StartDeps } from "./start.js";
+import { bindPort, chooseTarget, type CrtHealth, ensureInitialised, type Prompter, type StartDeps } from "./start.js";
 import { countTaskFiles, parseFrontmatter } from "./tasks.js";
 import { isReachable, normalizeTarget, PROBE_PORTS, probeAll } from "./target.js";
 import { packageVersion } from "./version.js";
@@ -54,6 +57,8 @@ export interface ServeOptions {
   provider?: string | undefined;
   /** `--replace`: stop a CRT holding the port (F-79). */
   replace?: boolean;
+  /** `--yes`: set up an un-initialised project without asking (PRD-embedded F-99). Default false. */
+  yes?: boolean;
   /** PRD-setup §5.2: may ask on the terminal; requires `prompt`. Default false. */
   interactive?: boolean;
   prompt?: Prompter;
@@ -97,13 +102,9 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
   const interactive = opts.interactive === true;
   const version = opts.version ?? packageVersion();
   const projectRoot = findProjectRoot(opts.cwd ?? process.cwd());
+  const prompt = opts.prompt ?? NO_PROMPT;
 
-  const init = initProject(projectRoot);
-  const initLine = describeInit(projectRoot, init);
-  if (initLine) log(initLine);
-  const pruned = pruneCaptures(projectRoot);
-  if (pruned.length) log(`crt: pruned ${pruned.length} capture${pruned.length === 1 ? "" : "s"} older than 7 days`);
-
+  // Read before init: `readConfig` tolerates an absent `.crt/` (defaults), and `crt init` never changes what it would read here.
   const config = readConfig(projectRoot);
   const port = opts.port ?? config.port;
   // F-91/F-92: `crt proxy` > `--mode` > config.local.json > config.json > embedded.
@@ -119,12 +120,29 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
   await providers.refresh();
   const resolution = providers.resolve(null);
 
+  // F-99: never create `.crt/` silently — the F-100 plan and a question, or `--yes`, or one refusal line.
+  let plan: Awaited<ReturnType<typeof planInit>> | null = null;
+  await ensureInitialised(
+    { initialised: isInitialised(projectRoot), root: projectRoot, yes: opts.yes === true },
+    {
+      interactive,
+      log,
+      prompt,
+      plan: async () => renderPlan((plan = await planInit(projectRoot, { instructions: true, version, provider: async () => resolution.provider }))),
+      apply: async () => applyInit(plan!, { version, log }),
+    },
+  );
+  if (existsSync(capturesDir(projectRoot))) {
+    const pruned = pruneCaptures(projectRoot);
+    if (pruned.length) log(`crt: pruned ${pruned.length} capture${pruned.length === 1 ? "" : "s"} older than 7 days`);
+  }
+
   let server: CrtServer | null = null;
   let warned = false;
   const deps: StartDeps = {
     interactive,
     log,
-    prompt: opts.prompt ?? NO_PROMPT,
+    prompt,
     isReachable: (origin) => isReachable(origin),
     probeAll: () => probeAll(),
     health: (p) => fetchHealth(p),
@@ -138,7 +156,7 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
       // F-76: only FAIL/warn rows, once, before the first question (no target row — that is the question; no plugin row — never spawn `claude` here).
       if (warned) return;
       warned = true;
-      const report = doctorRows(await collectDoctorFacts({ cwd: projectRoot, version, target: false, plugin: false, providers }));
+      const report = doctorRows(await collectDoctorFacts({ cwd: projectRoot, version, target: false, plugin: false, providers, mode }));
       for (const row of report.rows) if (row.status === "FAIL" || row.status === "warn") log(renderRow(row));
     },
     ...opts.deps,

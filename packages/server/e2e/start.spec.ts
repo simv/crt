@@ -116,8 +116,16 @@ test("`crt 3999` starts with no prompt and remembers the target; the second run 
   expect(first.lines).toContain("Remembered http://localhost:3999 in .crt/config.local.json — `crt <port>` switches.");
   expect(first.lines.some((l) => /Dev server URL|Which one\?/.test(l))).toBe(false);
   expect(JSON.parse(readFileSync(join(root, ".crt", "config.local.json"), "utf8"))).toEqual({ target: FIXTURE });
-  // F-75: the first init line names what was created and ends with the commit hint.
-  expect(first.lines[0]).toBe("crt init: created .crt/tasks; added .crt/captures/ and .crt/config.local.json to .gitignore — commit .crt/");
+  // PRD-embedded F-99/F-100 (retiring the F-75 line): under --yes the plan comes first (only what is not in
+  // place — scratch() wrote config.json already), then one line per write; the stub provider gets AGENTS.md.
+  expect(first.lines[0]).toBe(`crt init will, in ${root}:`);
+  expect(first.lines.slice(1, 5)).toEqual(["  create .crt/README.md", "  create .crt/tasks/", "  add .crt/captures/ and .crt/config.local.json to .gitignore", "  create AGENTS.md with a CRT section"]);
+  expect(first.lines.slice(5, 9)).toEqual([
+    "crt init: created .crt/README.md",
+    "crt init: created .crt/tasks/",
+    "crt init: added .crt/captures/ and .crt/config.local.json to .gitignore",
+    "crt init: created AGENTS.md with the CRT section",
+  ]);
   // F-78: health tells the whole story.
   const h = await health(4485);
   expect(h).toMatchObject({ ok: true, version: VERSION, target: FIXTURE, tasks: 0, provider: "stub", login: "unchecked", sessions: 0, overlay: { injected: 0, fetched: 0 } });
@@ -217,4 +225,29 @@ test("crt --version, crt help and an unknown command (F-69)", async () => {
   const down = startCrt(root, ["proxy", "--yes", "3998"]);
   expect(await down.exited).toBe(1);
   expect(down.lines).toContain("crt: target http://localhost:3998 is not responding — start your dev server there, or run `crt <port>`");
+});
+
+test("an un-initialised project: `crt` off a terminal refuses with the F-99 line, `crt tasks` is not an error, `crt --yes` sets it up and starts (F-99, F-100)", async () => {
+  const root = scratch("uninit", 4480);
+  rmSync(join(root, ".crt"), { recursive: true, force: true });
+  const refused = startCrt(root, ["--no-open", "--port", "4480"]);
+  expect(await refused.exited).toBe(1);
+  expect(refused.lines).toEqual([`crt: ${root} is not set up for CRT — run \`crt init\` (or \`crt --yes\`)`]);
+  expect(existsSync(join(root, ".crt"))).toBe(false);
+  const tasks = startCrt(root, ["tasks"]);
+  expect(await tasks.exited).toBe(0);
+  expect(tasks.lines).toEqual(["no tasks (CRT is not set up here — run crt init)"]);
+  const json = startCrt(root, ["tasks", "--json"]);
+  expect(await json.exited).toBe(0);
+  expect(JSON.parse(json.lines.join("\n"))).toEqual({ tasksDir: null, tasks: [] });
+  expect(existsSync(join(root, ".crt"))).toBe(false);
+  const yes = startCrt(root, ["--yes", "--no-open", "--port", "4480"]);
+  await yes.waitFor(/^CRT ready at http:\/\/localhost:4480 /);
+  expect(yes.lines.slice(0, 6)).toEqual([`crt init will, in ${root}:`, "  create .crt/README.md", "  create .crt/tasks/", "  create .crt/config.json", "  add .crt/captures/ and .crt/config.local.json to .gitignore", "  create AGENTS.md with a CRT section"]);
+  expect(yes.lines).toContain("crt init: created .crt/config.json");
+  expect(yes.lines).toContain("crt init: created AGENTS.md with the CRT section");
+  expect(existsSync(join(root, ".crt", "README.md"))).toBe(true);
+  expect(readFileSync(join(root, "AGENTS.md"), "utf8")).toContain("<!-- BEGIN:crt v");
+  yes.child.kill();
+  await yes.exited;
 });
