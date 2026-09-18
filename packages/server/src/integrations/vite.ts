@@ -47,8 +47,9 @@ export function crt(options?: CrtVitePluginOptions): Plugin {
     transformIndexHtml: {
       order: "pre",
       handler() {
-        if (process.env.NODE_ENV === "production") return; // F-98, on top of apply: "serve"
-        return [{ tag: "script", attrs: { type: "module" }, children: loaderModule(resolvePort(options, viteRoot)), injectTo: "head-prepend" }];
+        // F-98, on top of apply: "serve" — the positive form, as in the browser entries (CLAUDE.md N-18 line).
+        if (process.env.NODE_ENV !== "production") return [{ tag: "script", attrs: { type: "module" }, children: loaderModule(resolvePort(options, viteRoot)), injectTo: "head-prepend" }];
+        return;
       },
     },
   };
