@@ -1,10 +1,10 @@
 ---
 id: CRT-0022
 title: M18 — README for embedded mode, e2e axis flip, PRD amendments, v0.4 DoD, release 0.4.0
-status: backlog
+status: in_progress
 priority: normal
 created: 2026-09-17T08:54:00+08:00
-updated: 2026-09-17T08:54:00+08:00
+updated: 2026-09-18T18:49:00+08:00
 url: null
 route: null
 session: null
@@ -41,3 +41,4 @@ Keep "How it works" as a fenced diagram plus bullets like today (the doc test ch
 
 ## Log
 - 2026-09-17T08:54+08:00 — created from docs/PRD-embedded.md milestone M18 by the planning session that wrote it.
+- 2026-09-18T18:49+08:00 — claimed by /crt:next, session fa6b7fa6-18bf-4ca2-ab4e-a94d900cd258, branch crt/CRT-0022-m18-docs-e2e-flip-prd-amendments-release-0-4-0. Picked over CRT-0013 (priority low, Should milestone): normal outranks low.
