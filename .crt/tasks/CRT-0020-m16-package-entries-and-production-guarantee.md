@@ -1,10 +1,10 @@
 ---
 id: CRT-0020
 title: M16 — Package entries (react, vite, loader) and the production guarantee
-status: backlog
+status: in_progress
 priority: high
 created: 2026-09-17T08:54:00+08:00
-updated: 2026-09-17T08:54:00+08:00
+updated: 2026-09-18T09:05:00+08:00
 url: null
 route: null
 session: null
@@ -44,3 +44,4 @@ The entries must import nothing from `serve.ts`, `proxy.ts`, `sessions.ts`, `ses
 
 ## Log
 - 2026-09-17T08:54+08:00 — created from docs/PRD-embedded.md milestone M16 by the planning session that wrote it.
+- 2026-09-18T09:05+08:00 — claimed by /crt:next, session 4ccd6d6f-658b-4f89-997f-948723975c2d, branch crt/CRT-0020-m16-package-entries-and-production-guarantee
