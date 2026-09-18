@@ -1,10 +1,10 @@
 ---
 id: CRT-0021
 title: M17 — Explicit crt init (plan, .crt/README.md, CRT section in CLAUDE.md/AGENTS.md, snippet), /crt:init, embedded /crt:serve, doctor rows
-status: backlog
+status: in_progress
 priority: high
 created: 2026-09-17T08:54:00+08:00
-updated: 2026-09-17T08:54:00+08:00
+updated: 2026-09-18T10:04:00+08:00
 url: null
 route: null
 session: null
@@ -48,3 +48,4 @@ No page capture: created from `docs/PRD-embedded.md` milestone M17 by the planni
 
 ## Log
 - 2026-09-17T08:54+08:00 — created from docs/PRD-embedded.md milestone M17 by the planning session that wrote it.
+- 2026-09-18T10:04+08:00 — claimed by /crt:next, session f8cac690-3ba0-432a-bfa4-678a0348c949, branch crt/CRT-0021-m17-explicit-crt-init-agent-section-init-skill
