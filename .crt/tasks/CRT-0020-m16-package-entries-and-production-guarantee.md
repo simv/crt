@@ -1,10 +1,10 @@
 ---
 id: CRT-0020
 title: M16 — Package entries (react, vite, loader) and the production guarantee
-status: review
+status: done
 priority: high
 created: 2026-09-17T08:54:00+08:00
-updated: 2026-09-18T10:45:00+08:00
+updated: 2026-09-18T11:20:00+08:00
 url: null
 route: null
 session: null
@@ -56,3 +56,4 @@ The entries must import nothing from `serve.ts`, `proxy.ts`, `sessions.ts`, `ses
 - 2026-09-18T09:55+08:00 — prd-reviewer: PR-READY, one nit — the CLAUDE.md N-18 line says "positive form" while the Vite handler used the negative form; the handler now uses the positive form too (vite-plugin, production-guard and integrations-build tests green). e2e/embedded.spec.ts (bundles the ESM loader) run locally with CRT_SESSION_STUB=1: 3 passed.
 - 2026-09-18T10:10+08:00 — PR #50 CI: check (ubuntu, windows) and e2e green; CodeQL flagged the head-tag regex in production-guard.test.ts (js/bad-tag-filter: case-sensitive <script>) — an assertion over Vite's own output, not a filter, but made case-insensitive so the check clears.
 - 2026-09-18T10:45+08:00 — verified (manual row, run by the session per Simon's standing instruction): package built and `npm pack`ed from a clean worktree of main at ed8bfc8 (the primary checkout was on CRT-0021), installed into C:\Projects\Claude\tool-validation from the tarball (never `npm link`: a symlink would make Next resolve `react` from this repo). (1) Next 16.3.5 / React 19.2.8, `<CrtDevTools />` in app/layout.tsx, `npx next dev -p 3100` + the CRT server from dist on :4400: the page's `window.__crt` had the console/network hooks installed and the overlay tag from http://localhost:4400/__crt/overlay.js, the CRT button and the embedded welcome card showed on http://localhost:3100 (.crt/captures/crt-0020-next-dev-button.png); server stopped + reload → the pill "CRT server not running on :4400 — run `crt` in the project, then click here"; server restarted + pill click → overlay back with no reload; Select on dd.total, note, Send → intake ran (first attempt hit the account's Fable usage limit — an account limit, not CRT; retried with `models.claude: claude-opus-5` in the trial app's .crt/config.local.json), Accept → `Task CRT-0011 written to .crt/tasks/CRT-0011-cart-total-ignores-the-applied-save10.md` in the trial app. (2) `npx next build` (Turbopack) completed; `Get-ChildItem .next\static -Recurse -File | Select-String "__crt|loader\.js|mountCrt"` → nothing, `localhost:4400` → nothing, bare `4400` → 0 hits; the whole .next (minus the dev cache) has none of `__crt`, `/loader.js`, `overlay.js`, `mountCrt`, `localhost:4400`; one static chunk carries `e.s(["CrtDevTools",0,function(){return null}])` — the no-op module, so Turbopack honoured the `production` export condition (§12 rule 4 case, allowed). (3) Scratch `npm create vite@latest crt-vite-trial -- --template react-ts` (Vite 8.3.0, @vitejs/plugin-react 6.1.1, React 19.2.8), tarball installed, `plugins: [react(), crt()]`, `vite --port 5173` + the CRT server on :4400 for :5173: `<head>` carried `/@vite/client`, then our `/index.html?html-proxy&index=0.js`, then the overlay tag from :4400; hooks installed; button and card shown (.crt/captures/crt-0020-vite-dev-button.png). (4) `npm run build` → dist/ has 0 hits for `__crt|loader\.js|mountCrt|4400|claude-review-tool`.
+- 2026-09-18T11:20+08:00 — done; merged in https://github.com/simv/crt/pull/50
