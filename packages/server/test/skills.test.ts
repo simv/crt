@@ -96,5 +96,5 @@ describe("crt skills install (F-58)", () => {
     const r = installSkills({ sourceDir: distSkills, root, profile: codexProfile });
     expect(r.dir).toBe(join(root, ".agents", "skills"));
     expect(r.written.length).toBe(6);
-  });
+  }, 30_000); // copy-intake.mjs also emits the entry declarations through the TypeScript API (F-97), ~3 s cold
 });

@@ -146,3 +146,24 @@ describe("README › Troubleshooting (F-88, N-17)", () => {
     }
   });
 });
+
+describe("README › Add CRT to your app and Production (PRD-embedded F-97, F-98)", () => {
+  const add = section("## Add CRT to your app");
+  const production = section("## Production");
+
+  it.each([
+    ["react", 'import { CrtDevTools } from "claude-review-tool/react";'],
+    ["vite", 'import { crt } from "claude-review-tool/vite";'],
+    ["loader", 'import { mountCrt } from "claude-review-tool/loader";'],
+  ])("shows the %s import form verbatim (F-97)", (_name, line) => {
+    expect(add).toContain(line);
+  });
+
+  it("states the four F-98 layers, the grep check and the string list (F-98, N-18)", () => {
+    expect(production).toContain("`production` export condition");
+    expect(production).toContain('`process.env.NODE_ENV !== "production"`');
+    expect(production).toContain('`apply: "serve"`');
+    expect(production).toContain('`grep -r "__crt" dist/`');
+    expect(production).toContain("`__crt`, `/loader.js`, `overlay.js`, `mountCrt`, `4400`");
+  });
+});

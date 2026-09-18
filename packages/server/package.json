@@ -17,11 +17,31 @@
     "annotate",
     "feedback",
     "proxy",
-    "overlay"
+    "overlay",
+    "devtools",
+    "vite-plugin",
+    "nextjs"
   ],
   "type": "module",
   "bin": {
     "crt": "dist/cli.js"
+  },
+  "exports": {
+    "./loader": {
+      "types": "./dist/integrations/loader.d.ts",
+      "production": "./dist/integrations/noop-loader.js",
+      "default": "./dist/integrations/loader.js"
+    },
+    "./react": {
+      "types": "./dist/integrations/react.d.ts",
+      "production": "./dist/integrations/noop-react.js",
+      "default": "./dist/integrations/react.js"
+    },
+    "./vite": {
+      "types": "./dist/integrations/vite.d.ts",
+      "default": "./dist/integrations/vite.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist"
@@ -36,6 +56,18 @@
     "dev": "tsc -p tsconfig.json --watch",
     "e2e": "playwright test"
   },
+  "peerDependencies": {
+    "react": ">=18",
+    "vite": ">=5"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
     "@playwright/test": "^1.63.0",
@@ -44,6 +76,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^5.7.0",
+    "vite": "^8.3.0",
     "vitest": "^5.0.1"
   },
   "dependencies": {

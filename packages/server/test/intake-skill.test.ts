@@ -23,7 +23,7 @@ describe("intake skill (F-55)", () => {
     expect(built).toBe(readFileSync(skill, "utf8"));
     expect(built).toContain(SENTINEL);
     expect(loadIntakePrompt(dist)).toContain(SENTINEL);
-  });
+  }, 30_000); // copy-intake.mjs also emits the entry declarations through the TypeScript API (F-97), ~3 s cold
 
   it("names no Claude-only tools or variables, tells a sandboxed agent to stop after step 4, and keeps valid frontmatter (F-55)", () => {
     const text = readFileSync(skill, "utf8");
