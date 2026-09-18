@@ -103,7 +103,7 @@ describe("production guarantee — Vite (F-98, N-18)", () => {
       // Vite's own dev HTML hook runs after ours (order: "pre"): it prepends its client script first
       // and turns our inline module into a proxied one (`?html-proxy&index=0.js`) — so ours is the
       // first tag after /@vite/client and before everything the page had (§12 rule 1, Vite 8).
-      const tags = [...head.matchAll(/<(script|meta|title|link)[^>]*>/g)].map((m) => m[0]);
+      const tags = [...head.matchAll(/<(script|meta|title|link)[^>]*>/gi)].map((m) => m[0]); // case-insensitive: an assertion, not a filter (CodeQL js/bad-tag-filter)
       expect(tags[0], head).toContain("/@vite/client");
       expect(tags[1], head).toMatch(/^<script type="module" src="\/index\.html\?html-proxy&index=0\.js">$/);
       expect(tags[2], head).toContain("<meta");
