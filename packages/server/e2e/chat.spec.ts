@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { FIRST_MESSAGE_HEADING } from "../src/intake-message.js";
 import { INTERNAL_WRITE_TASK_PATH, STALE_TOKEN_LINE } from "../src/mcp-stdio.js";
-import { ACP_CAPABILITIES } from "../src/providers/acp.js";
+import { ACP_CAPABILITIES, ACP_EXPERIMENTAL } from "../src/providers/acp.js";
 import { CODEX_CAPABILITIES, codexProfile } from "../src/providers/codex.js";
 import { stubProfile } from "../src/providers/stub.js";
 import type { ProvidersPayload, SessionEvent } from "../src/session-events.js";
@@ -662,8 +662,9 @@ test.describe("codex provider on the fake codex CLI (F-49, F-53, F-56, F-61)", (
     });
     await page.evaluate(() => window.__crt.send());
     await expect(shadow(page, ".chat")).toBeVisible();
-    // Turn 1 replays first-turn.jsonl: an MCP tool line, a command line, then the whole message.
-    await expect(shadow(page, ".tool summary").first()).toHaveText("crt/crt_ping");
+    // Turn 1 replays first-turn.jsonl: an MCP tool line, a command line, then the whole message. The first
+    // line waits longer: the fake spawns node + the crt mcp shim while five servers and the other specs load the machine.
+    await expect(shadow(page, ".tool summary").first()).toHaveText("crt/crt_ping", { timeout: 15_000 });
     await expect(shadow(page, ".tool .out").first()).toHaveText("listener replied 200: pong #5");
     await expect(shadow(page, ".tool summary").nth(1)).toHaveText(/^Run /);
     await expect(shadow(page, ".msg.assistant").first()).toContainText("listener replied 200: pong #5");
@@ -755,7 +756,7 @@ test.describe("ad-hoc ACP agent from .crt/config.json (F-49, F-54, F-56, F-61)",
     const payload = (await (await page.request.get(`${ACP}/__crt/providers`)).json()) as ProvidersPayload;
     expect(payload.active).toBe("acp");
     expect(payload.providers.map((p) => p.id)).toEqual(["claude", "codex", "gemini", "acp"]);
-    expect(payload.providers.find((p) => p.id === "acp")).toMatchObject({ displayName: "Fake Agent", installed: true, loggedIn: "unknown", version: null, problem: null, markers: [], capabilities: ACP_CAPABILITIES });
+    expect(payload.providers.find((p) => p.id === "acp")).toMatchObject({ displayName: "Fake Agent", installed: true, loggedIn: "unknown", version: null, problem: null, markers: [], capabilities: ACP_CAPABILITIES, experimental: ACP_EXPERIMENTAL });
     // N-8: the object form is never page-writable.
     expect((await page.request.put(`${ACP}/__crt/config`, { data: { provider: { kind: "acp", command: "evil", name: "x" } } })).status()).toBe(400);
 
@@ -766,10 +767,21 @@ test.describe("ad-hoc ACP agent from .crt/config.json (F-49, F-54, F-56, F-61)",
       window.__crt.addSelect("[data-testid=card-1] .price");
       window.__crt.setNote(1, "total excludes discount");
     });
+    // F-54 (M10): the menu rows of the untested profiles wear the experimental badge with the reason as its tooltip.
+    await page.evaluate(() => window.__crt.togglePop(1, true));
+    const pop = shadow(page, '.pop[data-n="1"]');
+    await pop.locator("[data-action=agent].caret").click();
+    const badge = pop.locator(".providers .provider[data-provider=acp] .name .badge");
+    await expect(badge).toHaveText("experimental");
+    await expect(badge).toHaveAttribute("title", ACP_EXPERIMENTAL);
+    await expect(pop.locator(".providers .provider[data-provider=gemini] .name .badge")).toHaveText("experimental");
+    await expect(pop.locator(".providers .provider[data-provider=codex] .name .badge")).toHaveCount(0);
+    await pop.locator(".providers [data-providers=close]").click();
     await page.evaluate(() => window.__crt.send());
     await expect(shadow(page, ".chat")).toBeVisible();
     // Turn 1: streamed text, the pre-allowed `read` tool, then the `execute` card (F-54 policy: npm test is not read-only git).
-    await expect(shadow(page, ".msg.assistant").first()).toContainText("I looked at the capture");
+    // The first assertion waits longer: the fake agent spawns the crt mcp shim at session/new while the other specs load the machine.
+    await expect(shadow(page, ".msg.assistant").first()).toContainText("I looked at the capture", { timeout: 15_000 });
     await expect(shadow(page, ".tool summary").first()).toHaveText("ReadFile AGENTS.md");
     await expect(shadow(page, ".perm .t")).toHaveText("Shell npm test");
     await expect(shadow(page, ".perm pre")).toHaveText("npm test");
@@ -790,10 +802,11 @@ test.describe("ad-hoc ACP agent from .crt/config.json (F-49, F-54, F-56, F-61)",
     expect(init).toMatchObject({ provider: "acp", displayName: "Fake Agent", model: "gemini-2.5-pro", agentVersion: "0.60.0", resumeCommand: null, capabilities: ACP_CAPABILITIES });
     expect(init.nativeSessionId).toMatch(/^[0-9a-f-]{36}$/);
     expect(init.nativeSessionId).not.toBe(snap.sessionId);
-    // F-46/F-56: footer = provider · model · version; no resume hint (resume: false), no sandbox badge (interactive).
+    // F-46/F-56: footer = provider · model · version · experimental badge; no resume hint (resume: false), no sandbox badge (interactive).
     const foot = shadow(page, ".chat-foot");
-    await expect(foot).toHaveText("Fake Agent · gemini-2.5-pro · 0.60.0");
-    await expect(foot.locator(".badge")).toHaveCount(0);
+    await expect(foot).toHaveText("Fake Agent · gemini-2.5-pro · 0.60.0 · experimental");
+    await expect(foot.locator(".badge")).toHaveCount(1);
+    await expect(foot.locator(".badge.experimental")).toHaveAttribute("title", ACP_EXPERIMENTAL);
     await expect(shadow(page, "[data-chat=interrupt]")).toBeVisible();
     // F-51/F-50: instructions in the first message; images inline (the fake rejects an image block without data).
     const first = snap.events[0] as Extract<SessionEvent, { type: "user" }>;
@@ -804,7 +817,7 @@ test.describe("ad-hoc ACP agent from .crt/config.json (F-49, F-54, F-56, F-61)",
 
     await page.reload();
     await expect(shadow(page, ".chat")).toBeVisible();
-    await expect(foot).toHaveText("Fake Agent · gemini-2.5-pro · 0.60.0");
+    await expect(foot).toHaveText("Fake Agent · gemini-2.5-pro · 0.60.0 · experimental");
     await expect(shadow(page, ".chat-head .agent")).toHaveText("Fake Agent");
 
     // Turn 2: the fake calls write_task through `crt mcp` → the internal route writes the file.

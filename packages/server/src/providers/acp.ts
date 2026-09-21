@@ -397,6 +397,8 @@ export interface AcpAgentSpec {
   resolve: (opts: StartSessionOptions) => Executable | null;
   /** Arguments that put the agent in ACP mode (`--acp` for Gemini; none for an ad-hoc command). */
   acpArgs: string[];
+  /** F-54 (M10): the profile ships untested against a real agent; carried on the `init` event for the footer badge. */
+  experimental?: string;
   notFound: string;
   /** N-7: map an auth failure the agent reports (a `session/new` error, stderr) to the not-logged-in line, or null. */
   loginProblem: (message: string) => string | null;
@@ -592,6 +594,7 @@ export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, d
         agentVersion: opts.agentVersion ?? init?.agentInfo?.version ?? null,
         resumeCommand: capabilities.resume ? spec.resumeCommand(sessionId) : null,
         capabilities,
+        ...(spec.experimental ? { experimental: spec.experimental } : {}),
       });
       ready = true;
       if (queue.length) void pump();
@@ -731,6 +734,8 @@ export const ACP_CAPABILITIES: ProviderCapabilities = {
   instructions: "first-message",
 };
 
+/** F-54 (M10): an agent CRT has never met is experimental by definition (Simon, 2026-09-21). */
+export const ACP_EXPERIMENTAL = "experimental: an agent CRT has never met — capabilities negotiated at start, tested against the fake ACP agent only; report what you see";
 export const acpNotFound = (command: string): string => `${command} not found on PATH — install it, or fix provider.command in .crt/config.json`;
 
 /** N-7 for an agent without a known login command: quote what the agent said. */
@@ -753,6 +758,7 @@ export function adHocAcpProfile(config: AcpProviderConfig): ProviderProfile {
     launchEnv: [],
     hints: { install: `install ${config.command} and put it on PATH`, login: `log in with ${config.name}'s own command` },
     capabilities: ACP_CAPABILITIES,
+    experimental: ACP_EXPERIMENTAL,
     telemetryOptOut: [],
     skillsDirs: () => ({ project: null, user: null }),
     preflight: async (opts: PreflightOptions = {}): Promise<PreflightResult> => {
@@ -768,6 +774,7 @@ export function adHocAcpProfile(config: AcpProviderConfig): ProviderProfile {
         resumeCommand: () => null,
         resolve: (o) => resolve(o.command),
         acpArgs: [],
+        experimental: ACP_EXPERIMENTAL,
         notFound: acpNotFound(config.command),
         loginProblem: (message) => acpLoginProblem(config.name, message),
       }),

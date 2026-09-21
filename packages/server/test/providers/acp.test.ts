@@ -9,6 +9,7 @@ import { writeCapture } from "../../src/captures.js";
 import { FIRST_MESSAGE_HEADING } from "../../src/intake-message.js";
 import {
   ACP_CAPABILITIES,
+  ACP_EXPERIMENTAL,
   ACP_PROTOCOL_VERSIONS,
   acpLoginProblem,
   acpNotFound,
@@ -28,6 +29,7 @@ import {
 } from "../../src/providers/acp.js";
 import {
   GEMINI_CAPABILITIES,
+  GEMINI_EXPERIMENTAL,
   GEMINI_MIN_VERSION,
   GEMINI_NOT_FOUND,
   GEMINI_NOT_LOGGED_IN,
@@ -40,6 +42,7 @@ import {
   geminiTooOld,
   parseGeminiVersion,
 } from "../../src/providers/gemini.js";
+import { renderProviders, type ProviderStatus } from "../../src/session.js";
 import type { SessionEvent } from "../../src/session-events.js";
 import { samplePost } from "../helpers/sample-capture.js";
 import { runConformance } from "./conformance.js";
@@ -100,6 +103,10 @@ describe("gemini profile (F-42, F-54)", () => {
     expect(geminiProfile.launchEnv).toEqual(["GEMINI_CLI"]);
     expect(geminiProfile.capabilities).toEqual({ streaming: true, toolEvents: true, permissions: "interactive", images: "inline", resume: true, interrupt: true, instructions: "first-message" });
     expect(geminiProfile.telemetryOptOut).toEqual([]);
+    // F-54 (M10): shipped untested against a real Gemini — the badge reason, and `crt providers` says so.
+    expect(geminiProfile.experimental).toBe(GEMINI_EXPERIMENTAL);
+    const row: ProviderStatus = { id: "gemini", displayName: "Gemini", agentName: "Gemini CLI", installed: true, loggedIn: "unknown", version: "0.60.0", problem: null, markers: [], capabilities: GEMINI_CAPABILITIES, experimental: GEMINI_EXPERIMENTAL, state: "ready", hints: geminiProfile.hints };
+    expect(renderProviders([row], { provider: "claude", reason: null }).split("\n")[0]).toBe("gemini   ready        Gemini CLI 0.60.0 (experimental)  login unknown                            markers: none");
     expect(geminiProfile.resumeCommand("2f1c1e2a-1111-4222-8333-444455556666")).toBe("gemini --resume 2f1c1e2a-1111-4222-8333-444455556666");
     expect(geminiSkillsDirs({ HOME: join("C:", "u") })).toEqual({ project: join(".gemini", "skills"), user: join("C:", "u", ".gemini", "skills") });
     expect(geminiSkillsDirs({ GEMINI_CLI_HOME: join("C:", "gh"), HOME: join("C:", "u") })).toEqual({ project: join(".gemini", "skills"), user: join("C:", "gh", ".gemini", "skills") });
@@ -134,6 +141,8 @@ ${line}
     expect(readme).toContain("gemini --resume <id>");
     expect(readme).toContain('{ "kind": "acp"');
     expect(readme).toContain("crt skills install --provider gemini");
+    expect(readme).toContain("Gemini CLI 0.60.0 (experimental)");
+    expect(readme).toContain("**Experimental.**");
   });
 });
 
@@ -276,6 +285,7 @@ describe("ACP pure pieces (F-54, N-11)", () => {
     expect(p.markers).toEqual({ private: [], shared: [] });
     expect(p.launchEnv).toEqual([]);
     expect(p.capabilities).toEqual(ACP_CAPABILITIES);
+    expect(p.experimental).toBe(ACP_EXPERIMENTAL);
     expect(ACP_CAPABILITIES.resume).toBe(false);
     expect(p.resumeCommand("x")).toBeNull();
     expect(p.skillsDirs()).toEqual({ project: null, user: null });
@@ -356,7 +366,7 @@ describe("ACP driver on the fake agent (F-49, F-50, F-51, F-54, F-59, N-7)", () 
     // F-47/§5.4: the native id is the agent's session id (a UUID that is not CRT's); the footer shows `gemini --resume <id>`.
     expect(r.init.nativeSessionId).toMatch(/^[0-9a-f-]{36}$/);
     expect(r.init.nativeSessionId).not.toBe(id);
-    expect(r.init).toMatchObject({ provider: "gemini", displayName: "Gemini", agentVersion: "conformance", model: "gemini-2.5-pro", resumeCommand: `gemini --resume ${r.init.nativeSessionId}`, capabilities: GEMINI_CAPABILITIES });
+    expect(r.init).toMatchObject({ provider: "gemini", displayName: "Gemini", agentVersion: "conformance", model: "gemini-2.5-pro", resumeCommand: `gemini --resume ${r.init.nativeSessionId}`, capabilities: GEMINI_CAPABILITIES, experimental: GEMINI_EXPERIMENTAL });
     // F-51/F-50: instructions in the first message, images inline (the fake rejects an image block without data).
     const first = r.events.find((e) => e.type === "user") as Extract<SessionEvent, { type: "user" }>;
     expect(first.text.startsWith(`${FIRST_MESSAGE_HEADING}\n\nINTAKE INSTRUCTIONS`)).toBe(true);
@@ -396,7 +406,7 @@ describe("ACP driver on the fake agent (F-49, F-50, F-51, F-54, F-59, N-7)", () 
       shim: { command: process.execPath, args: [shim] },
       timeoutMs: 20_000,
     });
-    expect(r.init).toMatchObject({ provider: "acp", displayName: "Fake Agent", resumeCommand: null, capabilities: ACP_CAPABILITIES });
+    expect(r.init).toMatchObject({ provider: "acp", displayName: "Fake Agent", resumeCommand: null, capabilities: ACP_CAPABILITIES, experimental: ACP_EXPERIMENTAL });
     expect(readFileSync(r.taskFile, "utf8")).toContain("provider: acp");
   }, 60_000);
 

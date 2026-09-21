@@ -57,6 +57,8 @@ export const GEMINI_CAPABILITIES: ProviderCapabilities = {
 export const GEMINI_NOT_FOUND = `gemini not found on PATH — ${GEMINI_INSTALL}, or set providers.gemini.command in .crt/config.json`;
 export const GEMINI_NOT_LOGGED_IN = `not logged in to Gemini — run \`${GEMINI_LOGIN}\` in a terminal and pick an auth method (or set GEMINI_API_KEY), then send again`;
 export const GEMINI_TIER_REFUSED = "Gemini refused the Google login for this CLI (\"no longer supported for Gemini Code Assist for individuals\") — use a Gemini API key: put GEMINI_API_KEY=… in ~/.gemini/.env and set security.auth.selectedType to gemini-api-key in ~/.gemini/settings.json";
+/** F-54 (M10): shipped untested against a real Gemini (Simon, 2026-09-21) — the reason the UI badges it. */
+export const GEMINI_EXPERIMENTAL = "experimental: never run against a real Gemini — CLI 0.60.0 refuses the free Google login, so only the fake ACP agent has been tested; report what you see";
 export const geminiTooOld = (version: string): string => `gemini ${version} is too old — CRT needs ${GEMINI_MIN_VERSION} or newer (${GEMINI_INSTALL}@latest)`;
 
 /** The directory Gemini CLI keeps its state in (`GEMINI_CLI_HOME` overrides the home, as in 0.60.0). */
@@ -124,6 +126,7 @@ export const geminiProfile: ProviderProfile = {
   launchEnv: ["GEMINI_CLI"],
   hints: { install: GEMINI_INSTALL, login: GEMINI_LOGIN },
   capabilities: GEMINI_CAPABILITIES,
+  experimental: GEMINI_EXPERIMENTAL,
   telemetryOptOut: [],
   skillsDirs: geminiSkillsDirs,
   preflight: geminiPreflight,
@@ -136,6 +139,7 @@ export const geminiProfile: ProviderProfile = {
       resumeCommand: geminiProfile.resumeCommand,
       resolve: (o) => resolveExecutable("gemini", { command: o.command ?? null }),
       acpArgs: [...GEMINI_ACP_ARGS],
+      experimental: GEMINI_EXPERIMENTAL,
       notFound: GEMINI_NOT_FOUND,
       loginProblem: geminiLoginProblem,
     }),

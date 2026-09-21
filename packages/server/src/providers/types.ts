@@ -59,6 +59,12 @@ export interface ProviderProfile {
     login: string;
   };
   capabilities: ProviderCapabilities;
+  /**
+   * F-54 (M10): set when the profile ships untested against a real agent — one line saying why.
+   * The overlay badges the menu row and the session footer "experimental", `crt providers`
+   * prints `(experimental)` after the agent name, and the README says so.
+   */
+  experimental?: string;
   /** Per-invocation flags that switch the agent's own telemetry off (N-12); may be empty. */
   telemetryOptOut: string[];
   /**

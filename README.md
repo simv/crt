@@ -1,6 +1,6 @@
 # Claude Review Tool (CRT)
 
-Annotate your local site in the browser, talk to Claude in the page, and get a self-contained task file in your repo that any Claude Code session can pick up later with `/crt:next`. CRT started as Claude-only; since v0.2 it also works with Codex, now also with Gemini CLI and any Agent Client Protocol agent, and Claude Code remains the default. The name is historical.
+Annotate your local site in the browser, talk to Claude in the page, and get a self-contained task file in your repo that any Claude Code session can pick up later with `/crt:next`. CRT started as Claude-only; since v0.2 it also works with Codex, since v0.5 with Gemini CLI and any Agent Client Protocol agent (both experimental — see Providers), and Claude Code remains the default. The name is historical.
 
 > v0.4.0. [docs/PRD.md](docs/PRD.md) defines the scope, requirement IDs (F-n, N-n) and the definition of done; [docs/PRD-providers.md](docs/PRD-providers.md) (v0.2, providers), [docs/PRD-setup.md](docs/PRD-setup.md) (v0.3, setup and first run) and [docs/PRD-embedded.md](docs/PRD-embedded.md) (v0.4, embedded mode) amend it. This README is the user manual.
 
@@ -179,7 +179,7 @@ A provider chosen explicitly (1–4) that is not usable is never swapped for ano
 ```
 claude   ready        Claude Code (Agent SDK) 0.3.270  logged in                                markers: .claude/, CLAUDE.md
 codex    not on PATH  Codex CLI                        install: npm i -g @openai/codex          markers: none
-gemini   ready        Gemini CLI 0.60.0                login unknown                            markers: none
+gemini   ready        Gemini CLI 0.60.0 (experimental)  login unknown                          markers: none
 → claude — .claude/, CLAUDE.md; codex not on PATH
 ```
 
@@ -257,7 +257,9 @@ The agent called `write_task` after the session it belonged to was discarded or 
 
 ### Gemini CLI
 
-Tested with Gemini CLI `0.60.0` (`npm i -g @google/gemini-cli`). CRT never bundles Gemini: it runs the `gemini` on your PATH (Windows: the npm `gemini.cmd` shim is parsed and its JS entry run with CRT's own Node), or the executable you name in `.crt/config.json` under `providers.gemini.command`, in its Agent Client Protocol mode (`gemini --acp`) — one process for the whole session, JSON-RPC over stdio, nothing else in between.
+**Experimental.** The Gemini profile has never run against a real Gemini: CLI 0.60.0 refuses the free personal Google login (below), and no other credential was available when it was built, so it was tested against a fake ACP agent that follows Gemini's own protocol code and recordings. The provider menu and the session footer wear an `experimental` badge (the reason is the tooltip) and `crt providers` prints `(experimental)` after the name. If you have a Gemini API key, try it and report what you see — the driver is complete; what is unverified is Gemini's live behaviour.
+
+Built against Gemini CLI `0.60.0` (`npm i -g @google/gemini-cli`). CRT never bundles Gemini: it runs the `gemini` on your PATH (Windows: the npm `gemini.cmd` shim is parsed and its JS entry run with CRT's own Node), or the executable you name in `.crt/config.json` under `providers.gemini.command`, in its Agent Client Protocol mode (`gemini --acp`) — one process for the whole session, JSON-RPC over stdio, nothing else in between.
 
 What a Gemini session looks like: **Send to Gemini** starts `gemini --acp` in your project root with the intake instructions at the top of the first message and the screenshots inline (Gemini 0.60.0 accepts image prompts; an agent that does not gets the message without them and the first message says so). Text streams; tool calls show as collapsed lines; a tool call Gemini itself would ask about becomes an **Allow / Deny** card, decided by the same policy as for Claude but over ACP's tool *kinds*: reads, searches and thinking are allowed silently, edits/deletes/moves are allowed only under `.crt/`, a command is allowed only when it is a read-only `git` command, fetching from the network is denied, everything else asks you. CRT answers with the agent's `allow_once` / `reject_once` option and never "always". `write_task` reaches Gemini through `crt mcp`, the same stdio MCP server Codex uses; the file is written by the server with `provider: gemini` and Gemini's session id in `session:`. The footer's `gemini --resume <id>` continues the same conversation in a terminal, from the same project directory (Gemini stores sessions per project). **Stop** sends `session/cancel`.
 
@@ -292,6 +294,8 @@ gemini <version> is too old — CRT needs 0.60.0 or newer (npm i -g @google/gemi
 The ACP behaviour CRT relies on (`--acp`, the `session/new` shape, the permission options) was recorded on 0.60.0; older releases differ. Update the CLI.
 
 ### Any other ACP agent
+
+**Experimental**, for the same reason: an agent CRT has never met was tested against the fake agent only, and its menu row and footer say so.
 
 Any agent that speaks the Agent Client Protocol over stdio can run an intake session without CRT knowing it by name. Put the command in `.crt/config.json` (this form is accepted from the config files only — never from the page or `PUT /__crt/config`):
 

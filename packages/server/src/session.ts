@@ -72,6 +72,8 @@ export interface ProviderStatus {
   /** F-44 markers found in the project root. */
   markers: string[];
   capabilities: ProviderCapabilities;
+  /** F-54 (M10): the profile ships untested against a real agent; the reason. */
+  experimental?: string;
   state: ProviderState;
   hints: ProviderProfile["hints"];
 }
@@ -241,6 +243,7 @@ export class ProviderRegistry {
         problem: pf.problem,
         markers: markers[p.id] ?? [],
         capabilities: p.capabilities,
+        ...(p.experimental ? { experimental: p.experimental } : {}),
         state: preflightState(pf),
         hints: p.hints,
       };
@@ -270,13 +273,14 @@ export function describeResolution(r: Resolution): string {
  *
  *   claude   ready        Claude Code (Agent SDK)    logged in                                markers: .claude/, CLAUDE.md
  *   codex    not on PATH  Codex CLI                  install: npm i -g @openai/codex          markers: AGENTS.md
+ *   gemini   ready        Gemini CLI 0.60.0 (experimental)  login unknown                     markers: none
  *   → claude — .claude/, CLAUDE.md; codex not on PATH
  *
  * The login cell is `logged in` / `not logged in` / `login unknown` (PRD-setup F-74 amends F-45).
  */
 export function renderProviders(rows: ProviderStatus[], decision: Decision): string {
   const cells = rows.map((r) => {
-    const name = r.version ? `${r.agentName} ${r.version}` : r.agentName;
+    const name = `${r.version ? `${r.agentName} ${r.version}` : r.agentName}${r.experimental ? " (experimental)" : ""}`;
     const hint =
       r.state === "ready"
         ? loginWord(r.loggedIn)
