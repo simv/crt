@@ -19,6 +19,8 @@ export const CRT_SANDBOXED_PORT = 4498;
 export const CRT_CODEX_PORT = 4497;
 /** PRD-providers F-54 / F-61 `acp` axis: a fourth CRT on the ad-hoc `{ kind: "acp" }` config against the fake ACP agent (e2e/fixture/fake-acp.mjs). */
 export const CRT_ACP_PORT = 4495;
+/** PRD-providers F-111 / F-61 `antigravity` axis: a fifth CRT on `--provider antigravity` against the fake Antigravity CLI (e2e/fixture/fake-agy.mjs). */
+export const CRT_ANTIGRAVITY_PORT = 4494;
 /** PRD-embedded F-92 / N-21: the proxy-mode server for proxy.spec.ts — the v0.3 shape, on its own scratch root. */
 export const CRT_PROXY_PORT = 4496;
 export const CRT_PROXY_ORIGIN = `http://localhost:${CRT_PROXY_PORT}`;
@@ -76,6 +78,15 @@ export default defineConfig({
       command: `node e2e/fixture/crt.mjs --target ${FIXTURE_ORIGIN} --port ${CRT_ACP_PORT} --no-open`,
       env: { CRT_SESSION_STUB: "", CRT_E2E_PROJECT: "acp", CRT_E2E_FAKE_ACP: "1" },
       url: `http://localhost:${CRT_ACP_PORT}/__crt/health`,
+      reuseExistingServer: false,
+      timeout: 30_000,
+    },
+    {
+      // The antigravity axis (chat.spec.ts "antigravity provider" block): no stub, the fake `agy` on PATH
+      // (installed for every server — N-9 — and the only agy this PATH has), the provider fixed by CRT_PROVIDER.
+      command: `node e2e/fixture/crt.mjs --target ${FIXTURE_ORIGIN} --port ${CRT_ANTIGRAVITY_PORT} --no-open`,
+      env: { CRT_SESSION_STUB: "", CRT_PROVIDER: "antigravity", CRT_E2E_PROJECT: "antigravity" },
+      url: `http://localhost:${CRT_ANTIGRAVITY_PORT}/__crt/health`,
       reuseExistingServer: false,
       timeout: 30_000,
     },

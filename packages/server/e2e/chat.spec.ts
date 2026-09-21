@@ -4,11 +4,12 @@ import { expect, type Page, test } from "@playwright/test";
 import { FIRST_MESSAGE_HEADING } from "../src/intake-message.js";
 import { INTERNAL_WRITE_TASK_PATH, STALE_TOKEN_LINE } from "../src/mcp-stdio.js";
 import { ACP_CAPABILITIES, ACP_EXPERIMENTAL } from "../src/providers/acp.js";
+import { ANTIGRAVITY_CAPABILITIES, antigravityProfile } from "../src/providers/antigravity.js";
 import { CODEX_CAPABILITIES, codexProfile } from "../src/providers/codex.js";
 import { stubProfile } from "../src/providers/stub.js";
 import type { ProvidersPayload, SessionEvent } from "../src/session-events.js";
 import { parseTask, validateTaskText, writeIndex } from "../src/tasks.js";
-import { CRT_ACP_PORT, CRT_CODEX_PORT, CRT_ORIGIN, CRT_SANDBOXED_PORT } from "../playwright.config.js";
+import { CRT_ACP_PORT, CRT_ANTIGRAVITY_PORT, CRT_CODEX_PORT, CRT_ORIGIN, CRT_SANDBOXED_PORT } from "../playwright.config.js";
 
 // M3 (task CRT-0003 Ask 7): Send opens the chat panel on an intake session. The pages are the
 // fixture's on the app's own origin (baseURL) and load the overlay from the embedded CRT server
@@ -23,7 +24,11 @@ import { CRT_ACP_PORT, CRT_CODEX_PORT, CRT_ORIGIN, CRT_SANDBOXED_PORT } from "..
 // event (F-47, F-56), the split Send button's per-send choice is spent on one send (F-56), and
 // the second describe block runs against the `sandboxed` stub (F-46): no Allow/Deny cards.
 //
-// M9 (F-61, `codex` axis): the last block runs against `--provider codex` on a fake `codex` CLI
+// M19 (PRD-providers F-111, `antigravity` axis): the last block runs against `--provider antigravity` on a
+// fake `agy` (e2e/fixture/fake-agy.mjs) that loads the session plugin, runs CRT's hooks through the shell,
+// replays the spike recordings and calls `write_task` through the real `crt mcp` shim.
+//
+// M9 (F-61, `codex` axis): the codex block runs against `--provider codex` on a fake `codex` CLI
 // (e2e/fixture/fake-codex.mjs, first on PATH; an npm-shaped `codex.cmd` shim on Windows) that
 // replays the M6 recordings and calls `write_task` through the real `crt mcp` shim, token and
 // internal route (F-49, F-53).
@@ -462,13 +467,13 @@ test.describe("provider UX on the stub axis (F-46, F-47, F-49, F-56, F-57, F-61)
     await refreshed;
     const menu = pop.locator(".providers");
     await expect(menu).toBeVisible();
-    await expect(menu.locator(".provider")).toHaveCount(4);
+    await expect(menu.locator(".provider")).toHaveCount(5);
     await expect(menu.locator(".provider[data-provider=stub]")).toHaveClass(/active/);
     await expect(menu.locator(".provider[data-provider=claude] .name b")).toHaveText("Claude");
     await expect(menu.locator(".provider[data-provider=codex] .name small")).toHaveText("codex");
     await expect(menu.locator(".why")).toContainText("Auto-detected:");
     const payload = await page.evaluate(() => window.__crt.providers.load());
-    expect(payload.providers.map((p) => p.id)).toEqual(["claude", "codex", "gemini", "stub"]);
+    expect(payload.providers.map((p) => p.id)).toEqual(["claude", "codex", "gemini", "antigravity", "stub"]);
     // Unusable rows are disabled with the problem as tooltip; usable ones say so.
     for (const p of payload.providers) {
       const row = menu.locator(`.provider[data-provider=${p.id}]`);
@@ -519,7 +524,7 @@ test.describe("provider UX on the stub axis (F-46, F-47, F-49, F-56, F-57, F-61)
     await shadow(page, ".launcher").click();
     await shadow(page, ".toolbar [data-action=agent]").click();
     const menu = shadow(page, ".dock .providers");
-    await expect(menu.locator(".provider")).toHaveCount(4);
+    await expect(menu.locator(".provider")).toHaveCount(5);
     await menu.locator(".remember input").check();
     const put = page.waitForRequest((r) => r.method() === "PUT" && r.url().endsWith("/__crt/config"));
     await menu.locator(".provider[data-provider=claude]").click();
@@ -651,7 +656,7 @@ test.describe("codex provider on the fake codex CLI (F-49, F-53, F-56, F-61)", (
     const payload = (await (await page.request.get(`${CODEX}/__crt/providers`)).json()) as ProvidersPayload;
     expect(payload.active).toBe("codex");
     expect(payload.providers.find((p) => p.id === "codex")).toMatchObject({ installed: true, loggedIn: true, version: "0.154.0", problem: null, capabilities: CODEX_CAPABILITIES });
-    expect(payload.providers.map((p) => p.id)).toEqual(["claude", "codex", "gemini"]); // no stub without CRT_SESSION_STUB (F-42)
+    expect(payload.providers.map((p) => p.id)).toEqual(["claude", "codex", "gemini", "antigravity"]); // no stub without CRT_SESSION_STUB (F-42)
 
     await page.goto(`/app?crt=${CODEX}`);
     await shadow(page, ".launcher").click();
@@ -755,7 +760,7 @@ test.describe("ad-hoc ACP agent from .crt/config.json (F-49, F-54, F-56, F-61)",
     expect(health.provider).toBe("acp");
     const payload = (await (await page.request.get(`${ACP}/__crt/providers`)).json()) as ProvidersPayload;
     expect(payload.active).toBe("acp");
-    expect(payload.providers.map((p) => p.id)).toEqual(["claude", "codex", "gemini", "acp"]);
+    expect(payload.providers.map((p) => p.id)).toEqual(["claude", "codex", "gemini", "antigravity", "acp"]);
     expect(payload.providers.find((p) => p.id === "acp")).toMatchObject({ displayName: "Fake Agent", installed: true, loggedIn: "unknown", version: null, problem: null, markers: [], capabilities: ACP_CAPABILITIES, experimental: ACP_EXPERIMENTAL });
     // N-8: the object form is never page-writable.
     expect((await page.request.put(`${ACP}/__crt/config`, { data: { provider: { kind: "acp", command: "evil", name: "x" } } })).status()).toBe(400);
@@ -861,5 +866,115 @@ test.describe("ad-hoc ACP agent from .crt/config.json (F-49, F-54, F-56, F-61)",
     await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
     const list = await page.evaluate(() => window.__crt.sessions.list());
     expect(list.find((s) => s.id === snap.sessionId)?.provider).toBe("acp");
+  });
+});
+
+test.describe("antigravity provider on the fake agy (F-49, F-56, F-61, F-111)", () => {
+  const AGY = `http://localhost:${CRT_ANTIGRAVITY_PORT}`;
+  test.afterEach(async ({ page }) => {
+    await page.evaluate(() => window.__crt.chat.discard()).catch(() => undefined);
+  });
+
+  test("Send to Antigravity: streamed text, a read tool line and a hook-denied command, the read-only badge and no experimental one, a resumable conversation id in the footer that survives a reload, write_task through crt mcp, Stop kills the process (F-49, F-56, F-61, F-111)", async ({ page }) => {
+    // F-43 step 2 / F-57: the server runs on antigravity and says so; login is unknown by design (no status command).
+    const health = (await (await page.request.get(`${AGY}/__crt/health`)).json()) as { provider: string };
+    expect(health.provider).toBe("antigravity");
+    const payload = (await (await page.request.get(`${AGY}/__crt/providers`)).json()) as ProvidersPayload;
+    expect(payload.active).toBe("antigravity");
+    expect(payload.providers.find((p) => p.id === "antigravity")).toMatchObject({ installed: true, loggedIn: "unknown", version: "1.2.7", problem: null, capabilities: ANTIGRAVITY_CAPABILITIES });
+    expect("experimental" in payload.providers.find((p) => p.id === "antigravity")!).toBe(false); // the M19 Manual row passed (F-111)
+
+    await page.goto(`/app?crt=${AGY}`);
+    await shadow(page, ".launcher").click();
+    await expect(shadow(page, ".pop.page [data-action=send]")).toHaveText(`Send to ${antigravityProfile.displayName}`);
+    await page.evaluate(() => {
+      window.__crt.addSelect("[data-testid=card-1] .price");
+      window.__crt.setNote(1, "total excludes discount");
+    });
+    await page.evaluate(() => window.__crt.send());
+    await expect(shadow(page, ".chat")).toBeVisible();
+    // Turn 1 replays image-by-path.jsonl through the real hooks: view_file passes, the python run_command is refused
+    // by CRT's PreToolUse hook, then the streamed text. The first line waits longer: the fake spawns node + the crt mcp
+    // shim and runs the hook wrappers through the shell while six servers and the other specs load the machine.
+    await expect(shadow(page, ".tool summary").first()).toHaveText(/^Read .*red\.png$/, { timeout: 15_000 });
+    await expect(shadow(page, ".tool").first()).toHaveClass(/done/);
+    await expect(shadow(page, ".tool summary").nth(1)).toHaveText(/^Run python/);
+    await expect(shadow(page, ".tool .out").nth(1)).toContainText("tool call denied by pre-tool hook: CRT intake session: run_command is not allowed here");
+    await expect(shadow(page, ".msg.assistant").first()).toContainText("Red");
+    await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
+    await expect(shadow(page, ".perm")).toHaveCount(0);
+    await expect(shadow(page, ".chat-head .agent")).toHaveText("Antigravity");
+
+    const snap = await page.evaluate(() => window.__crt.chat.snapshot());
+    expect(snap.provider).toBe("antigravity");
+    expect(snap.events.some((e) => e.type === "permission")).toBe(false);
+    expect(snap.events.filter((e) => e.type === "error")).toEqual([]);
+    const init = snap.events.find((e) => e.type === "init") as Extract<SessionEvent, { type: "init" }>;
+    // §5.4: the native id is the conversation id (a UUID that is not CRT's), and the footer shows its resume command.
+    expect(init).toMatchObject({ provider: "antigravity", displayName: "Antigravity", model: null, agentVersion: "1.2.7", capabilities: ANTIGRAVITY_CAPABILITIES });
+    expect(init.nativeSessionId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(init.nativeSessionId).not.toBe(snap.sessionId);
+    expect(init.resumeCommand).toBe(antigravityProfile.resumeCommand(init.nativeSessionId));
+    const foot = shadow(page, ".chat-foot");
+    await expect(foot).toHaveText(`Antigravity · 1.2.7 · read-only sandbox · continue in a terminal: ${init.resumeCommand}`);
+    await expect(foot.locator(".badge")).toHaveCount(1);
+    await expect(shadow(page, "[data-chat=interrupt]")).toBeVisible();
+    // F-51/F-50: instructions in the first message; images by path (their paths are in the text, no bytes).
+    const first = snap.events[0] as Extract<SessionEvent, { type: "user" }>;
+    expect(first.text.startsWith(`${FIRST_MESSAGE_HEADING}\n\n`)).toBe(true);
+    expect(first.images).toEqual(["viewport (annotated)", "annotation 1"]);
+    // Streamed: more text events than assistant messages.
+    expect(snap.events.filter((e) => e.type === "text").length).toBeGreaterThan(snap.events.filter((e) => e.type === "assistant_start").length);
+
+    await page.reload();
+    await expect(shadow(page, ".chat")).toBeVisible();
+    await expect(foot).toHaveText(`Antigravity · 1.2.7 · read-only sandbox · continue in a terminal: ${init.resumeCommand}`);
+    await expect(shadow(page, ".chat-head .agent")).toHaveText("Antigravity");
+
+    // Turn 2 on the same process: the fake calls write_task on crt_crt through the hook and `crt mcp` → the internal route writes the file.
+    await shadow(page, ".chat-input textarea").fill("write");
+    await shadow(page, ".chat-input textarea").press("Enter");
+    await expect(shadow(page, ".chat-task b")).toHaveText(/^CRT-\d{4}$/);
+    await expect(shadow(page, ".tool summary").last()).toHaveText("Write task: Cart total excludes applied discount");
+    await expect(shadow(page, ".tool").last()).toHaveClass(/done/);
+    await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
+    const after = await page.evaluate(() => window.__crt.chat.snapshot());
+    const written = after.events.find((e) => e.type === "task_written") as Extract<SessionEvent, { type: "task_written" }>;
+    expect(after.events.filter((e) => e.type === "task_written")).toHaveLength(1);
+    expect(after.events.filter((e) => e.type === "init")).toHaveLength(1);
+    expect(after.events.filter((e) => e.type === "error")).toEqual([]);
+    const root = await projectRoot(page, AGY);
+    const tasksDir = join(root, ".crt", "tasks");
+    try {
+      const text = readFileSync(join(root, written.path), "utf8");
+      expect(validateTaskText(text, `${written.id}-cart-total-excludes-applied-discount.md`)).toEqual([]);
+      expect(parseTask(text).frontmatter).toMatchObject({ provider: "antigravity", session: init.nativeSessionId });
+      expect(text).toContain(`created by intake session ${init.nativeSessionId} (antigravity)`);
+      expect(readFileSync(join(tasksDir, "README.md"), "utf8")).toContain(`[${written.id}]`);
+      // F-49/N-8: the token (32 bytes base64url = exactly 43 chars) never reaches the log, the page or the session plugin.
+      const token = /(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/;
+      const log = readFileSync(join(root, "crt-serve.log"), "utf8");
+      expect(log).toContain("is Antigravity 1.2.7");
+      expect(log).not.toMatch(token);
+      expect(log).not.toMatch(/Bearer|CRT_MCP_TOKEN/);
+      expect(JSON.stringify(after.events)).not.toMatch(token);
+      const sessionDir = join(root, ".crt", "captures", "antigravity", snap.sessionId!);
+      expect(existsSync(join(sessionDir, ".agents", "plugins", "crt", "hooks.json"))).toBe(true);
+      expect(readFileSync(join(sessionDir, ".agents", "plugins", "crt", "mcp_config.json"), "utf8")).not.toMatch(token);
+    } finally {
+      rmSync(join(root, written.path), { force: true });
+      rmSync(join(tasksDir, "assets", written.id), { recursive: true, force: true });
+      writeIndex(tasksDir);
+    }
+
+    // Turn 3: a slow turn, cut by Stop (process-tree kill); the session stays usable and resumes by id next time.
+    await shadow(page, ".chat-input textarea").fill("be slow please");
+    await shadow(page, ".chat-input textarea").press("Enter");
+    await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "running");
+    await shadow(page, "[data-chat=interrupt]").click();
+    await expect(shadow(page, ".sys").last()).toHaveText("interrupted");
+    await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
+    const list = await page.evaluate(() => window.__crt.sessions.list());
+    expect(list.find((s) => s.id === snap.sessionId)?.provider).toBe("antigravity");
   });
 });
