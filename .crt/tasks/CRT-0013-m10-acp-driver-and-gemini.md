@@ -4,7 +4,7 @@ title: M10 — Generic Agent Client Protocol driver and Gemini profile (Should)
 status: in_progress
 priority: low
 created: 2026-09-15T17:30:00+08:00
-updated: 2026-09-21T10:50:00+08:00
+updated: 2026-09-21T11:35:00+08:00
 url: null
 route: null
 session: null
@@ -30,7 +30,7 @@ No page capture: created from PRD-providers milestone M10.
 
 ## Definition of Done
 - [x] Conformance test against the fake ACP agent passes, including the permission round-trip and `write_task` through `crt mcp`.
-- [ ] e2e `acp` axis green on both runners; footer shows the negotiated capabilities correctly (no resume hint when `resume: false`).
+- [x] e2e `acp` axis green on both runners; footer shows the negotiated capabilities correctly (no resume hint when `resume: false`).
 - [x] An ad-hoc `{ kind: "acp" }` config runs the conformance scenario; `PUT /__crt/config` still rejects the object form.
 - [x] `npm run check` passes; `acp.ts` line count noted in the PR description against the N-11 budget.
 - [ ] Manual (Simon): Gemini intake on the trial app writes a valid task; `crt providers` shows Gemini's state correctly when logged out and logged in.
@@ -53,3 +53,4 @@ Do not use `session/load`. If Gemini's tested version does not advertise image s
 - 2026-09-21T10:50+08:00 — verified: DoD 4 `npm run check` → 45 files, 604 passed, 1 skipped; build ok; `claude plugin validate ./plugin` and `.` pass; line counts in this Log and for the PR description.
 - 2026-09-21T10:50+08:00 — DoD 2, half: `npm run e2e` on this Windows machine → 53 passed (the `acp` axis: `Fake Agent · gemini-2.5-pro · 0.60.0` footer, no resume hint, no badge, survives a reload; three parallel runs of chat.spec.ts green). The ubuntu half is the PR's CI run (ci.yml runs on pull_request only) — ticked when it is green.
 - 2026-09-21T10:50+08:00 — DoD 5, half: `crt providers` with `GEMINI_CLI_HOME=<empty>` → `gemini   not logged in  Gemini CLI 0.60.0  not logged in — gemini`, with `GEMINI_API_KEY` set → `gemini   ready  Gemini CLI 0.60.0  logged in`, with Simon's cached Google login → `login unknown` (correct: the tier is refused only at session/new). The intake half needs a working credential: `probe/driver-run.mjs` (the real driver, real Gemini) ends with the N-7 `GEMINI_TIER_REFUSED` line. Waiting on Simon: a Gemini Developer API key in `~/.gemini/.env` (`GEMINI_API_KEY=…`) and `"selectedType": "gemini-api-key"` in `~/.gemini/settings.json`; then the trial-app intake runs and the row is ticked.
+- 2026-09-21T11:35+08:00 — verified: DoD 2, ubuntu half: PR #59 CI run https://github.com/simv/crt/actions/runs/35557002202 — check (ubuntu-latest) pass, check (windows-latest) pass, e2e (ubuntu) pass (after babd24e: the F-54 policy test used a relative `C:/proj` root, which resolved the locations against itself twice on Linux; now an absolute scratch root). Row 2 ticked. Only the Manual row (5) remains, waiting on a Gemini API key on this machine.
