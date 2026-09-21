@@ -1,10 +1,10 @@
 ---
 id: CRT-0013
 title: M10 — Generic Agent Client Protocol driver and Gemini profile (Should)
-status: review
+status: done
 priority: low
 created: 2026-09-15T17:30:00+08:00
-updated: 2026-09-21T13:05:00+08:00
+updated: 2026-09-21T13:30:00+08:00
 url: null
 route: null
 session: null
@@ -58,4 +58,4 @@ Do not use `session/load`. If Gemini's tested version does not advertise image s
 - 2026-09-21T12:40+08:00 — verified: DoD 5 closed as above (Simon's call; the badge comes off when a real Gemini intake has been verified). `npm run check` 604 passed; `npm run e2e` 53 passed twice on Windows; PR #59 CI on f8ac418 https://github.com/simv/crt/actions/runs/35561079968 — check ubuntu, check windows, e2e ubuntu all pass; overlay 36 KB gzipped (N-3 ≤ 150 KB). prd-reviewer ran twice (c23519d, f8ac418): no code or PRD-conformance findings, task-file hygiene only (this entry).
 - 2026-09-21T12:40+08:00 — ready for review: changed packages/server/src/{providers/acp.ts,providers/gemini.ts,providers/types.ts,session.ts,session-events.ts,init.ts}, packages/overlay/src/{chat.ts,ui.ts}, packages/server/e2e/{chat.spec.ts,fixture/crt.mjs,fixture/fake-acp.mjs,fixture/fake-codex-install.mjs}, packages/server/playwright.config.ts, packages/server/test/providers/{acp.test.ts,detect.test.ts,fixtures/acp/*}, packages/server/test/sessions.test.ts, README.md, CLAUDE.md, docs/PRD-providers.md, docs/spikes/gemini-acp-2026-09.md + probe/, plugin/skills/serve/SKILL.md. Reviewer notes: N-11 — the JSON-RPC client is 63 lines, acp.ts 775 in all; Gemini and ad-hoc ACP are experimental by design; Antigravity CLI (`agy` 1.2.7, stream-json, no ACP) is a separate profile task (PRD-providers §11 item 4).
 - 2026-09-21T13:05+08:00 — code review (/code-review high) on the branch: four driver findings, fixed in d82a752 — F-57 `models.gemini` forwarded as `gemini -m` (an ad-hoc agent's init reports only the model it says it runs), images dropped after negotiation are announced in the message (F-50 wording), the ad-hoc not-logged-in line quotes the matching stderr line, and close() kills the tree synchronously on process exit so Ctrl+C orphans nothing. Release bump e3980da: 0.5.0 in the three manifests, seven skill pins, README, lockfile. `npm pack` → claude-review-tool-0.5.0.tgz installed into the trial app (C:ProjectsClaude	ool-validation): `crt providers` prints `gemini   ready  Gemini CLI 0.60.0 (experimental)  login unknown`, `crt doctor` clean, `crt serve` 0.5.0 on :4400 against next dev :3100 — the Agent menu's Gemini row carries the `experimental` badge with the reason as tooltip (DOM-checked in Chrome; two stray real Claude sessions started by the automation were discarded). CI on e3980da https://github.com/simv/crt/actions/runs/35562577104: check ubuntu/windows and e2e ubuntu pass. Merging and tagging v0.5.0 next (Simon: "release it as untested").
-
+- 2026-09-21T13:30+08:00 — done; merged in https://github.com/simv/crt/pull/59 (squash 3a827f8), tagged v0.5.0 (the release workflow stages it on npm; Simon promotes it on npmjs.com). Follow-up filed: CRT-0023 (Antigravity CLI profile).
