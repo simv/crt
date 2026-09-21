@@ -4,7 +4,7 @@ title: Antigravity CLI profile — spike on `agy --print --output-format stream-
 status: review
 priority: normal
 created: 2026-09-21T13:10:00+08:00
-updated: 2026-09-21T14:40:00+08:00
+updated: 2026-09-21T15:05:00+08:00
 url: null
 route: null
 session: null
@@ -31,7 +31,7 @@ No page capture: created from the CRT-0013 session at Simon's request ("i have a
 - [x] Spike doc with a verdict per Ask-1 question, every row `observed`, tested `agy --version` at the top; fixtures recorded from real runs.
 - [x] PRD-providers carries the Antigravity requirement and §11 item 4 is updated.
 - [x] Conformance test against the fake `agy` passes, including `write_task` through `crt mcp`; fixture replay tests pass.
-- [ ] e2e `antigravity` axis green on both runners.
+- [x] e2e `antigravity` axis green on both runners.
 - [x] `npm run check` passes; README Providers section quotes the N-7 lines verbatim (doc test).
 - [x] Manual: on the trial app, `crt --provider antigravity` → annotate → Send to Antigravity → streamed text, tool lines, a task passing `crt task --validate` with `provider: antigravity`, and the footer's resume command continues the conversation in a terminal.
 
@@ -47,3 +47,4 @@ No page capture: created from the CRT-0013 session at Simon's request ("i have a
 - 2026-09-21T14:35+08:00 — verified: spike doc every row observed (`node probe/*.mjs` runs, fixtures from `node probe/fixtures.mjs`); PRD-providers F-111/M19 present (grep); conformance + fixture replay + hook decisions + hooks-not-loaded + resume mismatch + logged-out + not-on-PATH: `npx vitest run test/providers/antigravity.test.ts` 24/24; `npm run check` 629 passed; README doc test in the same file; e2e `npm run e2e` 54 passed locally (chat.spec ×3 stable; one earlier flake right after a build under load), ubuntu runner = CI on the PR; Manual row as above. prd-reviewer subagent run: its two findings (Log/DoD lag, a `
 ` in the .cmd wrapper) fixed — the wrapper is LF now and the conformance test runs it through cmd /c.
 - 2026-09-21T14:40+08:00 — ready for review: changed docs/spikes/antigravity-2026-09.md (+probe/), docs/PRD-providers.md, README.md, plugin/skills/serve/SKILL.md, packages/server/src/providers/antigravity.ts, src/session.ts, e2e/fixture/{fake-agy.mjs,fake-codex-install.mjs,crt.mjs}, e2e/chat.spec.ts, playwright.config.ts, test/providers/{antigravity.test.ts,detect.test.ts,fixtures/antigravity/*}, test/sessions.test.ts. Reviewer notes: the e2e "both runners" row is ticked once CI's ubuntu e2e job is green on this PR (Windows verified locally); `--dangerously-skip-permissions` + the CRT hook is the deliberate design (spike §2 records the alternatives that failed); the trial app now has CRT-0014 in its own .crt/tasks from the Manual row.
+- 2026-09-21T15:05+08:00 — verified: e2e `antigravity` axis green on both runners — Windows locally (`npm run e2e` 54 passed) and PR #61 CI `e2e (ubuntu)` pass on 6fdfef3 (CodeQL flagged a `new RegExp(argv)` in the probe script, replaced by a substring match). PR: https://github.com/simv/crt/pull/61
