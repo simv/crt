@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type CrtConfig, DEFAULT_CONFIG } from "../../src/init.js";
 import { CLAUDE_NOT_LOGGED_IN, claudeProfile } from "../../src/providers/claude.js";
+import { acpNotFound } from "../../src/providers/acp.js";
 import { CODEX_NOT_FOUND, CODEX_NOT_LOGGED_IN, codexProfile, codexTooOld } from "../../src/providers/codex.js";
 import { detectProvider, formatDecision, scanMarkers } from "../../src/providers/detect.js";
 import { stubProfile } from "../../src/providers/stub.js";
@@ -132,8 +133,8 @@ describe("resolution order (F-43)", () => {
     const r = await registry({ root: root("AGENTS.md"), env: { CRT_SESSION_STUB: "1", CRT_PROVIDER: "codex" }, flag: "codex", config: { provider: "codex", providerSource: "project" } });
     expect(r.resolve("codex")).toMatchObject({ provider: "stub", layer: "stub", source: "CRT_SESSION_STUB", problem: null });
     expect(r.ids()).toEqual(["claude", "codex", "stub"]);
-    expect(listProviders({}).map((p) => p.id)).toEqual(["claude", "codex"]);
-    expect(listProviders({ CRT_SESSION_STUB: "1" }).map((p) => p.id)).toEqual(["claude", "codex", "stub"]);
+    expect(listProviders({}).map((p) => p.id)).toEqual(["claude", "codex", "gemini"]);
+    expect(listProviders({ CRT_SESSION_STUB: "1" }).map((p) => p.id)).toEqual(["claude", "codex", "gemini", "stub"]);
     const without = await registry({ root: root(), env: {} });
     expect(without.resolve("stub").problem).toBe('provider "stub" is not a built-in provider (claude, codex)');
     expect(stubProfile.id).toBe("stub");
@@ -169,9 +170,21 @@ describe("resolution order (F-43)", () => {
     const dir = root("AGENTS.md"); // detection alone would say codex
     expect((await registry({ root: dir, config: { provider: "claude", providerSource: "local" } })).resolve()).toMatchObject({ provider: "claude", layer: "local", source: ".crt/config.local.json", problem: null });
     expect((await registry({ root: dir, config: { provider: "claude", providerSource: "project" } })).resolve()).toMatchObject({ provider: "claude", layer: "project", source: ".crt/config.json", problem: null });
-    // The ACP object form is config-only and not supported before M10: explicit, so it fails rather than falls back.
-    const acp = await registry({ root: dir, config: { provider: { kind: "acp", command: "gemini", args: [], name: "Gemini" }, providerSource: "project" } });
-    expect(acp.resolve()).toMatchObject({ provider: "acp", layer: "project", problem: expect.stringMatching(/\.crt\/config\.json sets provider \{ kind: "acp" \}/) });
+    // F-54: the ACP object form registers the ad-hoc `acp` profile and names it — explicit, so it fails rather than falls back when the command is missing.
+    const adHoc = { kind: "acp" as const, command: process.execPath, args: ["fake-agent.mjs"], name: "My Agent" };
+    const acp = await registry({ root: dir, config: { provider: adHoc, providerSource: "project", acp: adHoc } });
+    expect(acp.ids()).toEqual(["claude", "codex", "acp"]);
+    expect(acp.get("acp")).toMatchObject({ id: "acp", displayName: "My Agent", capabilities: { resume: false, permissions: "interactive" } });
+    expect(acp.resolve()).toMatchObject({ provider: "acp", layer: "project", source: ".crt/config.json", problem: null });
+    // A local `provider: "acp"` string still finds the project file's object (`config.acp`).
+    const viaLocal = await registry({ root: dir, config: { provider: "acp", providerSource: "local", acp: adHoc } });
+    expect(viaLocal.resolve()).toMatchObject({ provider: "acp", layer: "local", source: ".crt/config.local.json", problem: null });
+    const missing = { ...adHoc, command: "no-such-agent" };
+    const gone = await registry({ root: dir, config: { provider: missing, providerSource: "project", acp: missing } });
+    expect(gone.resolve()).toMatchObject({ provider: "acp", layer: "project", problem: acpNotFound("no-such-agent") });
+    // Never from a route (N-8): the object is refused, and the id is unknown without a config object.
+    expect(acp.setActive({ kind: "acp", command: "x" })).toEqual({ ok: false, error: "provider must be one of claude, codex, acp" });
+    expect((await registry({ root: dir })).resolve("acp").problem).toBe('provider "acp" is not a built-in provider (claude, codex)');
   });
 
   it("5–6: detection, then claude by default (F-43, F-44)", async () => {

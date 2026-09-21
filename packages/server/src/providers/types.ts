@@ -42,7 +42,7 @@ export interface ProviderMarkers {
 }
 
 export interface ProviderProfile {
-  /** Built-in id: `claude`, `codex`, `stub` (M7); `gemini`, `acp` arrive with M10. */
+  /** Built-in id: `claude`, `codex`, `gemini`, `stub`; `acp` is the ad-hoc ACP agent from the config files (F-54). */
   id: string;
   /** The noun the overlay uses for the agent ("Send to Codex", "Claude has a question"; F-56). */
   displayName: string;

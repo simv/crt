@@ -3,7 +3,8 @@
 // `node_modules/<pkg>/bin/<name>.js`, so `exec.ts`'s shim parser is exercised; elsewhere an
 // executable `<name>` script with a node shebang. `installFakeCodex` (fake-codex.mjs) is used by
 // test/providers/codex.test.ts and by e2e/fixture/crt.mjs, which prepends the directory to PATH
-// before `crt serve` preflights; `installFakeClaude` (fake-claude.mjs) by test/setup.test.ts.
+// before `crt serve` preflights; `installFakeClaude` (fake-claude.mjs) by test/setup.test.ts;
+// `installFakeGemini` (fake-acp.mjs as `gemini`) by test/providers/acp.test.ts (PRD-providers F-54).
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -47,4 +48,9 @@ export function installFakeCodex(bin, platform = process.platform) {
 /** The fake Claude Code CLI (fake-claude.mjs) as `claude` from `@anthropic-ai/claude-code` (PRD-setup F-86 tests). */
 export function installFakeClaude(bin, platform = process.platform) {
   return installFakeBin(bin, { name: "claude", pkg: ["@anthropic-ai", "claude-code"], fake: join(here, "fake-claude.mjs") }, platform);
+}
+
+/** The fake ACP agent (fake-acp.mjs) as `gemini` from `@google/gemini-cli` (PRD-providers F-54, M10). */
+export function installFakeGemini(bin, platform = process.platform) {
+  return installFakeBin(bin, { name: "gemini", pkg: ["@google", "gemini-cli"], fake: join(here, "fake-acp.mjs") }, platform);
 }

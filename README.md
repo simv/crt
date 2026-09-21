@@ -1,6 +1,6 @@
 # Claude Review Tool (CRT)
 
-Annotate your local site in the browser, talk to Claude in the page, and get a self-contained task file in your repo that any Claude Code session can pick up later with `/crt:next`. CRT started as Claude-only; since v0.2 it also works with Codex, and Claude Code remains the default. The name is historical.
+Annotate your local site in the browser, talk to Claude in the page, and get a self-contained task file in your repo that any Claude Code session can pick up later with `/crt:next`. CRT started as Claude-only; since v0.2 it also works with Codex, now also with Gemini CLI and any Agent Client Protocol agent, and Claude Code remains the default. The name is historical.
 
 > v0.4.0. [docs/PRD.md](docs/PRD.md) defines the scope, requirement IDs (F-n, N-n) and the definition of done; [docs/PRD-providers.md](docs/PRD-providers.md) (v0.2, providers), [docs/PRD-setup.md](docs/PRD-setup.md) (v0.3, setup and first run) and [docs/PRD-embedded.md](docs/PRD-embedded.md) (v0.4, embedded mode) amend it. This README is the user manual.
 
@@ -165,13 +165,13 @@ It is written to `.crt/captures/<id>/capture.json` (+ PNGs) and moves to `.crt/t
 
 ## Providers
 
-The agent behind the in-page chat is a *provider*. Claude Code is the default and needs nothing; `crt --provider codex` (or `provider: "codex"` in `.crt/config.json`, or the caret next to **Send**) runs the intake on the developer's own Codex CLI instead. The provider for a session is the first of these that is set:
+The agent behind the in-page chat is a *provider*. Claude Code is the default and needs nothing; `crt --provider codex` or `crt --provider gemini` (or `provider: "codex"` / `"gemini"` in `.crt/config.json`, or the caret next to **Send**) runs the intake on the developer's own Codex CLI or Gemini CLI instead, and `provider: { "kind": "acp", … }` in `.crt/config.json` names any other agent that speaks the [Agent Client Protocol](https://agentclientprotocol.com) (below). The provider for a session is the first of these that is set:
 
 1. `provider` in the `POST /__crt/sessions` body — the caret next to **Send**, for that one send;
 2. the running server's active provider — `--provider` or `CRT_PROVIDER` at start, replaced by **Remember** in the Agent menu for the life of the process;
 3. `provider` in `.crt/config.local.json` (per machine, gitignored — what **Remember** writes);
 4. `provider` in `.crt/config.json` (per project, committed);
-5. auto-detection: what is installed and logged in here, disambiguated by the project's markers (`.claude/`, `CLAUDE.md`, `.codex/`, `AGENTS.md`);
+5. auto-detection: what is installed and logged in here, disambiguated by the project's markers (`.claude/`, `CLAUDE.md`, `.codex/`, `.gemini/`, `GEMINI.md`, `AGENTS.md`);
 6. `claude`.
 
 A provider chosen explicitly (1–4) that is not usable is never swapped for another: the session fails with the provider's one-line problem. Only auto-detection falls back — a logged-out Claude is stepped over when Codex is usable, and the ready line says why (`provider: codex — claude not logged in`). `crt providers` prints every provider's state and which one a new session would use, with the reason:
@@ -179,6 +179,7 @@ A provider chosen explicitly (1–4) that is not usable is never swapped for ano
 ```
 claude   ready        Claude Code (Agent SDK) 0.3.270  logged in                                markers: .claude/, CLAUDE.md
 codex    not on PATH  Codex CLI                        install: npm i -g @openai/codex          markers: none
+gemini   ready        Gemini CLI 0.60.0                login unknown                            markers: none
 → claude — .claude/, CLAUDE.md; codex not on PATH
 ```
 
@@ -253,6 +254,64 @@ write_task was called with a stale token — the session had ended
 ```
 
 The agent called `write_task` after the session it belonged to was discarded or the server restarted (every session gets its own token for the life of that session). Start a new session and send again.
+
+### Gemini CLI
+
+Tested with Gemini CLI `0.60.0` (`npm i -g @google/gemini-cli`). CRT never bundles Gemini: it runs the `gemini` on your PATH (Windows: the npm `gemini.cmd` shim is parsed and its JS entry run with CRT's own Node), or the executable you name in `.crt/config.json` under `providers.gemini.command`, in its Agent Client Protocol mode (`gemini --acp`) — one process for the whole session, JSON-RPC over stdio, nothing else in between.
+
+What a Gemini session looks like: **Send to Gemini** starts `gemini --acp` in your project root with the intake instructions at the top of the first message and the screenshots inline (Gemini 0.60.0 accepts image prompts; an agent that does not gets the message without them and the first message says so). Text streams; tool calls show as collapsed lines; a tool call Gemini itself would ask about becomes an **Allow / Deny** card, decided by the same policy as for Claude but over ACP's tool *kinds*: reads, searches and thinking are allowed silently, edits/deletes/moves are allowed only under `.crt/`, a command is allowed only when it is a read-only `git` command, fetching from the network is denied, everything else asks you. CRT answers with the agent's `allow_once` / `reject_once` option and never "always". `write_task` reaches Gemini through `crt mcp`, the same stdio MCP server Codex uses; the file is written by the server with `provider: gemini` and Gemini's session id in `session:`. The footer's `gemini --resume <id>` continues the same conversation in a terminal, from the same project directory (Gemini stores sessions per project). **Stop** sends `session/cancel`.
+
+**Login.** Gemini CLI has no login-status command, so CRT reads what the CLI itself reads: `GEMINI_API_KEY` / `GOOGLE_API_KEY` in the environment or in `~/.gemini/.env` count as logged in; cached Google credentials (`~/.gemini/oauth_creds.json`) show as `login unknown`, because 0.60.0 accepts the login but may refuse the account's tier when the session starts (below). `GEMINI_CLI_HOME` moves `~/.gemini`. Telemetry is Gemini's own `usageStatisticsEnabled` setting; CRT passes no flag for it (PRD-providers N-12).
+
+**Skills for Gemini.** `crt skills install --provider gemini` writes the seven CRT skills into `.gemini/skills/` in the project (`--global`: `~/.gemini/skills`). Same rewriting and caveats as for Codex.
+
+**Gemini problems** show up as one line in the panel (or on the `CRT ready` line and in `crt providers`):
+
+```
+gemini not found on PATH — npm i -g @google/gemini-cli, or set providers.gemini.command in .crt/config.json
+```
+
+Install the CLI, or point `providers.gemini.command` at the executable.
+
+```
+not logged in to Gemini — run `gemini` in a terminal and pick an auth method (or set GEMINI_API_KEY), then send again
+```
+
+No API key and no cached Google login, **or** the session start came back with Gemini's "API key is missing or not configured" / "Authentication required". Log in (or set the key), then send again; no need to restart `crt serve`.
+
+```
+Gemini refused the Google login for this CLI ("no longer supported for Gemini Code Assist for individuals") — use a Gemini API key: put GEMINI_API_KEY=… in ~/.gemini/.env and set security.auth.selectedType to gemini-api-key in ~/.gemini/settings.json
+```
+
+Gemini CLI 0.60.0 rejects the free personal tier of "Log in with Google" (it points at the Antigravity products instead). A Gemini Developer API key from AI Studio works; put it in `~/.gemini/.env` and switch `selectedType`, then send again.
+
+```
+gemini <version> is too old — CRT needs 0.60.0 or newer (npm i -g @google/gemini-cli@latest)
+```
+
+The ACP behaviour CRT relies on (`--acp`, the `session/new` shape, the permission options) was recorded on 0.60.0; older releases differ. Update the CLI.
+
+### Any other ACP agent
+
+Any agent that speaks the Agent Client Protocol over stdio can run an intake session without CRT knowing it by name. Put the command in `.crt/config.json` (this form is accepted from the config files only — never from the page or `PUT /__crt/config`):
+
+```json
+{ "provider": { "kind": "acp", "command": "my-agent", "args": ["--acp"], "name": "My Agent" } }
+```
+
+It registers as the provider id `acp`, with the display name you gave (`Send to My Agent`), no project markers, no launch signal and no resume hint (CRT does not know the agent's resume command; the session id is still in the task file), and the same session shape as Gemini: instructions in the first message, images when the agent advertises them at `initialize`, cards from the tool-kind policy, `write_task` through `crt mcp`, `session/cancel` on **Stop**, stdin closed on **Discard** (the agent gets two seconds to leave, then its process tree is killed). `crt providers` lists it as ready whenever the command resolves (login is `unknown`: CRT cannot ask an unknown agent), and what the agent says when it cannot start a session — an API-key or login message — is shown as `not logged in to <name> — <what it said>`.
+
+```
+<command> not found on PATH — install it, or fix provider.command in .crt/config.json
+```
+
+The command in `provider.command` does not resolve (PATH and, on Windows, PATHEXT and npm shims are searched; an absolute path is used as is).
+
+```
+<agent> speaks ACP <v>; CRT supports 1 — update CRT or the agent
+```
+
+The agent's `initialize` reply named a protocol version this CRT does not implement. Note that Gemini 0.60.0 answers `1` whatever the client asks for; the reply is what counts.
 
 ## Task format
 

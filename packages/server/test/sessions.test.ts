@@ -304,7 +304,7 @@ provider: stub
     expect(strict.get(info.id)?.state).toBe("error");
     const events: SessionEvent[] = [];
     strict.subscribe(info.id, 0, (_seq, e) => events.push(e));
-    expect(events[0]).toEqual({ type: "error", message: 'provider "nope" is not a built-in provider (claude, codex)' });
+    expect(events[0]).toEqual({ type: "error", message: 'provider "nope" is not a built-in provider (claude, codex, gemini)' });
     expect(events[1]).toMatchObject({ type: "state", state: "error" });
     // F-30: the row stays listable and the session cannot be driven.
     expect(strict.list().map((s) => s.id)).toContain(info.id);
