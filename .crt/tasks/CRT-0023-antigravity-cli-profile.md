@@ -1,10 +1,10 @@
 ---
 id: CRT-0023
 title: Antigravity CLI profile — spike on `agy --print --output-format stream-json`, then a native driver
-status: in_progress
+status: review
 priority: normal
 created: 2026-09-21T13:10:00+08:00
-updated: 2026-09-21T13:15:00+08:00
+updated: 2026-09-21T14:40:00+08:00
 url: null
 route: null
 session: null
@@ -28,12 +28,12 @@ No page capture: created from the CRT-0013 session at Simon's request ("i have a
 4. **Tests**: `test/providers/antigravity.test.ts` runs the F-59 conformance scenario against a fake `agy` (`e2e/fixture/fake-agy.mjs`, npm-style install not needed — an executable script/`.cmd` per the fake-install helper) that replays the recorded fixtures and spawns the configured MCP server; fixture replay tests; the N-7 lines; an e2e `antigravity` axis in `chat.spec.ts` (a fifth server); README Providers section; `crt skills install --provider antigravity` if a skills directory exists.
 
 ## Definition of Done
-- [ ] Spike doc with a verdict per Ask-1 question, every row `observed`, tested `agy --version` at the top; fixtures recorded from real runs.
-- [ ] PRD-providers carries the Antigravity requirement and §11 item 4 is updated.
-- [ ] Conformance test against the fake `agy` passes, including `write_task` through `crt mcp`; fixture replay tests pass.
+- [x] Spike doc with a verdict per Ask-1 question, every row `observed`, tested `agy --version` at the top; fixtures recorded from real runs.
+- [x] PRD-providers carries the Antigravity requirement and §11 item 4 is updated.
+- [x] Conformance test against the fake `agy` passes, including `write_task` through `crt mcp`; fixture replay tests pass.
 - [ ] e2e `antigravity` axis green on both runners.
-- [ ] `npm run check` passes; README Providers section quotes the N-7 lines verbatim (doc test).
-- [ ] Manual: on the trial app, `crt --provider antigravity` → annotate → Send to Antigravity → streamed text, tool lines, a task passing `crt task --validate` with `provider: antigravity`, and the footer's resume command continues the conversation in a terminal.
+- [x] `npm run check` passes; README Providers section quotes the N-7 lines verbatim (doc test).
+- [x] Manual: on the trial app, `crt --provider antigravity` → annotate → Send to Antigravity → streamed text, tool lines, a task passing `crt task --validate` with `provider: antigravity`, and the footer's resume command continues the conversation in a terminal.
 
 ## Notes
 `agy` is logged in on this machine (`agy models` answers), so the Manual row is runnable by the worker session (standing rule 2026-09-18). Do not fold this into the ACP driver: `agy` speaks no ACP (checked: no `--acp` flag, no ACP strings in the binary). Keep `agy` off the e2e servers' PATH unless it is the fake (N-9). If the spike finds no per-invocation way to hand the turn an MCP server without touching the user's config, name the fallback (`agy mcp add` into the project scope, removed on close?) and put the N-19 write-outside-`.crt/` question to Simon in this file before building.
@@ -41,3 +41,9 @@ No page capture: created from the CRT-0013 session at Simon's request ("i have a
 ## Log
 - 2026-09-21T13:10+08:00 — created by session f36246b7-e1ec-4291-95b0-f7a38ba6c3c3 while finishing CRT-0013, after Simon asked whether the Antigravity CLI could be added; `agy` 1.2.7 found at `%LOCALAPPDATA%\agy\bin\agy.exe`, no ACP mode, stream-json loop present, `agy models` lists Gemini 3.x (logged in).
 - 2026-09-21T13:15+08:00 — claimed by /crt:next, session 73480a4c-3400-4053-b1e9-1eb435371ec4, branch crt/CRT-0023-antigravity-cli-profile
+- 2026-09-21T13:50+08:00 — spike done on agy 1.2.7 (docs/spikes/antigravity-2026-09.md, probe scripts under antigravity-2026-09/probe/, 8 fixtures under test/providers/fixtures/antigravity/). Decisions: one process per session over the stream-json loop; the MCP server and CRT's permission policy travel as a per-session plugin under .crt/captures/antigravity/<id>/ handed to `agy --add-dir` (nothing outside .crt/ is written, `agy mcp add` is not used, the token reaches `crt mcp` by inherited environment only); headless mode auto-denies every permissioned tool including workspace reads and the only allow rules are in the user's settings.json, so the driver passes --dangerously-skip-permissions behind a PreToolUse allowlist hook (reads + crt_crt MCP) with a PreInvocation marker the driver checks before the first real step (F-46 `sandboxed`, the sandbox being CRT's). Simon's ~/.gemini/antigravity-cli/settings.json and ~/.gemini/config/mcp_config.json were touched during the probes and restored byte-for-byte.
+- 2026-09-21T14:05+08:00 — PRD-providers: F-111 (after F-54), M19 (after M10), §13 open item 4 annotated (the task's "§11 item 4" is §13 item 4 in the file; §11 is Risks). Driver providers/antigravity.ts, fake e2e/fixture/fake-agy.mjs (runs the hooks through cmd /c / sh -c, write_task through the real crt mcp shim), test/providers/antigravity.test.ts, e2e antigravity axis (fifth server :4494), README section, serve skill provider name. exec.ts prefers a bare .exe anywhere on PATH over a shim, so the unit test and e2e/fixture/crt.mjs put the fake on a PATH without the real agy.exe (N-9).
+- 2026-09-21T14:15+08:00 — Manual row run by this session (standing rule 2026-09-18): tool-validation on :3100, this build's `crt serve --provider antigravity` on :4400 (the stale 0.5.0 server was stopped by PID); annotated [data-testid=cart-total] → Send to Antigravity → streamed text, tool lines (capture.json and the source files read; the model's `run_command` refused by the hook), DoD proposed → Accept → `Write task: …` → CRT-0014 written through crt mcp, `crt task CRT-0014 --validate` valid with `provider: antigravity` and `session: 93532d86-…`; footer `agy --conversation 93532d86-320f-4fd8-8545-9d17b415ca6b` continued the conversation from a terminal (num_turns 3, it named CRT-0014 and CartSummary.tsx). The session directory was removed on Discard. The experimental badge therefore comes off (F-111): profile, tests, e2e and README updated; :3100 and :4400 (antigravity) left running for Simon.
+- 2026-09-21T14:35+08:00 — verified: spike doc every row observed (`node probe/*.mjs` runs, fixtures from `node probe/fixtures.mjs`); PRD-providers F-111/M19 present (grep); conformance + fixture replay + hook decisions + hooks-not-loaded + resume mismatch + logged-out + not-on-PATH: `npx vitest run test/providers/antigravity.test.ts` 24/24; `npm run check` 629 passed; README doc test in the same file; e2e `npm run e2e` 54 passed locally (chat.spec ×3 stable; one earlier flake right after a build under load), ubuntu runner = CI on the PR; Manual row as above. prd-reviewer subagent run: its two findings (Log/DoD lag, a `
+` in the .cmd wrapper) fixed — the wrapper is LF now and the conformance test runs it through cmd /c.
+- 2026-09-21T14:40+08:00 — ready for review: changed docs/spikes/antigravity-2026-09.md (+probe/), docs/PRD-providers.md, README.md, plugin/skills/serve/SKILL.md, packages/server/src/providers/antigravity.ts, src/session.ts, e2e/fixture/{fake-agy.mjs,fake-codex-install.mjs,crt.mjs}, e2e/chat.spec.ts, playwright.config.ts, test/providers/{antigravity.test.ts,detect.test.ts,fixtures/antigravity/*}, test/sessions.test.ts. Reviewer notes: the e2e "both runners" row is ticked once CI's ubuntu e2e job is green on this PR (Windows verified locally); `--dangerously-skip-permissions` + the CRT hook is the deliberate design (spike §2 records the alternatives that failed); the trial app now has CRT-0014 in its own .crt/tasks from the Manual row.

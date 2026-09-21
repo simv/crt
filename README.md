@@ -1,6 +1,6 @@
 # Claude Review Tool (CRT)
 
-Annotate your local site in the browser, talk to Claude in the page, and get a self-contained task file in your repo that any Claude Code session can pick up later with `/crt:next`. CRT started as Claude-only; since v0.2 it also works with Codex, since v0.5 with Gemini CLI, any Agent Client Protocol agent and the Antigravity CLI (all experimental — see Providers), and Claude Code remains the default. The name is historical.
+Annotate your local site in the browser, talk to Claude in the page, and get a self-contained task file in your repo that any Claude Code session can pick up later with `/crt:next`. CRT started as Claude-only; since v0.2 it also works with Codex, since v0.5 with Gemini CLI and any Agent Client Protocol agent (both experimental — see Providers) and with the Antigravity CLI, and Claude Code remains the default. The name is historical.
 
 > v0.5.0. [docs/PRD.md](docs/PRD.md) defines the scope, requirement IDs (F-n, N-n) and the definition of done; [docs/PRD-providers.md](docs/PRD-providers.md) (v0.2, providers), [docs/PRD-setup.md](docs/PRD-setup.md) (v0.3, setup and first run) and [docs/PRD-embedded.md](docs/PRD-embedded.md) (v0.4, embedded mode) amend it; v0.5 ships PRD-providers M10 (Gemini CLI and any ACP agent, experimental). This README is the user manual.
 
@@ -177,10 +177,10 @@ The agent behind the in-page chat is a *provider*. Claude Code is the default an
 A provider chosen explicitly (1–4) that is not usable is never swapped for another: the session fails with the provider's one-line problem. Only auto-detection falls back — a logged-out Claude is stepped over when Codex is usable, and the ready line says why (`provider: codex — claude not logged in`). `crt providers` prints every provider's state and which one a new session would use, with the reason:
 
 ```
-claude   ready        Claude Code (Agent SDK) 0.3.270  logged in                                markers: .claude/, CLAUDE.md
-codex    not on PATH  Codex CLI                        install: npm i -g @openai/codex          markers: none
-gemini   ready        Gemini CLI 0.60.0 (experimental)  login unknown                          markers: none
-antigravity  ready    Antigravity CLI 1.2.7 (experimental)  login unknown                    markers: none
+claude       ready        Claude Code (Agent SDK) 0.3.270   logged in                                markers: .claude/, CLAUDE.md
+codex        not on PATH  Codex CLI                         install: npm i -g @openai/codex          markers: none
+gemini       ready        Gemini CLI 0.60.0 (experimental)  login unknown                            markers: none
+antigravity  ready        Antigravity CLI 1.2.7             login unknown                            markers: none
 → claude — .claude/, CLAUDE.md; codex not on PATH
 ```
 
@@ -296,11 +296,7 @@ The ACP behaviour CRT relies on (`--acp`, the `session/new` shape, the permissio
 
 ### Antigravity CLI
 
-**Experimental** until a real intake has been recorded against it (the menu row, the footer and `crt providers` say so; the driver is complete and was built from real runs of the CLI on Windows — [docs/spikes/antigravity-2026-09.md](docs/spikes/antigravity-2026-09.md)). The badge line reads:
-
-```
-experimental: the M19 real-intake check on the trial app has not been recorded yet; report what you see
-```
+Not experimental: the driver was built from real runs of the CLI on Windows ([docs/spikes/antigravity-2026-09.md](docs/spikes/antigravity-2026-09.md)) and a real intake on the trial app has been recorded (2026-09-21): capture read, source files read, a task written through `write_task`, the conversation continued in a terminal.
 
 Built against Antigravity CLI `agy` `1.2.7` (a single binary installed by [antigravity.google/docs/cli](https://antigravity.google/docs/cli)). CRT never bundles it: it runs the `agy` on your PATH (`agy.exe` on Windows), or the executable you name in `.crt/config.json` under `providers.antigravity.command`, in its non-interactive JSON mode: one `agy --output-format stream-json --input-format stream-json --print "" …` process for the whole session, one turn per developer message on its stdin, nothing else in between.
 

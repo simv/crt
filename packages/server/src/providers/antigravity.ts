@@ -89,9 +89,6 @@ export const ANTIGRAVITY_CAPABILITIES: ProviderCapabilities = {
   instructions: "first-message",
 };
 
-/** F-111: shipped experimental until the M19 Manual row (a real intake on the trial app) has passed. */
-export const ANTIGRAVITY_EXPERIMENTAL = "experimental: the M19 real-intake check on the trial app has not been recorded yet; report what you see";
-
 /** F-58: where agy 1.2.7 reads Agent Skills from (the built-in agy-customizations docs, spike §4). */
 export function antigravitySkillsDirs(env: NodeJS.ProcessEnv = process.env): { project: string; user: string } {
   const home = env.HOME?.trim() || env.USERPROFILE?.trim() || homedir();
@@ -106,7 +103,6 @@ export const antigravityProfile: ProviderProfile = {
   launchEnv: ["ANTIGRAVITY_CONVERSATION_ID", "ANTIGRAVITY_AGENT"],
   hints: { install: ANTIGRAVITY_INSTALL, login: ANTIGRAVITY_LOGIN },
   capabilities: ANTIGRAVITY_CAPABILITIES,
-  experimental: ANTIGRAVITY_EXPERIMENTAL,
   telemetryOptOut: [],
   skillsDirs: antigravitySkillsDirs,
   preflight: antigravityPreflight,
@@ -243,7 +239,7 @@ export function writeSessionPlugin(
   write("preinvoke.mjs", PREINVOKE_SCRIPT);
   const wrapper = (name: string, script: string): string =>
     platform === "win32"
-      ? write(`${name}.cmd`, `@"${process.execPath}" "%~dp0${script}"\r\n`)
+      ? write(`${name}.cmd`, `@"${process.execPath}" "%~dp0${script}"\n`)
       : write(`${name}.sh`, `#!/bin/sh\nexec '${process.execPath.replace(/'/g, "'\\''")}' "$(dirname "$0")/${script}"\n`, true);
   const hook = wrapper("hook", "hook.mjs");
   const preinvoke = wrapper("preinvoke", "preinvoke.mjs");
@@ -436,8 +432,7 @@ export class AgyMapper {
           agentVersion: this.opts.agentVersion ?? null,
           resumeCommand: antigravityProfile.resumeCommand(id),
           capabilities: ANTIGRAVITY_CAPABILITIES,
-          experimental: ANTIGRAVITY_EXPERIMENTAL,
-        });
+                });
         return { kind: "conversation", conversationId: id };
       }
       case "step_update": {

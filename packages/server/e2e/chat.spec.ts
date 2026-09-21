@@ -4,7 +4,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { FIRST_MESSAGE_HEADING } from "../src/intake-message.js";
 import { INTERNAL_WRITE_TASK_PATH, STALE_TOKEN_LINE } from "../src/mcp-stdio.js";
 import { ACP_CAPABILITIES, ACP_EXPERIMENTAL } from "../src/providers/acp.js";
-import { ANTIGRAVITY_CAPABILITIES, ANTIGRAVITY_EXPERIMENTAL, antigravityProfile } from "../src/providers/antigravity.js";
+import { ANTIGRAVITY_CAPABILITIES, antigravityProfile } from "../src/providers/antigravity.js";
 import { CODEX_CAPABILITIES, codexProfile } from "../src/providers/codex.js";
 import { stubProfile } from "../src/providers/stub.js";
 import type { ProvidersPayload, SessionEvent } from "../src/session-events.js";
@@ -875,13 +875,14 @@ test.describe("antigravity provider on the fake agy (F-49, F-56, F-61, F-111)", 
     await page.evaluate(() => window.__crt.chat.discard()).catch(() => undefined);
   });
 
-  test("Send to Antigravity: streamed text, a read tool line and a hook-denied command, the read-only and experimental badges, a resumable conversation id in the footer that survives a reload, write_task through crt mcp, Stop kills the process (F-49, F-56, F-61, F-111)", async ({ page }) => {
+  test("Send to Antigravity: streamed text, a read tool line and a hook-denied command, the read-only badge and no experimental one, a resumable conversation id in the footer that survives a reload, write_task through crt mcp, Stop kills the process (F-49, F-56, F-61, F-111)", async ({ page }) => {
     // F-43 step 2 / F-57: the server runs on antigravity and says so; login is unknown by design (no status command).
     const health = (await (await page.request.get(`${AGY}/__crt/health`)).json()) as { provider: string };
     expect(health.provider).toBe("antigravity");
     const payload = (await (await page.request.get(`${AGY}/__crt/providers`)).json()) as ProvidersPayload;
     expect(payload.active).toBe("antigravity");
-    expect(payload.providers.find((p) => p.id === "antigravity")).toMatchObject({ installed: true, loggedIn: "unknown", version: "1.2.7", problem: null, capabilities: ANTIGRAVITY_CAPABILITIES, experimental: ANTIGRAVITY_EXPERIMENTAL });
+    expect(payload.providers.find((p) => p.id === "antigravity")).toMatchObject({ installed: true, loggedIn: "unknown", version: "1.2.7", problem: null, capabilities: ANTIGRAVITY_CAPABILITIES });
+    expect("experimental" in payload.providers.find((p) => p.id === "antigravity")!).toBe(false); // the M19 Manual row passed (F-111)
 
     await page.goto(`/app?crt=${AGY}`);
     await shadow(page, ".launcher").click();
@@ -910,13 +911,13 @@ test.describe("antigravity provider on the fake agy (F-49, F-56, F-61, F-111)", 
     expect(snap.events.filter((e) => e.type === "error")).toEqual([]);
     const init = snap.events.find((e) => e.type === "init") as Extract<SessionEvent, { type: "init" }>;
     // §5.4: the native id is the conversation id (a UUID that is not CRT's), and the footer shows its resume command.
-    expect(init).toMatchObject({ provider: "antigravity", displayName: "Antigravity", model: null, agentVersion: "1.2.7", capabilities: ANTIGRAVITY_CAPABILITIES, experimental: ANTIGRAVITY_EXPERIMENTAL });
+    expect(init).toMatchObject({ provider: "antigravity", displayName: "Antigravity", model: null, agentVersion: "1.2.7", capabilities: ANTIGRAVITY_CAPABILITIES });
     expect(init.nativeSessionId).toMatch(/^[0-9a-f-]{36}$/);
     expect(init.nativeSessionId).not.toBe(snap.sessionId);
     expect(init.resumeCommand).toBe(antigravityProfile.resumeCommand(init.nativeSessionId));
     const foot = shadow(page, ".chat-foot");
-    await expect(foot).toHaveText(`Antigravity · 1.2.7 · read-only sandbox · experimental · continue in a terminal: ${init.resumeCommand}`);
-    await expect(foot.locator(".badge.experimental")).toHaveAttribute("title", ANTIGRAVITY_EXPERIMENTAL);
+    await expect(foot).toHaveText(`Antigravity · 1.2.7 · read-only sandbox · continue in a terminal: ${init.resumeCommand}`);
+    await expect(foot.locator(".badge")).toHaveCount(1);
     await expect(shadow(page, "[data-chat=interrupt]")).toBeVisible();
     // F-51/F-50: instructions in the first message; images by path (their paths are in the text, no bytes).
     const first = snap.events[0] as Extract<SessionEvent, { type: "user" }>;
@@ -927,7 +928,7 @@ test.describe("antigravity provider on the fake agy (F-49, F-56, F-61, F-111)", 
 
     await page.reload();
     await expect(shadow(page, ".chat")).toBeVisible();
-    await expect(foot).toHaveText(`Antigravity · 1.2.7 · read-only sandbox · experimental · continue in a terminal: ${init.resumeCommand}`);
+    await expect(foot).toHaveText(`Antigravity · 1.2.7 · read-only sandbox · continue in a terminal: ${init.resumeCommand}`);
     await expect(shadow(page, ".chat-head .agent")).toHaveText("Antigravity");
 
     // Turn 2 on the same process: the fake calls write_task on crt_crt through the hook and `crt mcp` → the internal route writes the file.

@@ -11,7 +11,6 @@ import {
   AgyMapper,
   ANTIGRAVITY_ALLOWED_TOOLS,
   ANTIGRAVITY_CAPABILITIES,
-  ANTIGRAVITY_EXPERIMENTAL,
   ANTIGRAVITY_MCP_NEVER_CALLED,
   ANTIGRAVITY_MCP_SERVER,
   ANTIGRAVITY_MIN_VERSION,
@@ -125,14 +124,14 @@ const steps = (events: AgyFixtureEvent[]) => events.filter((e) => e.event === "s
 const conversation = (events: AgyFixtureEvent[]) => events.find((e) => e.event === "init")?.conversation_id;
 
 describe("antigravity profile (F-42, F-111)", () => {
-  it("declares the spike-verified markers, launch signal, capabilities, experimental badge, skills dirs and resume command (F-42, F-46, F-58, F-111)", () => {
+  it("declares the spike-verified markers, launch signal, capabilities, no experimental badge, skills dirs and resume command (F-42, F-46, F-58, F-111)", () => {
     expect(antigravityProfile.id).toBe("antigravity");
     expect(antigravityProfile.displayName).toBe("Antigravity");
     expect(antigravityProfile.agentName).toBe("Antigravity CLI");
     expect(antigravityProfile.markers).toEqual({ private: [".agents/"], shared: ["AGENTS.md", "GEMINI.md"] });
     expect(antigravityProfile.launchEnv).toEqual(["ANTIGRAVITY_CONVERSATION_ID", "ANTIGRAVITY_AGENT"]);
     expect(antigravityProfile.capabilities).toEqual({ streaming: true, toolEvents: true, permissions: "sandboxed", images: "path", resume: true, interrupt: true, instructions: "first-message" });
-    expect(antigravityProfile.experimental).toBe(ANTIGRAVITY_EXPERIMENTAL);
+    expect(antigravityProfile.experimental).toBeUndefined(); // the M19 Manual row passed on 2026-09-21
     expect(antigravityProfile.telemetryOptOut).toEqual([]);
     expect(antigravityProfile.resumeCommand("2e4133c8-449b-4de2-982b-a6d6252ed327")).toBe("agy --conversation 2e4133c8-449b-4de2-982b-a6d6252ed327");
     expect(antigravitySkillsDirs({ HOME: join("C:", "h") })).toEqual({ project: join(".agents", "skills"), user: join("C:", "h", ".gemini", "config", "skills") });
@@ -222,7 +221,6 @@ ${line}
     expect(readme).toContain("--dangerously-skip-permissions");
     expect(readme).toContain("enableTelemetry");
     expect(readme).toContain("crt skills install --provider antigravity");
-    expect(readme).toContain(ANTIGRAVITY_EXPERIMENTAL);
   });
 });
 
@@ -298,7 +296,8 @@ describe("antigravity event mapping over the recorded fixtures (F-111, F-59)", (
   it("first-turn.jsonl: init from the conversation id, tool lines with hook denials as errors, streamed text, result with usage (F-47, F-111)", () => {
     const { events, outcomes } = replay("first-turn.jsonl", null);
     expect(outcomes[0]).toEqual({ kind: "conversation", conversationId: "85a317c0-5ddc-432a-a1e1-2c9be63cdc37" });
-    expect(events[0]).toMatchObject({ type: "init", sessionId: "crt-session", nativeSessionId: "85a317c0-5ddc-432a-a1e1-2c9be63cdc37", provider: "antigravity", displayName: "Antigravity", model: null, agentVersion: "1.2.7", resumeCommand: "agy --conversation 85a317c0-5ddc-432a-a1e1-2c9be63cdc37", capabilities: ANTIGRAVITY_CAPABILITIES, experimental: ANTIGRAVITY_EXPERIMENTAL });
+    expect(events[0]).toMatchObject({ type: "init", sessionId: "crt-session", nativeSessionId: "85a317c0-5ddc-432a-a1e1-2c9be63cdc37", provider: "antigravity", displayName: "Antigravity", model: null, agentVersion: "1.2.7", resumeCommand: "agy --conversation 85a317c0-5ddc-432a-a1e1-2c9be63cdc37", capabilities: ANTIGRAVITY_CAPABILITIES });
+    expect("experimental" in events[0]!).toBe(false);
     const types = events.map((e) => e.type);
     expect(types.slice(0, 5)).toEqual(["init", "tool_use", "tool_result", "tool_use", "tool_result"]);
     expect(events[1]).toMatchObject({ type: "tool_use", id: "t1-s2", name: "view_file" });
@@ -421,7 +420,7 @@ describe("antigravity driver (F-111, F-59, N-7)", () => {
     // F-47/§5.4: the native id is the conversation id, and it is what `session:` and the resume hint carry.
     expect(r.init.nativeSessionId).toMatch(/^[0-9a-f-]{36}$/);
     expect(r.init.nativeSessionId).not.toBe(id);
-    expect(r.init).toMatchObject({ provider: "antigravity", displayName: "Antigravity", agentVersion: "conformance", resumeCommand: `agy --conversation ${r.init.nativeSessionId}`, capabilities: ANTIGRAVITY_CAPABILITIES, experimental: ANTIGRAVITY_EXPERIMENTAL });
+    expect(r.init).toMatchObject({ provider: "antigravity", displayName: "Antigravity", agentVersion: "conformance", resumeCommand: `agy --conversation ${r.init.nativeSessionId}`, capabilities: ANTIGRAVITY_CAPABILITIES });
     // F-51/F-50: instructions in the first message, images by path only (their paths are in the text).
     const first = r.events.find((e) => e.type === "user") as Extract<SessionEvent, { type: "user" }>;
     expect(first.text.startsWith(`${FIRST_MESSAGE_HEADING}\n\nINTAKE INSTRUCTIONS`)).toBe(true);
