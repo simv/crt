@@ -1,10 +1,10 @@
 ---
 id: CRT-0013
 title: M10 — Generic Agent Client Protocol driver and Gemini profile (Should)
-status: in_progress
+status: blocked
 priority: low
 created: 2026-09-15T17:30:00+08:00
-updated: 2026-09-21T10:00:00+08:00
+updated: 2026-09-21T10:05:00+08:00
 url: null
 route: null
 session: null
@@ -44,3 +44,5 @@ Do not use `session/load`. If Gemini's tested version does not advertise image s
 - 2026-09-15T17:30+08:00 — created from PRD-providers milestone M10 by the planning session that wrote docs/PRD-providers.md.
 - 2026-09-17T01:10+08:00 — reviewed after the v0.3.0 release: nothing started, all five Ask items and five DoD rows open; deferred with the note above (spike before build). Session 21c8bea3-fd0d-49d4-97aa-734d23658916.
 - 2026-09-21T10:00+08:00 — claimed by /crt:next, session f36246b7-e1ec-4291-95b0-f7a38ba6c3c3, branch crt/CRT-0013-m10-acp-driver-and-gemini
+- 2026-09-21T10:05+08:00 — checked the machine: `gemini` is not on PATH, no `~/.gemini`, no `docs/spikes/gemini-acp-*.md`, no `test/providers/fixtures/acp/`; `providers/` still holds only `claude`, `codex`, `stub`. Ask items 1–2 defer `initialize` capabilities, `session/update` shapes, `resumeCommand`, `launchEnv` and image support to "the tested version", which does not exist, and the Manual DoD row needs a logged-in Gemini (Google OAuth — cannot be done by a worker session).
+- 2026-09-21T10:05+08:00 — blocked: (1) Is a third agent wanted now, i.e. should M10 be built (the 2026-09-17 note says leave it until it is)? (2) If yes: install `@google/gemini-cli` and log in on this machine, then run the spike the note asks for (record `gemini --experimental-acp` initialize/session-new/session-update/request_permission/resume/launch-env/image facts as `test/providers/fixtures/acp/*.jsonl` + `docs/spikes/gemini-acp-<date>.md`), or state which version to target and paste its ACP facts into ## Notes. Answer in ## Notes and re-run /crt:next CRT-0013.
