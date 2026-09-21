@@ -99,7 +99,7 @@ describe("the brand files (PRD-polish F-112, N-25)", () => {
     expect(svg(FAVICON).replace(/<style>.*<\/style>\n/, "").replace(' class="b"', "")).toBe(svg("crt-mark-small.svg"));
   });
 
-  it("the small mark's coordinates are whole pixels (§5.1: crisp at 16 px)", () => {
+  it("the small mark's coordinates are whole pixels, crisp at 16 px (F-112, §5.1)", () => {
     for (const name of SMALL) {
       const text = svg(name);
       const numbers = text.match(/(?:\sd|cx|cy|r|viewBox)="([^"]*)"/g)!.flatMap((attr) => attr.match(/-?\d+(?:\.\d+)?/g) ?? []);
@@ -174,7 +174,7 @@ describe("the tokens feed the overlay's CSS (PRD-polish F-112, decision 7)", () 
     expect(OVERLAY_CSS).toHaveLength(20104);
   });
 
-  it("the tokens are the review's values and the brand files carry the same ones (§5.1)", () => {
+  it("the tokens are the review's values and the brand files carry the same ones (F-112, §5.1)", () => {
     expect({ INK, ACCENT, GLASS, BEZEL_DARK, OK, WARN, DANGER }).toEqual({
       INK: "#111",
       ACCENT: "#ff3d71",
