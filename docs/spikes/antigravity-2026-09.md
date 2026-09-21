@@ -36,7 +36,7 @@ This document records what the Antigravity CLI *does* in its first-party non-int
 & "$env:LOCALAPPDATA\agy\bin\agy.exe" mcp list         # No MCP servers configured.
 ```
 
-Scratch repo: `C:\Projects\Claude\crt-agy-spike-repo` (git-initialised, `AGENTS.md`, `index.js`; **not** in `trustedWorkspaces`). Listener: `node probe/listener.mjs 47124 out/listener.log`. Plugin: `node probe/plugin.mjs` writes `<repo>/.crt/agy/.agents/plugins/crt/` (see the file for the hook scripts). Runs: `node probe/run.mjs <name> -- <agy args>` (one shot) and `node probe/loop.mjs <name> [--kill-after ms] -- <agy args> -- <ndjson line>…` (the turn loop; writes `out/<name>.{jsonl,stderr.txt,times.txt,meta.json}`); `node probe/summarize.mjs out/<name>.jsonl` collapses deltas. `node probe/fixtures.mjs` copies the runs listed in it into the test fixtures with headers.
+Scratch repo: `C:\Projects\Claude\crt-agy-spike-repo` (git-initialised, `AGENTS.md`, `index.js`; **not** in `trustedWorkspaces`). The scratch repo is disposable once the fixtures exist; the driver itself never needs it. Listener: `node probe/listener.mjs 47124 out/listener.log`. Plugin: `node probe/plugin.mjs` writes `<repo>/.crt/agy/.agents/plugins/crt/` (see the file for the hook scripts). Runs: `node probe/run.mjs <name> -- <agy args>` (one shot) and `node probe/loop.mjs <name> [--kill-after ms] -- <agy args> -- <ndjson line>…` (the turn loop; writes `out/<name>.{jsonl,stderr.txt,times.txt,meta.json}`); `node probe/summarize.mjs out/<name>.jsonl` collapses deltas. `node probe/fixtures.mjs` copies the runs listed in it into the test fixtures with headers.
 
 ## 1. Print mode and the stream-json shapes
 
