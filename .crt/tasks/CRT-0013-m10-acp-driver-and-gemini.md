@@ -1,10 +1,10 @@
 ---
 id: CRT-0013
 title: M10 — Generic Agent Client Protocol driver and Gemini profile (Should)
-status: in_progress
+status: review
 priority: low
 created: 2026-09-15T17:30:00+08:00
-updated: 2026-09-21T11:35:00+08:00
+updated: 2026-09-21T12:40:00+08:00
 url: null
 route: null
 session: null
@@ -33,7 +33,7 @@ No page capture: created from PRD-providers milestone M10.
 - [x] e2e `acp` axis green on both runners; footer shows the negotiated capabilities correctly (no resume hint when `resume: false`).
 - [x] An ad-hoc `{ kind: "acp" }` config runs the conformance scenario; `PUT /__crt/config` still rejects the object form.
 - [x] `npm run check` passes; `acp.ts` line count noted in the PR description against the N-11 budget.
-- [ ] Manual (Simon): Gemini intake on the trial app writes a valid task; `crt providers` shows Gemini's state correctly when logged out and logged in.
+- [x] Manual (Simon): Gemini intake on the trial app writes a valid task; `crt providers` shows Gemini's state correctly when logged out and logged in. — *Closed as "ship experimental" (Simon, 2026-09-21):* the `crt providers` half verified in three login states; the intake half cannot be run (0.60.0 refuses the free Google login, no upgraded licence), so the Gemini and ad-hoc ACP profiles ship marked experimental in the menu row, the session footer, `crt providers` and the README.
 
 ## Notes
 Do not use `session/load`. If Gemini's tested version does not advertise image support in `promptCapabilities`, ship `images: none` and let the first message say so (F-50).
@@ -54,3 +54,6 @@ Do not use `session/load`. If Gemini's tested version does not advertise image s
 - 2026-09-21T10:50+08:00 — DoD 2, half: `npm run e2e` on this Windows machine → 53 passed (the `acp` axis: `Fake Agent · gemini-2.5-pro · 0.60.0` footer, no resume hint, no badge, survives a reload; three parallel runs of chat.spec.ts green). The ubuntu half is the PR's CI run (ci.yml runs on pull_request only) — ticked when it is green.
 - 2026-09-21T10:50+08:00 — DoD 5, half: `crt providers` with `GEMINI_CLI_HOME=<empty>` → `gemini   not logged in  Gemini CLI 0.60.0  not logged in — gemini`, with `GEMINI_API_KEY` set → `gemini   ready  Gemini CLI 0.60.0  logged in`, with Simon's cached Google login → `login unknown` (correct: the tier is refused only at session/new). The intake half needs a working credential: `probe/driver-run.mjs` (the real driver, real Gemini) ends with the N-7 `GEMINI_TIER_REFUSED` line. Waiting on Simon: a Gemini Developer API key in `~/.gemini/.env` (`GEMINI_API_KEY=…`) and `"selectedType": "gemini-api-key"` in `~/.gemini/settings.json`; then the trial-app intake runs and the row is ticked.
 - 2026-09-21T11:35+08:00 — verified: DoD 2, ubuntu half: PR #59 CI run https://github.com/simv/crt/actions/runs/35557002202 — check (ubuntu-latest) pass, check (windows-latest) pass, e2e (ubuntu) pass (after babd24e: the F-54 policy test used a relative `C:/proj` root, which resolved the locations against itself twice on Linux; now an absolute scratch root). Row 2 ticked. Only the Manual row (5) remains, waiting on a Gemini API key on this machine.
+- 2026-09-21T12:20+08:00 — Simon's decision (this session): no upgraded Gemini licence; test and review myself; mark Gemini experimental in the UI and release it as untested; mark the task done if everything passes. Built f8ac418: `ProviderProfile.experimental` (one line, why) on the F-57 row and the F-47 `init` event; the F-56 menu row and the chat footer wear an `experimental` badge with the reason as tooltip (`GEMINI_EXPERIMENTAL`, `ACP_EXPERIMENTAL`); `crt providers` prints `Gemini CLI 0.60.0 (experimental)`; README Gemini/ACP sections open with **Experimental.**; PRD-providers F-54 "Shipped experimental" note and §10 row. Tests: acp.test.ts profile + init assertions, e2e badge on the acp/gemini rows (not codex) and in the footer, surviving a reload. e2e: first-turn assertions of the codex and acp axes get 15 s (five servers now run in parallel; the codex axis flaked once in three full local runs at 5 s).
+- 2026-09-21T12:40+08:00 — verified: DoD 5 closed as above (Simon's call; the badge comes off when a real Gemini intake has been verified). `npm run check` 604 passed; `npm run e2e` 53 passed twice on Windows; PR #59 CI on f8ac418 https://github.com/simv/crt/actions/runs/35561079968 — check ubuntu, check windows, e2e ubuntu all pass; overlay 36 KB gzipped (N-3 ≤ 150 KB). prd-reviewer ran twice (c23519d, f8ac418): no code or PRD-conformance findings, task-file hygiene only (this entry).
+- 2026-09-21T12:40+08:00 — ready for review: changed packages/server/src/{providers/acp.ts,providers/gemini.ts,providers/types.ts,session.ts,session-events.ts,init.ts}, packages/overlay/src/{chat.ts,ui.ts}, packages/server/e2e/{chat.spec.ts,fixture/crt.mjs,fixture/fake-acp.mjs,fixture/fake-codex-install.mjs}, packages/server/playwright.config.ts, packages/server/test/providers/{acp.test.ts,detect.test.ts,fixtures/acp/*}, packages/server/test/sessions.test.ts, README.md, CLAUDE.md, docs/PRD-providers.md, docs/spikes/gemini-acp-2026-09.md + probe/, plugin/skills/serve/SKILL.md. Reviewer notes: N-11 — the JSON-RPC client is 63 lines, acp.ts 775 in all; Gemini and ad-hoc ACP are experimental by design; Antigravity CLI (`agy` 1.2.7, stream-json, no ACP) is a separate profile task (PRD-providers §11 item 4).
