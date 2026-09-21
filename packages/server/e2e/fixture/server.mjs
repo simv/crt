@@ -170,6 +170,27 @@ const VENDOR = {
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 /**
+ * The origin of `value` when it is an http(s) URL on a loopback host (the F-6 list), else null.
+ * The fixture writes this into <script src> attributes, so only a re-serialised, allowlisted origin
+ * ever gets there — never the request's own text.
+ * @param {string | null | undefined} value
+ * @returns {string | null}
+ */
+export function loopbackOrigin(value) {
+  if (!value) return null;
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  const host = url.hostname;
+  if (host !== "localhost" && !host.endsWith(".localhost") && host !== "127.0.0.1" && host !== "[::1]") return null;
+  return url.origin;
+}
+
+/**
  * @param {{ port?: number }} [opts]
  * @returns {Promise<{ port: number, url: string, close(): Promise<void> }>}
  */
@@ -186,8 +207,10 @@ export function startFixture(opts = {}) {
       res.end(body);
     };
     const query = new URL(req.url ?? "/", "http://x").searchParams;
+    /** `?crt=<origin>` as a validated loopback origin (never the raw string: it lands in HTML), or null. */
+    const queryOrigin = loopbackOrigin(query.get("crt"));
     /** The CRT origin this page should load the loader from, or null for the plain page (F-110). */
-    const loaderOrigin = query.get("crt") ?? (req.headers["x-forwarded-host"] ? null : (process.env.FIXTURE_CRT_ORIGIN ?? null));
+    const loaderOrigin = queryOrigin ?? (req.headers["x-forwarded-host"] ? null : loopbackOrigin(process.env.FIXTURE_CRT_ORIGIN));
     const withLoader = (body) => (loaderOrigin ? body.replace("<head>\n", `<head>\n  <script src="${loaderOrigin}/__crt/loader.js"></script>\n`) : body);
     switch (path) {
       case "/":
@@ -231,12 +254,12 @@ export function startFixture(opts = {}) {
       case "/nohead":
         return html("<p>no head, no body</p>");
       case "/script-tag": {
-        const crt = query.get("crt") ?? "";
+        const crt = queryOrigin ?? "";
         const tag = `<script src="${crt}/__crt/overlay.js" defer></script>`;
         return html(PAGE.replace("</head>", `${tag}</head>`));
       }
       case "/embedded": {
-        const crt = query.get("crt") ?? "";
+        const crt = queryOrigin ?? "";
         const head = [
           `<script>console.error("fixture: before the loader");</script>`,
           `<script src="${crt}/__crt/loader.js"></script>`,
