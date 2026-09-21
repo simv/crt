@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 341 128" role="img" aria-label="CRT — Claude Review Tool">
+<defs><clipPath id="a"><path clip-rule="evenodd" d="M0 0H341V128H0ZM87.9 32.8a18 18 0 1 0 36 0a18 18 0 1 0 -36 0Z"/></clipPath></defs>
+<g clip-path="url(#a)">
+<path fill="#111" d="M112 64C112 99.8 107.8 103 60 103C12.2 103 8 99.8 8 64C8 28.2 12.2 25 60 25C107.8 25 112 28.2 112 64Z"/>
+<path fill="#2b2b31" d="M104 64C104 92.5 100.4 95 60 95C19.6 95 16 92.5 16 64C16 35.5 19.6 33 60 33C100.4 33 104 35.5 104 64Z"/>
+</g>
+<circle cx="105.9" cy="32.8" r="16" fill="#ff3d71"/>
+<path fill="#fff" d="M103.4 22.8h7v20h-7v-13h-6Z"/>
+<path fill="#111" fill-rule="evenodd" d="M201.1 44.3A32 32 0 1 0 201.1 83.7L190.1 75.1A18 18 0 1 1 190.1 52.9ZM213 32h14v64h-14ZM227 32H245a18 18 0 0 1 0 36H227ZM227 46H245a4 4 0 0 1 0 8H227ZM227 68H243L263 96H247ZM275 32h58v14h-22v50h-14v-50h-22Z"/>
+</svg>

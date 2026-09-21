@@ -19,7 +19,7 @@
  */
 import type { SessionEvent, SessionInfo, SessionState } from "../../server/src/session-events.js";
 import { crtUrl } from "./base.js";
-import { ACCENT } from "./screenshot.js";
+import { ACCENT } from "./tokens.js";
 
 export const SESSIONS_ENDPOINT = "/__crt/sessions";
 /** What the panel calls the agent before its `init` event has arrived. */

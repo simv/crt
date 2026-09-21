@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" role="img" aria-label="CRT">
+<defs><clipPath id="c"><path clip-rule="evenodd" d="M0 0H16V16H0ZM11 4a3 3 0 1 0 6 0a3 3 0 1 0 -6 0Z"/></clipPath></defs>
+<path fill="#111" clip-path="url(#c)" d="M15 8C15 4 14 3 8 3 2 3 1 4 1 8c0 4 1 5 7 5s7-1 7-5Z"/>
+<circle cx="14" cy="4" r="2" fill="#ff3d71"/>
+</svg>

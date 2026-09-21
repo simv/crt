@@ -1,6 +1,8 @@
 // Generates the five CRT logo option SVGs and their contact sheet (light + dark, 128 → 16 px) into ./options/.
 // Planning artefact for PRD-polish M20 (CRT-0024): `node docs/brand/gen-logo.mjs`. The chosen mark is
 // hand-finished from this geometry (Bézier corners) into crt-mark.svg; the options stay as the record.
+// The committed contact-sheet.html carries a hand-added "Final" row with the finished files (M20); regenerating
+// rewrites the sheet without it. The launcher pill is always #111, on both cards, as in the overlay (ui.ts).
 // The screen is a 4:3 superellipse ("squircle", n = 4) — the tube-TV shape.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -126,7 +128,6 @@ const sheet = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title
   .m { display: inline-block; vertical-align: middle; } .m svg { width: 100%; height: 100%; display: block; }
   .small { display: flex; gap: 14px; align-items: flex-end; }
   .launcher { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px 8px 10px; border-radius: 999px; background: #111; color: #fff; font-weight: 600; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,.25); }
-  .card.dark .launcher { background: #fff; color: #111; }
   .launcher i { width: 9px; height: 9px; border-radius: 50%; background: #2e9e5b; display: inline-block; }
   .foot { color: #666; margin-top: 8px; }
 </style></head><body>
