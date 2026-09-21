@@ -246,7 +246,7 @@ Ticked by M24 with evidence (test name, e2e spec, task Log entry or run URL).
 
 **Decisions** (the builder does not revisit these):
 
-1. **The mark's direction.** Simon's pick from `docs/brand/options/` — *to be recorded here before M20 starts; if unrecorded, the builder takes direction A (Tube), the design review's first choice*. The review's fixes (§5.1) apply to whichever is chosen.
+1. **The mark's direction: A (Tube)** — Simon's pick, 2026-09-21, from `docs/brand/options/` (the design review's first choice). The review's fixes (§5.1) apply.
 2. The mark's geometry is the 4:3 superellipse; ink / dark bezel / accent only; the accent is the badge, never the screen; no glass highlight; a pixel-snapped small variant for ≤ 24 px.
 3. The landing page is server-rendered with one inline script and no timers; complete without JavaScript; the doctor rows come from a route, not from the CLI's output; the row text is the doctor's verbatim, the order is by status with passes collapsed.
 4. The doctor route refuses any request carrying an `Origin` header, computes at most once per 5 s, and spawns the plugin check only on `?plugin=1`, cached 30 s.
