@@ -1,10 +1,10 @@
 ---
 id: CRT-0023
 title: Antigravity CLI profile — spike on `agy --print --output-format stream-json`, then a native driver
-status: review
+status: done
 priority: normal
 created: 2026-09-21T13:10:00+08:00
-updated: 2026-09-21T15:05:00+08:00
+updated: 2026-09-21T15:15:00+08:00
 url: null
 route: null
 session: null
@@ -48,3 +48,4 @@ No page capture: created from the CRT-0013 session at Simon's request ("i have a
 ` in the .cmd wrapper) fixed — the wrapper is LF now and the conformance test runs it through cmd /c.
 - 2026-09-21T14:40+08:00 — ready for review: changed docs/spikes/antigravity-2026-09.md (+probe/), docs/PRD-providers.md, README.md, plugin/skills/serve/SKILL.md, packages/server/src/providers/antigravity.ts, src/session.ts, e2e/fixture/{fake-agy.mjs,fake-codex-install.mjs,crt.mjs}, e2e/chat.spec.ts, playwright.config.ts, test/providers/{antigravity.test.ts,detect.test.ts,fixtures/antigravity/*}, test/sessions.test.ts. Reviewer notes: the e2e "both runners" row is ticked once CI's ubuntu e2e job is green on this PR (Windows verified locally); `--dangerously-skip-permissions` + the CRT hook is the deliberate design (spike §2 records the alternatives that failed); the trial app now has CRT-0014 in its own .crt/tasks from the Manual row.
 - 2026-09-21T15:05+08:00 — verified: e2e `antigravity` axis green on both runners — Windows locally (`npm run e2e` 54 passed) and PR #61 CI `e2e (ubuntu)` pass on 6fdfef3 (CodeQL flagged a `new RegExp(argv)` in the probe script, replaced by a substring match). PR: https://github.com/simv/crt/pull/61
+- 2026-09-21T15:15+08:00 — done: PR https://github.com/simv/crt/pull/61 squash-merged to main (6ccd9a8) by session 73480a4c-3400-4053-b1e9-1eb435371ec4 on Simon's instruction; the Antigravity profile is in main but not yet released to npm (0.5.0 is the latest published version — a 0.6.0 release is the follow-up).
