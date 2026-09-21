@@ -1,10 +1,10 @@
 ---
 id: CRT-0024
 title: M20 — The mark and the tokens: brand files from the chosen tube direction, tokens.ts, favicon route, SVG test
-status: backlog
+status: in_progress
 priority: high
 created: 2026-09-21T19:25:00+08:00
-updated: 2026-09-21T20:20:00+08:00
+updated: 2026-09-21T23:32:00+08:00
 url: null
 route: null
 session: null
@@ -44,3 +44,4 @@ Read `docs/design/design-review-2026-09-21.md` §A before drawing: the ranking, 
 - 2026-09-21T19:25+08:00 — created from docs/PRD-polish.md milestone M20 by the planning session that wrote it (session 78b6555f-fedb-4424-b1ab-1d8477f99af8); five option SVGs and the contact sheet committed under docs/brand/options/, generator at docs/brand/gen-logo.mjs.
 - 2026-09-21T19:55+08:00 — design review folded in (docs/design/design-review-2026-09-21.md): ranking A › B › C › E › D; the review found `invert()` in gen-logo.mjs turned every white fill back to ink so the dark column had never been inverted for A/C/D/E — fixed in the generator and the sheet regenerated; the fixes for A (Bézier corners, badge on the edge with a background ring, no glass highlight, dark bezel `#f2f2f4`, a pixel-snapped 16 px variant, the dark variant in the always-black pill), the favicon media query and `tokens.ts` added to the Ask.
 - 2026-09-21T20:20+08:00 — Simon picked direction A (Tube) ("A (Tube) is fine."); recorded in PRD-polish §13 decision 1 by the planning session.
+- 2026-09-21T23:32+08:00 — claimed by /crt:next, session edb9a7bb-cf11-4ea9-9580-99e65667b7df, branch crt/CRT-0024-m20-the-mark-brand-files-favicon-route
