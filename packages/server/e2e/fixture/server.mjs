@@ -1,6 +1,13 @@
 // Tiny stand-in for a dev server, used by the Playwright e2e and the proxy unit tests
 // (PRD §9: "static fixture app behind the proxy"). Node built-ins only, so CI installs nothing.
 //
+// PRD-embedded F-110 (M18): the pages an app would carry the CRT integration on — /, /app and
+// /react — load the CRT loader first in <head> from the origin they are told: `?crt=<origin>` on
+// the request, else FIXTURE_CRT_ORIGIN in the environment (playwright.config.ts sets it to the
+// primary embedded server). A request that arrives through `crt proxy` (x-forwarded-host set) gets
+// no tag, so the proxy server injects into the same pages it always did; the unit tests start the
+// fixture without the variable and see the plain pages.
+//
 // Routes:
 //   GET  /              HTML, identity encoding, has <head> and <body>
 //   GET  /gzip          same HTML, gzip-encoded (when the client accepts gzip)
@@ -163,6 +170,27 @@ const VENDOR = {
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 /**
+ * The origin of `value` when it is an http(s) URL on a loopback host (the F-6 list), else null.
+ * The fixture writes this into <script src> attributes, so only a re-serialised, allowlisted origin
+ * ever gets there — never the request's own text.
+ * @param {string | null | undefined} value
+ * @returns {string | null}
+ */
+export function loopbackOrigin(value) {
+  if (!value) return null;
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  const host = url.hostname;
+  if (host !== "localhost" && !host.endsWith(".localhost") && host !== "127.0.0.1" && host !== "[::1]") return null;
+  return url.origin;
+}
+
+/**
  * @param {{ port?: number }} [opts]
  * @returns {Promise<{ port: number, url: string, close(): Promise<void> }>}
  */
@@ -178,13 +206,19 @@ export function startFixture(opts = {}) {
       });
       res.end(body);
     };
+    const query = new URL(req.url ?? "/", "http://x").searchParams;
+    /** `?crt=<origin>` as a validated loopback origin (never the raw string: it lands in HTML), or null. */
+    const queryOrigin = loopbackOrigin(query.get("crt"));
+    /** The CRT origin this page should load the loader from, or null for the plain page (F-110). */
+    const loaderOrigin = queryOrigin ?? (req.headers["x-forwarded-host"] ? null : loopbackOrigin(process.env.FIXTURE_CRT_ORIGIN));
+    const withLoader = (body) => (loaderOrigin ? body.replace("<head>\n", `<head>\n  <script src="${loaderOrigin}/__crt/loader.js"></script>\n`) : body);
     switch (path) {
       case "/":
-        return html(PAGE);
+        return html(withLoader(PAGE));
       case "/app":
-        return html(APP_PAGE);
+        return html(withLoader(APP_PAGE));
       case "/react":
-        return html(REACT_PAGE);
+        return html(withLoader(REACT_PAGE));
       case "/gzip": {
         if (!/\bgzip\b/.test(accepts)) return html(PAGE);
         const gz = gzipSync(PAGE);
@@ -220,12 +254,12 @@ export function startFixture(opts = {}) {
       case "/nohead":
         return html("<p>no head, no body</p>");
       case "/script-tag": {
-        const crt = new URL(req.url ?? "/", "http://x").searchParams.get("crt") ?? "";
+        const crt = queryOrigin ?? "";
         const tag = `<script src="${crt}/__crt/overlay.js" defer></script>`;
         return html(PAGE.replace("</head>", `${tag}</head>`));
       }
       case "/embedded": {
-        const crt = new URL(req.url ?? "/", "http://x").searchParams.get("crt") ?? "";
+        const crt = queryOrigin ?? "";
         const head = [
           `<script>console.error("fixture: before the loader");</script>`,
           `<script src="${crt}/__crt/loader.js"></script>`,

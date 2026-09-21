@@ -35,8 +35,8 @@ for (const name of ["log", "error"]) {
     original(...args);
   };
 }
-// PRD-embedded F-92 / §13 decision 10: the primary e2e servers stay in proxy mode until M18 flips
-// them; playwright.config.ts passes `--proxy`, which becomes the `crt proxy` command (≡ `crt serve --mode proxy`).
+// PRD-embedded F-92 / F-110: the primary e2e servers run embedded (M18 flipped them); `--proxy`
+// becomes the `crt proxy` command (≡ `crt serve --mode proxy`) for the dedicated proxy server.
 const args = process.argv.slice(2);
 const proxy = args.includes("--proxy");
 // PRD-embedded F-99: the scratch project is created here, so `--yes` sets it up (no terminal to ask on).
