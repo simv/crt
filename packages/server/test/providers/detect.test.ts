@@ -133,8 +133,8 @@ describe("resolution order (F-43)", () => {
     const r = await registry({ root: root("AGENTS.md"), env: { CRT_SESSION_STUB: "1", CRT_PROVIDER: "codex" }, flag: "codex", config: { provider: "codex", providerSource: "project" } });
     expect(r.resolve("codex")).toMatchObject({ provider: "stub", layer: "stub", source: "CRT_SESSION_STUB", problem: null });
     expect(r.ids()).toEqual(["claude", "codex", "stub"]);
-    expect(listProviders({}).map((p) => p.id)).toEqual(["claude", "codex", "gemini"]);
-    expect(listProviders({ CRT_SESSION_STUB: "1" }).map((p) => p.id)).toEqual(["claude", "codex", "gemini", "stub"]);
+    expect(listProviders({}).map((p) => p.id)).toEqual(["claude", "codex", "gemini", "antigravity"]);
+    expect(listProviders({ CRT_SESSION_STUB: "1" }).map((p) => p.id)).toEqual(["claude", "codex", "gemini", "antigravity", "stub"]);
     const without = await registry({ root: root(), env: {} });
     expect(without.resolve("stub").problem).toBe('provider "stub" is not a built-in provider (claude, codex)');
     expect(stubProfile.id).toBe("stub");

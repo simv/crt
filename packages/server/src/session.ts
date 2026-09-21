@@ -2,7 +2,8 @@
  * Provider registry (PRD-providers §5, F-42…F-45): which coding agent an intake session runs on.
  *
  * The drivers live under `providers/` (`claude.ts` on the Agent SDK, `stub.ts` scripted,
- * `codex.ts` over `codex exec --json`, `gemini.ts` and the ad-hoc `acp` profile over `acp.ts`);
+ * `codex.ts` over `codex exec --json`, `gemini.ts` and the ad-hoc `acp` profile over `acp.ts`,
+ * `antigravity.ts` over `agy --input-format stream-json`);
  * this module knows them only as `ProviderProfile`s:
  *
  *   • `listProviders()` — the built-in profiles; `stub` only with `CRT_SESSION_STUB=1` (F-42).
@@ -17,6 +18,7 @@
  */
 import { type CrtConfig, DEFAULT_CONFIG, LOCAL_CONFIG_FILE, CONFIG_FILE } from "./init.js";
 import { adHocAcpProfile } from "./providers/acp.js";
+import { antigravityProfile } from "./providers/antigravity.js";
 import { claudeProfile } from "./providers/claude.js";
 import { codexProfile } from "./providers/codex.js";
 import { type Decision, DEFAULT_PROVIDER, detectProvider, formatDecision, scanMarkers } from "./providers/detect.js";
@@ -30,7 +32,7 @@ export type { Decision } from "./providers/detect.js";
 export type { ProviderProfile } from "./providers/types.js";
 
 /** Registry order; `crt providers` prints rows in this order. `stub` is appended only when enabled. */
-export const BUILT_IN_PROFILES: readonly ProviderProfile[] = [claudeProfile, codexProfile, geminiProfile];
+export const BUILT_IN_PROFILES: readonly ProviderProfile[] = [claudeProfile, codexProfile, geminiProfile, antigravityProfile];
 
 /** `CRT_SESSION_STUB=1` (any non-empty value, as v0.1 read it) enables the scripted provider. */
 export function stubEnabled(env: NodeJS.ProcessEnv = process.env): boolean {

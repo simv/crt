@@ -10,14 +10,16 @@
 // `<project>/bin` and put first on PATH before the server preflights, so `--provider codex`
 // resolves to it (the `.cmd` shim on Windows, an executable script elsewhere), and a fourth on the
 // ad-hoc ACP agent (PRD-providers F-54, F-61 `acp` axis) with CRT_E2E_FAKE_ACP=1: the scratch
-// project's .crt/config.json names the fake ACP agent (fake-acp.mjs) as provider { kind: "acp" }.
+// project's .crt/config.json names the fake ACP agent (fake-acp.mjs) as provider { kind: "acp" }, and a
+// fifth on `--provider antigravity` (PRD-providers F-111, F-61 `antigravity` axis) against the fake `agy`
+// (fake-agy.mjs), which every server has on PATH in place of any real one (N-9).
 //
 // Every status line the server prints is also appended to `<project>/crt-serve.log`, so the
 // chat spec can grep the log the way PRD-providers F-49 asks (no token, ever).
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { installFakeCodex, installFakeGemini } from "./fake-codex-install.mjs";
+import { installFakeAgy, installFakeCodex, installFakeGemini } from "./fake-codex-install.mjs";
 import { DEFAULT_CONFIG_FILE } from "../../dist/init.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -32,6 +34,10 @@ if (process.env.CRT_E2E_FAKE_CODEX) {
 // N-9: every server preflights `gemini` on refresh; the fake keeps that off a real Gemini CLI on
 // the developer's machine (a 200 MB bundle per `--version`), so the specs stay deterministic.
 process.env.PATH = `${installFakeGemini(join(project, "bin-gemini"))}${delimiter}${process.env.PATH ?? ""}`;
+// N-9 again for `agy` (PRD-providers F-111): the fake is an npm-shaped shim, and exec.ts prefers a bare
+// `.exe` anywhere on PATH over a shim, so a real agy.exe on the developer's machine would win — drop
+// every PATH entry that holds one. The e2e servers never need the real CLI.
+process.env.PATH = [installFakeAgy(join(project, "bin-agy")), ...(process.env.PATH ?? "").split(delimiter).filter((dir) => dir && !existsSync(join(dir, "agy.exe")) && !existsSync(join(dir, "agy")))].join(delimiter);
 if (process.env.CRT_E2E_FAKE_ACP) {
   mkdirSync(join(project, ".crt"), { recursive: true });
   const provider = { kind: "acp", command: process.execPath, args: [join(here, "fake-acp.mjs"), "--acp"], name: "Fake Agent" };

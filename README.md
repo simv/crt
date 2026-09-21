@@ -1,6 +1,6 @@
 # Claude Review Tool (CRT)
 
-Annotate your local site in the browser, talk to Claude in the page, and get a self-contained task file in your repo that any Claude Code session can pick up later with `/crt:next`. CRT started as Claude-only; since v0.2 it also works with Codex, since v0.5 with Gemini CLI and any Agent Client Protocol agent (both experimental — see Providers), and Claude Code remains the default. The name is historical.
+Annotate your local site in the browser, talk to Claude in the page, and get a self-contained task file in your repo that any Claude Code session can pick up later with `/crt:next`. CRT started as Claude-only; since v0.2 it also works with Codex, since v0.5 with Gemini CLI, any Agent Client Protocol agent and the Antigravity CLI (all experimental — see Providers), and Claude Code remains the default. The name is historical.
 
 > v0.5.0. [docs/PRD.md](docs/PRD.md) defines the scope, requirement IDs (F-n, N-n) and the definition of done; [docs/PRD-providers.md](docs/PRD-providers.md) (v0.2, providers), [docs/PRD-setup.md](docs/PRD-setup.md) (v0.3, setup and first run) and [docs/PRD-embedded.md](docs/PRD-embedded.md) (v0.4, embedded mode) amend it; v0.5 ships PRD-providers M10 (Gemini CLI and any ACP agent, experimental). This README is the user manual.
 
@@ -165,13 +165,13 @@ It is written to `.crt/captures/<id>/capture.json` (+ PNGs) and moves to `.crt/t
 
 ## Providers
 
-The agent behind the in-page chat is a *provider*. Claude Code is the default and needs nothing; `crt --provider codex` or `crt --provider gemini` (or `provider: "codex"` / `"gemini"` in `.crt/config.json`, or the caret next to **Send**) runs the intake on the developer's own Codex CLI or Gemini CLI instead, and `provider: { "kind": "acp", … }` in `.crt/config.json` names any other agent that speaks the [Agent Client Protocol](https://agentclientprotocol.com) (below). The provider for a session is the first of these that is set:
+The agent behind the in-page chat is a *provider*. Claude Code is the default and needs nothing; `crt --provider codex`, `crt --provider gemini` or `crt --provider antigravity` (or `provider: "codex"` / `"gemini"` / `"antigravity"` in `.crt/config.json`, or the caret next to **Send**) runs the intake on the developer's own Codex CLI, Gemini CLI or Antigravity CLI instead, and `provider: { "kind": "acp", … }` in `.crt/config.json` names any other agent that speaks the [Agent Client Protocol](https://agentclientprotocol.com) (below). The provider for a session is the first of these that is set:
 
 1. `provider` in the `POST /__crt/sessions` body — the caret next to **Send**, for that one send;
 2. the running server's active provider — `--provider` or `CRT_PROVIDER` at start, replaced by **Remember** in the Agent menu for the life of the process;
 3. `provider` in `.crt/config.local.json` (per machine, gitignored — what **Remember** writes);
 4. `provider` in `.crt/config.json` (per project, committed);
-5. auto-detection: what is installed and logged in here, disambiguated by the project's markers (`.claude/`, `CLAUDE.md`, `.codex/`, `.gemini/`, `GEMINI.md`, `AGENTS.md`);
+5. auto-detection: what is installed and logged in here, disambiguated by the project's markers (`.claude/`, `CLAUDE.md`, `.codex/`, `.gemini/`, `GEMINI.md`, `.agents/`, `AGENTS.md`);
 6. `claude`.
 
 A provider chosen explicitly (1–4) that is not usable is never swapped for another: the session fails with the provider's one-line problem. Only auto-detection falls back — a logged-out Claude is stepped over when Codex is usable, and the ready line says why (`provider: codex — claude not logged in`). `crt providers` prints every provider's state and which one a new session would use, with the reason:
@@ -180,6 +180,7 @@ A provider chosen explicitly (1–4) that is not usable is never swapped for ano
 claude   ready        Claude Code (Agent SDK) 0.3.270  logged in                                markers: .claude/, CLAUDE.md
 codex    not on PATH  Codex CLI                        install: npm i -g @openai/codex          markers: none
 gemini   ready        Gemini CLI 0.60.0 (experimental)  login unknown                          markers: none
+antigravity  ready    Antigravity CLI 1.2.7 (experimental)  login unknown                    markers: none
 → claude — .claude/, CLAUDE.md; codex not on PATH
 ```
 
@@ -292,6 +293,60 @@ gemini <version> is too old — CRT needs 0.60.0 or newer (npm i -g @google/gemi
 ```
 
 The ACP behaviour CRT relies on (`--acp`, the `session/new` shape, the permission options) was recorded on 0.60.0; older releases differ. Update the CLI.
+
+### Antigravity CLI
+
+**Experimental** until a real intake has been recorded against it (the menu row, the footer and `crt providers` say so; the driver is complete and was built from real runs of the CLI on Windows — [docs/spikes/antigravity-2026-09.md](docs/spikes/antigravity-2026-09.md)). The badge line reads:
+
+```
+experimental: the M19 real-intake check on the trial app has not been recorded yet; report what you see
+```
+
+Built against Antigravity CLI `agy` `1.2.7` (a single binary installed by [antigravity.google/docs/cli](https://antigravity.google/docs/cli)). CRT never bundles it: it runs the `agy` on your PATH (`agy.exe` on Windows), or the executable you name in `.crt/config.json` under `providers.antigravity.command`, in its non-interactive JSON mode: one `agy --output-format stream-json --input-format stream-json --print "" …` process for the whole session, one turn per developer message on its stdin, nothing else in between.
+
+What an Antigravity session looks like: **Send to Antigravity** starts `agy` in your project root with the intake instructions at the top of the first message and the screenshot *paths* in the text (the CLI takes no image blocks on stdin; the model reads the PNGs with its `view_file` tool). Text streams; tool calls show as collapsed lines; there are no Allow/Deny cards — the footer shows a **read-only sandbox** badge, and the sandbox is CRT's own: Antigravity's headless mode cannot prompt, so it auto-denies every tool that needs a permission (even reading a file in your project), and its allow rules live only in `~/.gemini/antigravity-cli/settings.json`. CRT therefore runs `agy` with `--dangerously-skip-permissions` **and** a `PreToolUse` hook of its own that lets through file reads (`view_file`, `list_dir`, `grep_search`, `find_by_name`, `read_resource`, `list_resources`) and the `crt` MCP server, and refuses everything else — commands, edits, browser and web tools — with a one-line reason the model sees. The hook, the MCP server and a second hook that proves the hooks are loaded before the model is called live in a per-session plugin under `.crt/captures/antigravity/<session>/` (gitignored, removed when the session ends), which CRT hands to `agy --add-dir`; nothing outside `.crt/` is written and `agy mcp add` (which edits your user-level `mcp_config.json`) is never run. `write_task` reaches Antigravity through `crt mcp` as the plugin server `crt_crt`; the file is written by the server with `provider: antigravity` and the conversation id in `session:`. The footer's `agy --conversation <id>` continues the same conversation in a terminal. **Stop** kills the process; the next message resumes the conversation in a new one (Antigravity keeps it), and CRT checks it is the same conversation.
+
+**Login.** Antigravity has no login-status command and keeps its token in the OS keyring, so `crt providers` shows `login unknown`; a logged-out CLI is reported when the session starts. Telemetry is Antigravity's own `enableTelemetry` setting; CRT passes no flag for it (PRD-providers N-12). The model is `models.antigravity` in `.crt/config.json` (one of `agy models`'s ids); CRT never passes `--effort`.
+
+**Skills for Antigravity.** `crt skills install --provider antigravity` writes the seven CRT skills into `.agents/skills/` in the project (`--global`: `~/.gemini/config/skills`). Same rewriting and caveats as for Codex.
+
+**Antigravity problems** show up as one line in the panel (or on the `CRT ready` line and in `crt providers`):
+
+```
+agy not found on PATH — install the Antigravity CLI (https://antigravity.google/docs/cli), or set providers.antigravity.command in .crt/config.json
+```
+
+Install the CLI (it puts `agy` on your PATH), or point `providers.antigravity.command` at the executable.
+
+```
+not logged in to Antigravity — run `agy` in a terminal and sign in, then send again
+```
+
+Print mode cannot open the browser login. Run `agy` once and sign in, then send again; no need to restart `crt serve`.
+
+```
+agy <version> is too old — CRT needs 1.2.7 or newer (run `agy update`)
+```
+
+The stream-json loop, the plugin discovery and the hook contract CRT relies on were recorded on 1.2.7; older releases differ.
+
+```
+Antigravity could not resume conversation <id> — start a new session
+```
+
+After **Stop** the next message resumes the conversation by id; Antigravity silently starts a new one when the id is unknown, and CRT refuses to continue on it.
+
+```
+Antigravity did not load the CRT hooks from <sessionDir> — the turn was stopped before any tool ran; update agy (tested 1.2.7) or start a new session
+```
+
+The hook that proves CRT's permission policy is in force did not run before the model was called, so CRT killed the process rather than let it act with `--dangerously-skip-permissions` alone. A newer CLI may have moved plugin discovery; report it.
+
+```
+Antigravity finished the turn without replying or calling write_task — check that agy lists the crt_crt MCP server from the session plugin (node <cli.js> mcp) and that nothing on stderr says it failed to start
+```
+
+The MCP server was not spawned or did not list `write_task`; `crt serve --verbose` shows what `agy` printed on stderr.
 
 ### Any other ACP agent
 

@@ -4,7 +4,8 @@
 // executable `<name>` script with a node shebang. `installFakeCodex` (fake-codex.mjs) is used by
 // test/providers/codex.test.ts and by e2e/fixture/crt.mjs, which prepends the directory to PATH
 // before `crt serve` preflights; `installFakeClaude` (fake-claude.mjs) by test/setup.test.ts;
-// `installFakeGemini` (fake-acp.mjs as `gemini`) by test/providers/acp.test.ts (PRD-providers F-54).
+// `installFakeGemini` (fake-acp.mjs as `gemini`) by test/providers/acp.test.ts (PRD-providers F-54);
+// `installFakeAgy` (fake-agy.mjs as `agy`) by test/providers/antigravity.test.ts (PRD-providers F-111).
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -53,4 +54,9 @@ export function installFakeClaude(bin, platform = process.platform) {
 /** The fake ACP agent (fake-acp.mjs) as `gemini` from `@google/gemini-cli` (PRD-providers F-54, M10). */
 export function installFakeGemini(bin, platform = process.platform) {
   return installFakeBin(bin, { name: "gemini", pkg: ["@google", "gemini-cli"], fake: join(here, "fake-acp.mjs") }, platform);
+}
+
+/** The fake Antigravity CLI (fake-agy.mjs) as `agy` (PRD-providers F-111, M19). The real one is a bare .exe; the shim shape is the test's convenience. */
+export function installFakeAgy(bin, platform = process.platform) {
+  return installFakeBin(bin, { name: "agy", pkg: ["@google", "antigravity-cli"], fake: join(here, "fake-agy.mjs") }, platform);
 }
