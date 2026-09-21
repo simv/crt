@@ -1,0 +1,44 @@
+---
+id: CRT-0027
+title: M23 — README as a front page (≤ 200 lines, lockup, screenshots, illustration); the reference moves to eight docs/ pages with its doc tests re-pointed
+status: backlog
+priority: high
+created: 2026-09-21T19:55:00+08:00
+updated: 2026-09-21T19:55:00+08:00
+url: null
+route: null
+session: null
+tags: [m23, readme, docs, f-115, n-26, prd-polish]
+files: [README.md, packages/server/README.md, docs/install.md, docs/integration.md, docs/cli.md, docs/providers.md, docs/task-format.md, docs/how-it-works.md, docs/troubleshooting.md, docs/develop.md, packages/server/test/readme.test.ts, packages/server/test/docs.test.ts, packages/server/src/init.ts, packages/server/src/proxy.ts, packages/server/test/project-init.test.ts, packages/server/test/proxy.test.ts, .github/workflows/ci.yml, CLAUDE.md]
+---
+
+## Summary
+The README is 620 lines of reference with no picture. Rewrite it as the front page for someone who wants to install: the lockup, the pitch, the arrival screenshot, Install, the four snippets, the loop with the screenshots and the loop illustration, Production in two lines, the five "what lands" bullets, a providers table, the `crt doctor` sample, a docs index — ≤ 200 lines. Move every reference section into eight `docs/*.md` pages with its wording unchanged, re-point the two server strings that name README sections, and re-point every pinned assertion from `test/readme.test.ts` to the file its text moved to. `docs/PRD-polish.md` §5.4, F-115, N-26.
+
+## Context
+`README.md` (root, 620 lines) and `packages/server/README.md` (npm, 47 lines) are read by `packages/server/test/readme.test.ts` (372 lines, ~100 verbatim strings by section — `section("## Providers")`, `"## Install"`, `"## The loop"`, `"### \`crt\` flags"`, `"## Troubleshooting"`, `"## Add CRT to your app"`, `"## Production"`, `"## What lands in your repo"`, `"## Proxy mode"`, `"## How it works"`, `"### The CRT button does not appear (embedded)"` — plus `readme.split("\n")[2]` and `[4]` index checks on the pitch line and the version line) — PRD-providers F-62, PRD-setup F-88, PRD-embedded F-107; PRD-polish §9 amends those so the lines may live in `docs/`. Two server strings name README sections and are pinned: `crt init`'s footer `Production builds contain nothing from CRT (README › Production)` (`packages/server/src/init.ts`, `test/project-init.test.ts`) and the F-80 line `… see README › Overlay does not appear` (`packages/server/src/proxy.ts`, `test/proxy.test.ts`, quoted in the README) — PRD-polish §9 re-points both to `docs/integration.md › Production` and `docs/troubleshooting.md › Overlay does not appear`. The CI docs-only classifier (`.github/workflows/ci.yml`, job `changes`) treats every `docs/*` file as docs; the new pages are read by tests, so it must narrow to `docs/PRD*.md`, `docs/spikes/**`, `docs/brand/**`, `docs/design/**`, `docs/images/**` (update its comment and the `CLAUDE.md` CI line). The lockup is M20's (`docs/brand/crt-lockup.svg`, `-dark`); the images are M22's (`docs/images/`); `landing.png` may be missing if M22 ran before M21 — regenerate with `npm run screenshots`. The design review's README outline is `docs/design/design-review-2026-09-21.md` §C; PRD-polish §5.4 is the contract. GitHub renders `<picture>` inside HTML blocks in a README (light/dark via `prefers-color-scheme` sources); npm renders `packages/server/README.md` and shows images by absolute URL only.
+
+## Evidence
+No page capture: created from `docs/PRD-polish.md` milestone M23 by the planning session.
+
+## Ask
+1. **Docs pages first** (so nothing is lost before anything is cut), per PRD-polish §5.4's table: `docs/install.md` (Other ways to install, the Windows note, Older task files), `docs/integration.md` (where each form starts capturing, the loader/options paragraph, Production in full, Proxy mode), `docs/cli.md` (the flags table, the "On success it prints …" paragraph broken into subsections with its sentences unchanged, What Claude gets), `docs/providers.md` (Providers entire), `docs/task-format.md`, `docs/how-it-works.md` (How it works with the ASCII diagram and the Privacy paragraph), `docs/troubleshooting.md` (everything after the doctor sample), `docs/develop.md` (Develop, Release, the Repository table, the PRD links). Every moved sentence keeps its wording; add a one-line lead-in where a paragraph needs context (PRD-polish §12 rule 6); each page opens with a one-line description and a link back to the README.
+2. **Doc tests**: rename `test/readme.test.ts` → `test/docs.test.ts`; `section(file, heading)`; every assertion kept with the same expected string, only the source file changed (N-26); the line-index checks stay on the README (or move to a heading-based check if the layout changes — say so); new rows: every relative link in the three READMEs and `docs/*.md` resolves to a file (and to a heading when `#…` is given), the root README ≤ 200 lines, the npm README ≤ 60, every referenced image exists (M22's test may already cover it — do not duplicate). Put a script in the Log that lists the baseline's `expect(` strings (main at 973b30c) and confirms each survives.
+3. **Root README** (F-115, ≤ 200 lines), in PRD-polish §5.4's order: title, pitch, `<picture>` lockup (light/dark) and `arrival.png`; Install (the PRD-embedded §4 block verbatim + two sentences); Add CRT to your app (the four snippets verbatim, one sentence on where each starts capturing, link); The loop (`npm run dev` / `crt`, the steps with `select.png`, `chat.png`, `marker-states.png` and `loop.svg` via `<picture>`, the landing page in one sentence with `landing.png`, the slash-command block); Production (two lines + the grep + link); What lands in your repo (the five bullets); Providers (one table — agent, status, install, login — + link); Troubleshooting (`run crt doctor first`, the sample verbatim, `every failure is one crt: line; the catalogue is in docs/troubleshooting.md`); Docs index, Repository table, Develop in three lines, MIT. Keep line 3's "…Claude Code remains the default. The name is historical." and the line-5 version reference where the test indexes them.
+4. **npm README** (`packages/server/README.md`, ≤ 60 lines): title, pitch, the lockup by absolute `https://raw.githubusercontent.com/simv/crt/main/docs/brand/crt-lockup.svg`, the Install block (pinned), the four snippets (pinned), three "what you get" bullets, requirements, one screenshot by absolute URL, a docs link.
+5. **Server strings**: `README › Production` → `docs/integration.md › Production` in `init.ts` + its tests; `see README › Overlay does not appear` → `see docs/troubleshooting.md › Overlay does not appear` in `proxy.ts` + `test/proxy.test.ts` + wherever the docs quote the line (one line, N-17).
+6. **CI + CLAUDE.md**: narrow the classifier; update its comment; the `CLAUDE.md` CI line and the "Read `docs/PRD*.md`" paragraph's mention of the README as the user manual (README line 5 says "This README is the user manual" — it becomes "the front page; the manual is `docs/`").
+
+## Definition of Done
+- [ ] Root README ≤ 200 lines with the lockup, five screenshots and `loop.svg`; npm README ≤ 60 lines; `test/docs.test.ts` green including link resolution and the length rows.
+- [ ] Every `expect(` string from the baseline `test/readme.test.ts` is present in `test/docs.test.ts` — the comparison script and its output in the Log (N-26).
+- [ ] The two server strings re-pointed with their tests green; the docs quote the new F-80 line verbatim.
+- [ ] `ci.yml` classifier narrowed; a push touching only `docs/PRD-polish.md` still skips the test jobs and one touching `docs/cli.md` runs them (two throwaway commits on the PR branch, run URLs in the Log).
+- [ ] `npm run check` and `npm run e2e` green; `claude plugin validate ./plugin` unaffected.
+- [ ] Manual: the PR branch's README on github.com renders the lockup in light and dark (toggle the GitHub theme), the screenshots inline and the illustration; the docs pages' links click through; screenshots of both themes in the Log. Run by the worker session (standing rule 2026-09-18).
+
+## Notes
+Depends on CRT-0024 (lockup), CRT-0025 (landing page — the "no scripts" e2e change and `landing.png`) and CRT-0026 (images, `docs-images.test.ts`). Order inside the task: docs pages and the test re-point first, then the README, then the npm README, then the server strings and CI. The version line and the `@0.5` pin stay until M24 bumps them. Keep the PRD links reachable from `docs/develop.md`. The design review's outline (§C) refines PRD-polish §5.4; the PRD's table of what moves where is the contract.
+
+## Log
+- 2026-09-21T19:55+08:00 — created from docs/PRD-polish.md milestone M23 by the planning session that wrote it (session 78b6555f-fedb-4424-b1ab-1d8477f99af8); the screenshots and illustrations were split into CRT-0026 on the design review's advice, so this task is text, tests and the two server strings.

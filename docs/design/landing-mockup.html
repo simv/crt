@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CRT 0.6.0</title>
+<!-- Mockup of the embedded-mode landing page (http://localhost:4400/). Static data here; the real page
+     reads /__crt/health and /__crt/doctor (same origin) and nothing else. No external resources. -->
+<style>
+  :root {
+    --bg: #f6f6f7; --panel: #ffffff; --ink: #111114; --muted: #6b6b73; --line: #e5e5ea;
+    --accent: #ff3d71; --ok: #2e9e5b; --warn: #b7791f; --fail: #d1323b; --skip: #9a9aa3;
+    --glass: #2b2b31; --tube: #111114; --code: #f1f1f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f0f12; --panel: #17171b; --ink: #f2f2f4; --muted: #9a9aa3; --line: #2a2a30; --code: #202026; --tube: #f2f2f4; --glass: #26262c; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  code, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
+  code { background: var(--code); padding: 1px 6px; border-radius: 5px; }
+  a { color: inherit; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 20px 24px 40px; }
+
+  header { display: flex; align-items: center; gap: 12px; padding: 6px 0 22px; }
+  header .mark { width: 34px; height: 34px; }
+  header .name { font-weight: 700; font-size: 17px; letter-spacing: .2px; }
+  header .ver { color: var(--muted); font-weight: 500; margin-left: 4px; }
+  header .spacer { flex: 1; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--code); color: var(--muted); }
+  .chip i { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+
+  .hero { display: grid; grid-template-columns: 1.3fr 1fr; gap: 28px; align-items: center; padding: 8px 0 28px; }
+  .hero h1 { font-size: 34px; line-height: 1.15; margin: 0 0 10px; letter-spacing: -.3px; }
+  .hero h1 small { display: block; font-size: 15px; font-weight: 500; color: var(--muted); margin-bottom: 8px; letter-spacing: 0; }
+  .hero p { margin: 0 0 18px; color: var(--muted); max-width: 46ch; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 18px; border-radius: 12px; background: var(--ink); color: var(--bg); font-weight: 700; text-decoration: none; font-size: 15px; }
+  .btn.primary { background: var(--accent); color: #fff; }
+  .btn + .hint { display: block; color: var(--muted); font-size: 13px; margin-top: 10px; }
+  kbd { font: 600 11px/1 ui-monospace, Menlo, Consolas, monospace; padding: 3px 6px; border-radius: 5px; border: 1px solid var(--line); background: var(--panel); }
+
+  /* The tube: a 4:3 squircle that powers on. */
+  .tube-wrap { display: grid; place-items: center; }
+  .tube { width: 100%; max-width: 360px; aspect-ratio: 4 / 3; position: relative; }
+  .tube svg { width: 100%; height: 100%; display: block; }
+  .screen { transform-origin: 50% 50%; animation: power-on 900ms cubic-bezier(.2,.8,.2,1) both; }
+  .scan { animation: fade 1.4s 700ms both; }
+  .pill { animation: fade 600ms 1100ms both; }
+  @keyframes power-on { 0% { transform: scale(1.06, .02); filter: brightness(3); } 60% { transform: scale(1.02, 1); filter: brightness(1.6); } 100% { transform: scale(1, 1); filter: brightness(1); } }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .screen, .scan, .pill, .row { animation: none !important; } }
+
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 0 0 22px; }
+  .step { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; display: flex; gap: 14px; align-items: flex-start; }
+  .step .n { width: 26px; height: 26px; border-radius: 13px; background: var(--accent); color: #fff; font-weight: 700; font-size: 13px; display: grid; place-items: center; flex: none; }
+  .step b { display: block; margin-bottom: 2px; }
+  .step span { color: var(--muted); font-size: 14px; }
+
+  .grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+  .card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 12px; display: flex; align-items: center; gap: 10px; }
+  .card h2 .right { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 12px; }
+  .card h2 button { font: inherit; color: var(--accent); background: none; border: 0; cursor: pointer; padding: 0; font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; }
+  .row td { padding: 7px 0; border-top: 1px solid var(--line); vertical-align: top; font-size: 14px; animation: fade 400ms both; }
+  .row:first-child td { border-top: 0; }
+  .row:nth-child(2) td { animation-delay: 60ms } .row:nth-child(3) td { animation-delay: 120ms } .row:nth-child(4) td { animation-delay: 180ms } .row:nth-child(5) td { animation-delay: 240ms } .row:nth-child(6) td { animation-delay: 300ms } .row:nth-child(7) td { animation-delay: 360ms } .row:nth-child(8) td { animation-delay: 420ms } .row:nth-child(9) td { animation-delay: 480ms } .row:nth-child(10) td { animation-delay: 540ms } .row:nth-child(11) td { animation-delay: 600ms }
+  td.st { width: 58px; } td.nm { width: 110px; font-weight: 600; } td.dt { color: var(--muted); }
+  td.dt b { color: var(--ink); font-weight: 500; }
+  .st span { display: inline-block; min-width: 44px; text-align: center; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .3px; color: #fff; }
+  .st .ok { background: var(--ok); } .st .warn { background: var(--warn); } .st .fail { background: var(--fail); } .st .skip { background: var(--skip); }
+  .decision { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+  .decision b { color: var(--ink); }
+
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0; font-size: 14px; }
+  dt { color: var(--muted); } dd { margin: 0; }
+  .agents { list-style: none; margin: 10px 0 0; padding: 10px 0 0; border-top: 1px solid var(--line); font-size: 14px; }
+  .agents li { display: flex; gap: 8px; align-items: center; padding: 3px 0; }
+  .agents i { width: 8px; height: 8px; border-radius: 50%; background: var(--skip); flex: none; }
+  .agents i.ok { background: var(--ok); } .agents i.warn { background: var(--warn); }
+  .agents .who { font-weight: 600; min-width: 92px; } .agents .what { color: var(--muted); }
+
+  footer { margin-top: 22px; color: var(--muted); font-size: 13px; display: flex; gap: 18px; flex-wrap: wrap; }
+  @media (max-width: 760px) { .hero, .grid, .steps { grid-template-columns: 1fr; } .hero h1 { font-size: 28px; } .wrap { padding: 16px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <svg class="mark" viewBox="0 0 128 128" aria-hidden="true"><path id="sq" d="M116.00,64.00L115.94,73.97L115.78,78.09L115.50,81.23L115.11,83.84L114.60,86.11L113.98,88.13L113.25,89.94L112.39,91.58L111.42,93.07L110.32,94.43L109.09,95.67L107.73,96.79L106.22,97.82L104.57,98.74L102.76,99.56L100.77,100.29L98.58,100.93L96.17,101.49L93.48,101.95L90.45,102.33L86.97,102.62L82.79,102.83L77.30,102.96L64.00,103.00L50.70,102.96L45.21,102.83L41.03,102.62L37.55,102.33L34.52,101.95L31.83,101.49L29.42,100.93L27.23,100.29L25.24,99.56L23.43,98.74L21.78,97.82L20.27,96.79L18.91,95.67L17.68,94.43L16.58,93.07L15.61,91.58L14.75,89.94L14.02,88.13L13.40,86.11L12.89,83.84L12.50,81.23L12.22,78.09L12.06,73.97L12.00,64.00L12.06,54.03L12.22,49.91L12.50,46.77L12.89,44.16L13.40,41.89L14.02,39.87L14.75,38.06L15.61,36.42L16.58,34.93L17.68,33.57L18.91,32.33L20.27,31.21L21.78,30.18L23.43,29.26L25.24,28.44L27.23,27.71L29.42,27.07L31.83,26.51L34.52,26.05L37.55,25.67L41.03,25.38L45.21,25.17L50.70,25.04L64.00,25.00L77.30,25.04L82.79,25.17L86.97,25.38L90.45,25.67L93.48,26.05L96.17,26.51L98.58,27.07L100.77,27.71L102.76,28.44L104.57,29.26L106.22,30.18L107.73,31.21L109.09,32.33L110.32,33.57L111.42,34.93L112.39,36.42L113.25,38.06L113.98,39.87L114.60,41.89L115.11,44.16L115.50,46.77L115.78,49.91L115.94,54.03Z" fill="var(--tube)"/><circle cx="98" cy="30" r="15" fill="var(--accent)"/><path d="M95 22 h6 v16 h-5 v-11 h-3 z" fill="#fff"/></svg>
+    <span class="name">CRT <span class="ver">0.6.0</span></span>
+    <span class="spacer"></span>
+    <span class="chip"><i></i> embedded · serving <span class="mono">C:\Projects\Claude\tool-validation</span></span>
+  </header>
+
+  <section class="hero">
+    <div>
+      <h1><small>This is the CRT server, not your app.</small>Your app is at <span class="mono" style="font-size:.85em">localhost:3100</span></h1>
+      <p>Open it and look for the <b>CRT</b> button bottom-right. That is where you annotate, chat and file tasks — CRT stays on your app's own URL.</p>
+      <a class="btn primary" href="http://localhost:3100">Open http://localhost:3100 <span aria-hidden="true">↗</span></a>
+      <span class="hint"><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>.</kbd> toggles the toolbar on your page</span>
+    </div>
+    <div class="tube-wrap">
+      <div class="tube" aria-hidden="true">
+        <svg viewBox="0 0 128 96">
+          <defs>
+            <clipPath id="clip"><path d="M117.00,48.00L116.94,58.17L116.77,62.36L116.49,65.56L116.09,68.22L115.57,70.54L114.94,72.59L114.19,74.44L113.32,76.11L112.33,77.63L111.21,79.01L109.96,80.28L108.57,81.43L107.04,82.47L105.35,83.41L103.50,84.25L101.48,84.99L99.25,85.64L96.79,86.21L94.05,86.68L90.96,87.07L87.41,87.37L83.15,87.58L77.55,87.71L64.00,87.75L50.45,87.71L44.85,87.58L40.59,87.37L37.04,87.07L33.95,86.68L31.21,86.21L28.75,85.64L26.52,84.99L24.50,84.25L22.65,83.41L20.96,82.47L19.43,81.43L18.04,80.28L16.79,79.01L15.67,77.63L14.68,76.11L13.81,74.44L13.06,72.59L12.43,70.54L11.91,68.22L11.51,65.56L11.23,62.36L11.06,58.17L11.00,48.00L11.06,37.83L11.23,33.64L11.51,30.44L11.91,27.78L12.43,25.46L13.06,23.41L13.81,21.56L14.68,19.89L15.67,18.37L16.79,16.99L18.04,15.72L19.43,14.57L20.96,13.53L22.65,12.59L24.50,11.75L26.52,11.01L28.75,10.36L31.21,9.79L33.95,9.32L37.04,8.93L40.59,8.63L44.85,8.42L50.45,8.29L64.00,8.25L77.55,8.29L83.15,8.42L87.41,8.63L90.96,8.93L94.05,9.32L96.79,9.79L99.25,10.36L101.48,11.01L103.50,11.75L105.35,12.59L107.04,13.53L108.57,14.57L109.96,15.72L111.21,16.99L112.33,18.37L113.32,19.89L114.19,21.56L114.94,23.41L115.57,25.46L116.09,27.78L116.49,30.44L116.77,33.64L116.94,37.83Z"/></clipPath>
+            <pattern id="scan" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="4" height="2" fill="#fff" opacity=".05"/></pattern>
+            <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3a3a42"/><stop offset="1" stop-color="#1e1e24"/></linearGradient>
+          </defs>
+          <g class="screen">
+            <path d="M124.00,48.00L123.94,59.51L123.74,64.26L123.42,67.88L122.97,70.89L122.39,73.51L121.67,75.84L120.82,77.93L119.84,79.82L118.71,81.54L117.44,83.11L116.03,84.54L114.45,85.84L112.72,87.02L110.81,88.08L108.72,89.03L106.43,89.88L103.90,90.62L101.12,91.25L98.02,91.79L94.52,92.23L90.50,92.57L85.68,92.81L79.34,92.95L64.00,93.00L48.66,92.95L42.32,92.81L37.50,92.57L33.48,92.23L29.98,91.79L26.88,91.25L24.10,90.62L21.57,89.88L19.28,89.03L17.19,88.08L15.28,87.02L13.55,85.84L11.97,84.54L10.56,83.11L9.29,81.54L8.16,79.82L7.18,77.93L6.33,75.84L5.61,73.51L5.03,70.89L4.58,67.88L4.26,64.26L4.06,59.51L4.00,48.00L4.06,36.49L4.26,31.74L4.58,28.12L5.03,25.11L5.61,22.49L6.33,20.16L7.18,18.07L8.16,16.18L9.29,14.46L10.56,12.89L11.97,11.46L13.55,10.16L15.28,8.98L17.19,7.92L19.28,6.97L21.57,6.12L24.10,5.38L26.88,4.75L29.98,4.21L33.48,3.77L37.50,3.43L42.32,3.19L48.66,3.05L64.00,3.00L79.34,3.05L85.68,3.19L90.50,3.43L94.52,3.77L98.02,4.21L101.12,4.75L103.90,5.38L106.43,6.12L108.72,6.97L110.81,7.92L112.72,8.98L114.45,10.16L116.03,11.46L117.44,12.89L118.71,14.46L119.84,16.18L120.82,18.07L121.67,20.16L122.39,22.49L122.97,25.11L123.42,28.12L123.74,31.74L123.94,36.49Z" fill="var(--tube)"/>
+            <rect x="8" y="-4" width="112" height="100" fill="url(#glass)" clip-path="url(#clip)"/>
+            <rect class="scan" x="8" y="-4" width="112" height="100" fill="url(#scan)" clip-path="url(#clip)"/>
+            <g class="pill" transform="translate(70 62)">
+              <rect x="0" y="0" width="40" height="14" rx="7" fill="#fff"/>
+              <text x="8" y="10" font-family="system-ui, sans-serif" font-size="8" font-weight="700" fill="#111">CRT</text>
+              <circle cx="32" cy="7" r="2.6" fill="#2e9e5b"/>
+            </g>
+            <g class="pill" transform="translate(24 24)">
+              <rect x="0" y="0" width="34" height="22" rx="2" fill="none" stroke="#ff3d71" stroke-width="1.6" stroke-dasharray="3 2"/>
+              <circle cx="34" cy="0" r="5" fill="#ff3d71"/><text x="34" y="2.6" text-anchor="middle" font-family="system-ui, sans-serif" font-size="7" font-weight="700" fill="#fff">1</text>
+            </g>
+          </g>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <section class="steps" aria-label="How it works">
+    <div class="step"><span class="n">1</span><div><b>Point at the problem</b><span>Select an element, box an area, or pin a spot. Write a note.</span></div></div>
+    <div class="step"><span class="n">2</span><div><b>Talk it through in the page</b><span>Send opens a chat with Claude right there. It reads the capture and your code.</span></div></div>
+    <div class="step"><span class="n">3</span><div><b>Get a task file</b><span>It lands in <code>.crt/tasks</code>. Any session picks it up with <code>/crt:next</code>.</span></div></div>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <h2>Checkup <span class="right">checked 12 s ago · <button type="button">Re-check</button></span></h2>
+      <table>
+        <tr class="row"><td class="st"><span class="ok">ok</span></td><td class="nm">node</td><td class="dt"><b>v22.4.0</b> (needs 20 or newer)</td></tr>
+        <tr class="row"><td class="st"><span class="ok">ok</span></td><td class="nm">project</td><td class="dt"><b>C:\Projects\Claude\tool-validation</b> (.git)</td></tr>
+        <tr class="row"><td class="st"><span class="ok">ok</span></td><td class="nm">.crt</td><td class="dt">README.md, tasks/ (14 tasks), config.json, config.local.json, .gitignore entries</td></tr>
+        <tr class="row"><td class="st"><span class="ok">ok</span></td><td class="nm">mode</td><td class="dt">embedded</td></tr>
+        <tr class="row"><td class="st"><span class="ok">ok</span></td><td class="nm">target</td><td class="dt"><b>http://localhost:3100</b> (remembered) — responding</td></tr>
+        <tr class="row"><td class="st"><span class="ok">ok</span></td><td class="nm">integration</td><td class="dt">next — <b>app/layout.tsx</b> imports claude-review-tool/react</td></tr>
+        <tr class="row"><td class="st"><span class="ok">ok</span></td><td class="nm">instructions</td><td class="dt">AGENTS.md carries the CRT section</td></tr>
+        <tr class="row"><td class="st"><span class="ok">ok</span></td><td class="nm">port</td><td class="dt">4400 — this server</td></tr>
+        <tr class="row"><td class="st"><span class="ok">ok</span></td><td class="nm">claude</td><td class="dt">Claude Code (Agent SDK 0.3.270) — logged in</td></tr>
+        <tr class="row"><td class="st"><span class="warn">warn</span></td><td class="nm">codex</td><td class="dt">codex-cli 0.154.0 — not logged in — run <code>codex login</code></td></tr>
+        <tr class="row"><td class="st"><span class="warn">warn</span></td><td class="nm">plugin</td><td class="dt">crt@crt 0.5.0 installed, this is 0.6.0 — run <code>crt setup</code></td></tr>
+      </table>
+      <p class="decision">→ <b>claude</b> — codex not logged in. Same rows as <code>crt doctor</code>.</p>
+    </div>
+    <div>
+      <div class="card">
+        <h2>This server</h2>
+        <dl>
+          <dt>Version</dt><dd>0.6.0 <span class="mono" style="color:var(--muted)">agent sdk 0.3.270</span></dd>
+          <dt>Up since</dt><dd>09:12 · 41 min</dd>
+          <dt>Project</dt><dd class="mono">C:\Projects\Claude\tool-validation</dd>
+          <dt>Tasks</dt><dd>14 in <span class="mono">.crt\tasks</span> · 3 in backlog</dd>
+          <dt>Sessions</dt><dd>1 running</dd>
+        </dl>
+        <ul class="agents">
+          <li><i class="ok"></i><span class="who">Claude</span><span class="what">ready · logged in · default</span></li>
+          <li><i class="warn"></i><span class="who">Codex</span><span class="what">not logged in</span></li>
+          <li><i class="ok"></i><span class="who">Antigravity</span><span class="what">ready · login unknown</span></li>
+        </ul>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <h2>In Claude Code</h2>
+        <dl>
+          <dt><code>/crt:tasks</code></dt><dd>what's outstanding</dd>
+          <dt><code>/crt:next</code></dt><dd>take the next task to a PR</dd>
+          <dt><code>/crt:serve</code></dt><dd>start or reuse this server</dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span><kbd>Ctrl</kbd>+<kbd>C</kbd> in the terminal stops CRT; your dev server keeps running.</span>
+    <span>Not your framework? <code>crt init</code> prints the one-line snippet · <code>crt proxy</code> proxies instead.</span>
+    <span><a href="https://github.com/simv/crt#readme">Docs</a></span>
+  </footer>
+</div>
+</body>
+</html>
