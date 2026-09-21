@@ -8,7 +8,7 @@
  *
  *   • `gemini --acp` starts ACP mode; `--experimental-acp` (the name F-54 quotes) still works but
  *     prints a deprecation notice, so the profile passes `--acp`.
- *   • `gemini --version` → `0.60.0` (the bare number), exit 0.
+ *   • `gemini --version` → `0.60.0` (the bare number), exit 0. `-m, --model` sets the model for the session (F-57 `models.gemini`).
  *   • There is no login-status command. Preflight reads what the CLI itself reads: `GEMINI_API_KEY`
  *     / `GOOGLE_API_KEY` in the environment or `~/.gemini/.env` → logged in; `~/.gemini/oauth_creds.json`
  *     → "unknown" (0.60.0 accepts the Google login but may refuse the account's tier at
@@ -139,6 +139,7 @@ export const geminiProfile: ProviderProfile = {
       resumeCommand: geminiProfile.resumeCommand,
       resolve: (o) => resolveExecutable("gemini", { command: o.command ?? null }),
       acpArgs: [...GEMINI_ACP_ARGS],
+      modelArgs: (model) => ["-m", model],
       experimental: GEMINI_EXPERIMENTAL,
       notFound: GEMINI_NOT_FOUND,
       loginProblem: geminiLoginProblem,

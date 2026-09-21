@@ -5,7 +5,8 @@
 // directly as `node fake-acp.mjs` for the ad-hoc `{ kind: "acp" }` config.
 //
 //   gemini --version           → `<FAKE_GEMINI_VERSION | 0.60.0>`, exit 0
-//   gemini --acp               → ACP over stdio (below); any other first argument exits 2
+//   gemini --acp [-m <model>]  → ACP over stdio (below); `-m` is echoed as session/new's currentModelId
+//                                (F-57 models.gemini); any other first argument exits 2
 //
 // Protocol, as Gemini 0.60.0 does it:
 //   initialize                 → protocolVersion 1 (FAKE_ACP_PROTOCOL overrides it), agentInfo,
@@ -67,10 +68,11 @@ export async function main(argv) {
   }
   if (head !== "--acp" && head !== "--experimental-acp" && head !== undefined) die(`error: unknown argument '${head}'`, 2);
   if (head === "--experimental-acp") process.stderr.write("--experimental-acp is deprecated; use --acp\n");
-  return new Promise((resolve) => serve(resolve));
+  const m = argv.indexOf("-m");
+  return new Promise((resolve) => serve(resolve, m !== -1 ? argv[m + 1] : undefined));
 }
 
-function serve(exit) {
+function serve(exit, model = "gemini-2.5-pro") {
   const out = (msg) => process.stdout.write(`${JSON.stringify(msg)}\n`);
   let nextId = 1;
   const pending = new Map();
@@ -121,7 +123,7 @@ function serve(exit) {
         return {
           sessionId,
           modes: { availableModes: [{ id: "default", name: "Default" }, { id: "plan", name: "Plan" }], currentModeId: "default" },
-          models: { availableModels: [{ modelId: "gemini-2.5-pro", name: "Gemini 2.5 Pro" }], currentModelId: "gemini-2.5-pro" },
+          models: { availableModels: [{ modelId: "gemini-2.5-pro", name: "Gemini 2.5 Pro" }], currentModelId: model },
         };
       }
       case "session/prompt": {

@@ -309,10 +309,19 @@ function summarize(text: string): string {
   return t.length > 160 ? `${t.slice(0, 157)}…` : t;
 }
 
-/** F-50: the `session/prompt` content blocks for one developer message. */
+/** F-50: what the first message says when the agent turned out not to take images (the intake-message.ts wording). */
+export const IMAGES_DROPPED_LINE = "Images not attached: this agent does not accept images; the screenshots are the PNG files next to capture.json.";
+
+/**
+ * F-50: the `session/prompt` content blocks for one developer message. When `initialize` negotiated
+ * `images: none` after the registry had already attached them, the blocks are dropped and the text
+ * says so up front (the F-14 quick-note paragraph must stay last).
+ */
 export function promptBlocks(input: UserInput, images: boolean): AcpContentBlock[] {
-  const blocks: AcpContentBlock[] = [{ type: "text", text: input.text }];
-  if (images) for (const img of input.images ?? []) if (img.data) blocks.push({ type: "image", mimeType: img.mediaType, data: img.data });
+  const attached = (input.images ?? []).filter((img) => img.data);
+  const text = !images && attached.length ? `${IMAGES_DROPPED_LINE}\n\n${input.text}` : input.text;
+  const blocks: AcpContentBlock[] = [{ type: "text", text }];
+  if (images) for (const img of attached) blocks.push({ type: "image", mimeType: img.mediaType, data: img.data });
   return blocks;
 }
 
@@ -397,6 +406,12 @@ export interface AcpAgentSpec {
   resolve: (opts: StartSessionOptions) => Executable | null;
   /** Arguments that put the agent in ACP mode (`--acp` for Gemini; none for an ad-hoc command). */
   acpArgs: string[];
+  /**
+   * F-57 `models.<id>`: how the agent takes a model on its command line (`-m` for Gemini). Absent
+   * for an ad-hoc agent — the developer's model is then not passed on, and the `init` event reports
+   * only what the agent says it runs (`session/new` `models.currentModelId`).
+   */
+  modelArgs?: (model: string) => string[];
   /** F-54 (M10): the profile ships untested against a real agent; carried on the `init` event for the footer badge. */
   experimental?: string;
   notFound: string;
@@ -529,7 +544,8 @@ export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, d
     if (!exe) return fail(spec.notFound);
     let proc: ChildProcess;
     try {
-      proc = deps.spawn(exe.command, [...exe.args, ...spec.acpArgs], { cwd: opts.cwd, env: process.env });
+      const modelArgs = opts.model && spec.modelArgs ? spec.modelArgs(opts.model) : [];
+      proc = deps.spawn(exe.command, [...exe.args, ...spec.acpArgs, ...modelArgs], { cwd: opts.cwd, env: process.env });
     } catch (err) {
       return fail(`could not start ${spec.displayName} (${(err as Error).message})`);
     }
@@ -590,7 +606,7 @@ export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, d
         nativeSessionId: sessionId,
         provider: spec.id,
         displayName: spec.displayName,
-        model: opts.model ?? session?.models?.currentModelId ?? null,
+        model: (spec.modelArgs ? opts.model : null) ?? session?.models?.currentModelId ?? null,
         agentVersion: opts.agentVersion ?? init?.agentInfo?.version ?? null,
         resumeCommand: capabilities.resume ? spec.resumeCommand(sessionId) : null,
         capabilities,
@@ -701,7 +717,15 @@ export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, d
       } catch {
         // already gone
       }
+      // Should CRT itself exit during the grace (Ctrl+C runs closeAll then process.exit), kill synchronously
+      // so neither the agent nor its `crt mcp` child is orphaned.
+      const onExit = () => {
+        if (!exited) deps.killTree(pid);
+      };
+      process.once("exit", onExit);
+      proc.once("exit", () => process.off("exit", onExit));
       const grace = setTimeout(() => {
+        process.off("exit", onExit);
         if (!exited) deps.killTree(pid);
       }, deps.closeGraceMs ?? ACP_CLOSE_GRACE_MS);
       grace.unref();
@@ -740,7 +764,9 @@ export const acpNotFound = (command: string): string => `${command} not found on
 
 /** N-7 for an agent without a known login command: quote what the agent said. */
 export function acpLoginProblem(name: string, message: string): string | null {
-  return /api key|not logged in|log ?in|sign ?in|authenticat|credential|unauthori[sz]ed|401\b|no longer supported/i.test(message) ? `not logged in to ${name} — ${summarize(message.split(/\r?\n/)[0] ?? message)}` : null;
+  const re = /api key|not logged in|log ?in|sign ?in|authenticat|credential|unauthori[sz]ed|401\b|no longer supported/i;
+  const line = message.split(/\r?\n/).find((l) => re.test(l));
+  return line === undefined ? null : `not logged in to ${name} — ${summarize(line)}`;
 }
 
 /**

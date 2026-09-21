@@ -20,6 +20,7 @@ import {
   adHocAcpProfile,
   decideAcpPermission,
   describeToolCall,
+  IMAGES_DROPPED_LINE,
   JsonRpcStdio,
   negotiateCapabilities,
   pickPermissionOption,
@@ -222,7 +223,8 @@ describe("ACP pure pieces (F-54, N-11)", () => {
     expect(unsupportedProtocol("Gemini", 2)).toBe("Gemini speaks ACP 2; CRT supports 1 — update CRT or the agent");
     const input = { text: "hi", images: [{ mediaType: "image/png" as const, path: "p", data: "AAAA", label: "viewport" }, { mediaType: "image/png" as const, path: "q", label: "no data" }] };
     expect(promptBlocks(input, true)).toEqual([{ type: "text", text: "hi" }, { type: "image", mimeType: "image/png", data: "AAAA" }]);
-    expect(promptBlocks(input, false)).toEqual([{ type: "text", text: "hi" }]);
+    expect(promptBlocks(input, false)).toEqual([{ type: "text", text: `${IMAGES_DROPPED_LINE}\n\nhi` }]); // F-50: dropped after negotiation, and the message says so
+    expect(promptBlocks({ text: "hi" }, false)).toEqual([{ type: "text", text: "hi" }]);
   });
 
   it("labels tool calls the F-25 way and describes cards (F-25, F-54)", () => {
@@ -294,6 +296,7 @@ describe("ACP pure pieces (F-54, N-11)", () => {
     expect(await missing.preflight({ env: env() })).toEqual({ installed: false, loggedIn: "unknown", version: null, problem: acpNotFound("no-such-agent-here") });
     expect(acpNotFound("x")).toBe("x not found on PATH — install it, or fix provider.command in .crt/config.json");
     expect(acpLoginProblem("Ghost", "Authentication required.")).toBe("not logged in to Ghost — Authentication required.");
+    expect(acpLoginProblem("Ghost", "--experimental-acp is deprecated\nsome noise\nGemini API key is missing or not configured.\n")).toBe("not logged in to Ghost — Gemini API key is missing or not configured."); // the matching line, not the first
     expect(acpLoginProblem("Ghost", "boom")).toBeNull();
   });
 });
@@ -445,6 +448,19 @@ describe("ACP driver on the fake agent (F-49, F-50, F-51, F-54, F-59, N-7)", () 
     driver.close();
   }, 30_000);
 
+  it("F-57 models: gemini gets -m and init reports it; an ad-hoc agent is not told and init reports only what it runs (F-54)", async () => {
+    useFake({ GEMINI_API_KEY: "k" });
+    const g = start(root, captureDir, shim, { model: "gemini-2.5-flash" });
+    await g.waitFor((e) => e.type === "init");
+    expect((g.events.find((e) => e.type === "init") as { model: string }).model).toBe("gemini-2.5-flash"); // the fake echoes -m as currentModelId
+    g.driver.close();
+    const adHoc = adHocAcpProfile({ kind: "acp", command: process.execPath, args: [FAKE, "--acp"], name: "Fake Agent" });
+    const a = start(root, captureDir, shim, { model: "gemini-2.5-flash", profile: adHoc });
+    await a.waitFor((e) => e.type === "init");
+    expect((a.events.find((e) => e.type === "init") as { model: string }).model).toBe("gemini-2.5-pro"); // not forwarded; the agent's own answer
+    a.driver.close();
+  }, 30_000);
+
   it("gemini not on PATH → the session fails at once with the N-7 install line", async () => {
     process.env.PATH = tmp;
     const { events, driver, waitFor } = start(root, captureDir, shim);
@@ -458,9 +474,9 @@ describe("ACP driver on the fake agent (F-49, F-50, F-51, F-54, F-59, N-7)", () 
 });
 
 /** Start the gemini driver on the fake with a capture as the first message; returns a waiter over its events. */
-function start(root: string, captureDir: string, shimFile: string) {
+function start(root: string, captureDir: string, shimFile: string, opts: { model?: string; profile?: typeof geminiProfile } = {}) {
   const events: SessionEvent[] = [];
-  const driver = geminiProfile.start({
+  const driver = (opts.profile ?? geminiProfile).start({
     id: randomUUID(),
     cwd: root,
     systemPromptAppend: "",
@@ -468,7 +484,7 @@ function start(root: string, captureDir: string, shimFile: string) {
     decide: () => ({ kind: "allow" }),
     writeTask: async () => ({ id: "CRT-0001", path: "x" }),
     mcp: { command: process.execPath, args: [shimFile], env: { CRT_MCP_TOKEN: "t", CRT_MCP_PORT: "1" } },
-    model: null,
+    model: opts.model ?? null,
   });
   driver.onEvent((e) => events.push(e));
   const waitFor = (pred: (e: SessionEvent) => boolean, timeoutMs = 20_000): Promise<void> =>
