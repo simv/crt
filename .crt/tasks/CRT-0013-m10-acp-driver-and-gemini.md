@@ -1,10 +1,10 @@
 ---
 id: CRT-0013
 title: M10 — Generic Agent Client Protocol driver and Gemini profile (Should)
-status: backlog
+status: in_progress
 priority: low
 created: 2026-09-15T17:30:00+08:00
-updated: 2026-09-17T01:10:00+08:00
+updated: 2026-09-21T10:00:00+08:00
 url: null
 route: null
 session: null
@@ -43,3 +43,4 @@ Do not use `session/load`. If Gemini's tested version does not advertise image s
 ## Log
 - 2026-09-15T17:30+08:00 — created from PRD-providers milestone M10 by the planning session that wrote docs/PRD-providers.md.
 - 2026-09-17T01:10+08:00 — reviewed after the v0.3.0 release: nothing started, all five Ask items and five DoD rows open; deferred with the note above (spike before build). Session 21c8bea3-fd0d-49d4-97aa-734d23658916.
+- 2026-09-21T10:00+08:00 — claimed by /crt:next, session f36246b7-e1ec-4291-95b0-f7a38ba6c3c3, branch crt/CRT-0013-m10-acp-driver-and-gemini
