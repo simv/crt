@@ -169,7 +169,7 @@ describe("ACP pure pieces (F-54, N-11)", () => {
   });
 
   it("applies the F-54 policy over tool kinds (F-26 as amended)", () => {
-    const root = join("C:", "proj");
+    const root = join(tmp, "proj"); // absolute on every platform: a relative root would resolve the locations against itself twice
     const d = (kind: string, extra: Record<string, unknown> = {}) => decidePermission(kind, extra, root);
     expect(d("read").kind).toBe("allow");
     expect(d("search").kind).toBe("allow");
@@ -227,7 +227,7 @@ describe("ACP pure pieces (F-54, N-11)", () => {
     expect(acpToolSummary({ toolCallId: "1", status: "completed", rawOutput: "raw" })).toBe("raw");
     expect(acpToolSummary({ toolCallId: "1", status: "failed" })).toBe("failed");
     expect(acpToolSummary({ toolCallId: "1", status: "completed" })).toBe("done");
-    const root = join("C:", "proj");
+    const root = join(tmp, "proj");
     expect(describeToolCall({ toolCallId: "1", kind: "execute", title: "Shell", rawInput: { command: "npm test" } }, root)).toBe("npm test");
     expect(describeToolCall({ toolCallId: "1", kind: "edit", locations: [{ path: join(root, "src", "a.ts") }] }, root)).toBe("src/a.ts");
     expect(describeToolCall({ toolCallId: "1", kind: "other", rawInput: { x: 1 } }, root)).toBe('{"x":1}');
