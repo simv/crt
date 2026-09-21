@@ -73,9 +73,9 @@ describe("README › Install and the loop (F-88)", () => {
     expect(install).toMatch(/\n# one-time, per project\ncrt init {2,}# \.crt\/ \(README, tasks, config\), 2 \.gitignore lines, a CRT section in CLAUDE\.md/);
     expect(install).toMatch(/\n# per session\nnpm run dev {2,}# your dev server, your URL\ncrt {2,}# CRT server on :4400; opens your app; the CRT button is on your page\n/);
     expect(install).not.toContain("http://localhost:4400 opens");
-    // F-86 / F-87: seven skills, the @0.4 fallback pin.
+    // F-86 / F-87: seven skills, the @0.5 fallback pin.
     expect(install).toContain("`/crt:init`, `/crt:serve`, `/crt:next`, `/crt:tasks`, `/crt:task`, `/crt:done` and `/crt:intake`");
-    expect(install).toContain("`npx -y claude-review-tool@0.4`");
+    expect(install).toContain("`npx -y claude-review-tool@0.5`");
   });
 
   it("offers -D for teams and npx zero-install with the ~220 MB note, and the Windows shim note (F-88, N-16)", () => {
@@ -131,11 +131,11 @@ describe("README › Troubleshooting (F-88, N-17)", () => {
     "--    .crt      not initialised — run crt init",
     "FAIL  target    none set and nothing on the probed ports — crt <port>",
     "FAIL  target    http://localhost:3100 (remembered) — not responding",
-    "FAIL  port      4400 held by CRT 0.4.0 → http://localhost:3000 (this project) — crt --replace",
+    "FAIL  port      4400 held by CRT 0.5.0 → http://localhost:3000 (this project) — crt --replace",
     "FAIL  port      4400 in use by a non-CRT process — crt --port 4401",
     "--    plugin    claude not on PATH — skipped",
     "warn  plugin    crt@crt not installed — run crt setup",
-    "warn  plugin    crt@crt 0.3.0 installed, this is 0.4.0 — run crt setup",
+    "warn  plugin    crt@crt 0.4.0 installed, this is 0.5.0 — run crt setup",
     // F-74
     `crt: ${CLAUDE_NOT_LOGGED_IN}`,
     `crt: ${CLAUDE_NOT_LOGGED_IN} (${CLAUDE_INSTALL_HINT})`,
@@ -146,10 +146,10 @@ describe("README › Troubleshooting (F-88, N-17)", () => {
     // F-86
     `crt: ${CLAUDE_NOT_FOUND}`,
     "crt setup: registered marketplace crt from <path>",
-    "crt setup: installed crt@crt 0.4.0 — restart Claude Code to load /crt:serve, /crt:next, /crt:tasks, /crt:task, /crt:done, /crt:intake, /crt:init",
-    "crt setup: crt@crt 0.4.0 is already installed",
+    "crt setup: installed crt@crt 0.5.0 — restart Claude Code to load /crt:serve, /crt:next, /crt:tasks, /crt:task, /crt:done, /crt:intake, /crt:init",
+    "crt setup: crt@crt 0.5.0 is already installed",
     // F-84
-    "CRT: plugin 0.4.0 but the project's claude-review-tool is 0.3.0 — npm update claude-review-tool (or crt setup after updating)",
+    "CRT: plugin 0.5.0 but the project's claude-review-tool is 0.4.0 — npm update claude-review-tool (or crt setup after updating)",
   ])("quotes %s (F-88, N-17)", (line) => {
     expect(trouble).toContain(line);
   });
@@ -173,7 +173,7 @@ describe("README › Troubleshooting (F-88, N-17)", () => {
     "Add CRT to your app (development only):",
     "Production builds contain nothing from CRT (README › Production). /crt:init in Claude Code applies this for you.",
     // F-101
-    "<!-- BEGIN:crt v0.4 -->",
+    "<!-- BEGIN:crt v0.5 -->",
     "<!-- END:crt -->",
     // F-103
     "warn  .crt      tasks/ (4 tasks), config.json, .gitignore entries — no README.md — run crt init",
@@ -279,7 +279,7 @@ describe("README › F-107 (PRD-embedded, M18): the four snippets, Production, W
 
   it("What lands in your repo lists the five items, the markers, and the N-19 runtime rule (F-100, F-101, N-19)", () => {
     expect(lands).toContain("crt init will, in <root>:");
-    for (const item of ["- `.crt/README.md`", "- `.crt/tasks/`", "- `.crt/config.json`", "- two `.gitignore` lines — `.crt/captures/`", "`.crt/config.local.json`", "- a CRT section in `CLAUDE.md` and `AGENTS.md`", "`<!-- BEGIN:crt v0.4 -->`", "`<!-- END:crt -->`"]) {
+    for (const item of ["- `.crt/README.md`", "- `.crt/tasks/`", "- `.crt/config.json`", "- two `.gitignore` lines — `.crt/captures/`", "`.crt/config.local.json`", "- a CRT section in `CLAUDE.md` and `AGENTS.md`", "`<!-- BEGIN:crt v0.5 -->`", "`<!-- END:crt -->`"]) {
       expect(lands).toContain(item);
     }
     expect(lands).toContain("At runtime the server (`crt`, `crt serve`, `crt proxy`) writes only under `.crt/`");
@@ -366,7 +366,7 @@ describe("README › F-107 (PRD-embedded, M18): the four snippets, Production, W
     expect(readme).not.toContain("proxies your app at http://localhost:4400");
     expect(readme).not.toContain("Browse as usual** on `localhost:4400`");
     expect(readme).not.toContain("reverse proxy + HTML injection");
-    expect(readme.split("\n")[4]).toContain("v0.4.0.");
+    expect(readme.split("\n")[4]).toContain("v0.5.0.");
     expect(readme.split("\n")[4]).toContain("[docs/PRD-embedded.md](docs/PRD-embedded.md) (v0.4, embedded mode)");
   });
 });
