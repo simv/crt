@@ -14,7 +14,7 @@ Project root: `${CLAUDE_PROJECT_DIR}`. Your session ID: `${CLAUDE_SESSION_ID}`. 
 `crt` below means the first of these that works:
 
 1. `npx --no crt …` — the project's own install (a devDependency, or this monorepo's workspace)
-2. `npx -y claude-review-tool@0.4 …` — the published package
+2. `npx -y claude-review-tool@0.5 …` — the published package
 
 If both fail (`could not determine executable` / 404), read `.crt/tasks/CRT-*.md` frontmatter yourself, skip the `--validate` and index steps, and say so in the Log. Do not stop for this.
 

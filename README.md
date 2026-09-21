@@ -1,8 +1,8 @@
 # Claude Review Tool (CRT)
 
-Annotate your local site in the browser, talk to Claude in the page, and get a self-contained task file in your repo that any Claude Code session can pick up later with `/crt:next`. CRT started as Claude-only; since v0.2 it also works with Codex, and Claude Code remains the default. The name is historical.
+Annotate your local site in the browser, talk to Claude in the page, and get a self-contained task file in your repo that any Claude Code session can pick up later with `/crt:next`. CRT started as Claude-only; since v0.2 it also works with Codex, since v0.5 with Gemini CLI and any Agent Client Protocol agent (both experimental — see Providers), and Claude Code remains the default. The name is historical.
 
-> v0.4.0. [docs/PRD.md](docs/PRD.md) defines the scope, requirement IDs (F-n, N-n) and the definition of done; [docs/PRD-providers.md](docs/PRD-providers.md) (v0.2, providers), [docs/PRD-setup.md](docs/PRD-setup.md) (v0.3, setup and first run) and [docs/PRD-embedded.md](docs/PRD-embedded.md) (v0.4, embedded mode) amend it. This README is the user manual.
+> v0.5.0. [docs/PRD.md](docs/PRD.md) defines the scope, requirement IDs (F-n, N-n) and the definition of done; [docs/PRD-providers.md](docs/PRD-providers.md) (v0.2, providers), [docs/PRD-setup.md](docs/PRD-setup.md) (v0.3, setup and first run) and [docs/PRD-embedded.md](docs/PRD-embedded.md) (v0.4, embedded mode) amend it; v0.5 ships PRD-providers M10 (Gemini CLI and any ACP agent, experimental). This README is the user manual.
 
 ## Install
 
@@ -27,7 +27,7 @@ crt                               # CRT server on :4400; opens your app; the CRT
 Other ways to install:
 
 - **Teams that want the version in the lockfile:** `npm i -D claude-review-tool` in the project, then `npx crt` (or `crt` from an npm script). The skills always prefer a project install (`npx --no crt`) over anything global.
-- **Zero-install:** `npx claude-review-tool` in the project folder does what `crt` does, and `npx claude-review-tool tasks` / `task <ID>` list what `/crt:tasks` / `/crt:task` show. The first run downloads the package and the Claude Code binary it bundles (~220 MB); npm caches it after that. The skills fall back to `npx -y claude-review-tool@0.4` the same way when no local install exists — the one lookup outside CRT's control.
+- **Zero-install:** `npx claude-review-tool` in the project folder does what `crt` does, and `npx claude-review-tool tasks` / `task <ID>` list what `/crt:tasks` / `/crt:task` show. The first run downloads the package and the Claude Code binary it bundles (~220 MB); npm caches it after that. The skills fall back to `npx -y claude-review-tool@0.5` the same way when no local install exists — the one lookup outside CRT's control.
 - **From GitHub, without the npm package:** `claude plugin marketplace add simv/crt && claude plugin install crt@crt`. The repository is public, so this works for anyone; the plugin then tracks `main` (`claude plugin update crt@crt` picks up new skills) and the skills run `crt` through `npx` as above.
 
 **Windows:** `npm i -g` puts `crt.cmd`, `crt.ps1` and a `crt` shell script on PATH. PowerShell prefers `crt.ps1`, which its execution policy may refuse (`running scripts is disabled on this system`) — run `crt.cmd` instead, or `npx.cmd claude-review-tool`, both of which work regardless of the policy; CMD and Git Bash are unaffected. The skills use `npx --no crt`, which resolves the bin without the shell shim.
@@ -83,7 +83,7 @@ Nothing from CRT ships in a production build of an app that uses any of the entr
 - `.crt/tasks/` — the task files (`CRT-NNNN-<slug>.md`), their `assets/<ID>/` screenshots and the generated `README.md` index. Committed.
 - `.crt/config.json` — per project, committed: `mode`, `target`, `port`, `provider`.
 - two `.gitignore` lines — `.crt/captures/` (transient captures) and `.crt/config.local.json` (per machine: the remembered target, the remembered provider).
-- a CRT section in `CLAUDE.md` and `AGENTS.md` (whichever exist; one is created when neither does) between `<!-- BEGIN:crt v0.4 -->` and `<!-- END:crt -->`, so the project's agents know what `.crt/tasks/*.md` are, that they appear during intake, and that they are committed with the project — never deleted or "cleaned up". Re-running `crt init` replaces the section in place; `--no-instructions` skips it.
+- a CRT section in `CLAUDE.md` and `AGENTS.md` (whichever exist; one is created when neither does) between `<!-- BEGIN:crt v0.5 -->` and `<!-- END:crt -->`, so the project's agents know what `.crt/tasks/*.md` are, that they appear during intake, and that they are committed with the project — never deleted or "cleaned up". Re-running `crt init` replaces the section in place; `--no-instructions` skips it.
 
 That is the complete list. At runtime the server (`crt`, `crt serve`, `crt proxy`) writes only under `.crt/` — captures, tasks, the index, `config.local.json` — and never touches `.gitignore`, `CLAUDE.md`, `AGENTS.md` or any app file; `crt init` is the one command that writes outside `.crt/`, and it names every file on stdout as it does (the other explicit CLI writes are `crt skills install`, into `.agents/skills/`, and `crt setup`, into Claude Code's own plugin store).
 
@@ -146,7 +146,7 @@ crt --version                                  # crt <version> (agent sdk <versi
 | `crt doctor` | | Read-only checklist, one row per check; exit 1 on any `FAIL`. First step in [Troubleshooting](#troubleshooting). |
 | `crt init [--yes] [--no-instructions] [--snippet [--json]]` | | Sets the project up explicitly: prints its plan (`.crt/README.md`, `.crt/tasks/`, `.crt/config.json`, the two `.gitignore` lines, a CRT section in `CLAUDE.md` / `AGENTS.md` — only what is not in place), asks `Go ahead? [Y/n]` on a terminal (`--yes` skips the question; off a terminal it applies without asking), announces every write, and ends with the one-line snippet for your framework. `--no-instructions` leaves `CLAUDE.md` / `AGENTS.md` alone; `--snippet` prints only the snippet and writes nothing (`--json` for tooling). Idempotent: a second run says `crt init: <root> is set up (…)`. |
 | `crt setup [--claude <path>]` | `claude` on PATH | Registers the plugin bundled in the package with Claude Code and installs (or updates) `crt@crt`; says `already installed` when it is. `--claude` names the Claude Code executable when it is not on PATH. |
-| `crt --version` | | `crt 0.4.0 (agent sdk 0.3.270)`, read from local files — CRT never checks a registry. |
+| `crt --version` | | `crt 0.5.0 (agent sdk 0.3.270)`, read from local files — CRT never checks a registry. |
 
 On success it prints one line — `CRT ready at http://localhost:4400 for http://localhost:3000 (embedded; project: C:\my-app, 3 tasks in .crt\tasks, provider: claude (default), login: ok)` (`for <app>` is omitted when no dev server was found; `CRT ready at http://localhost:4400 → http://localhost:3000 (proxy; project: …)` under `crt proxy`) — and, on a terminal, `Open http://localhost:3000 → CRT button bottom-right (Ctrl/Cmd+Shift+.) → Select · note · Send. Ctrl+C stops CRT; your dev server keeps running.` (`Open your dev server in the browser → …` when none is known; `Open http://localhost:4400 → …` in proxy mode), then keeps running until Ctrl+C (`Stopping CRT … 1 session ended; written task files are kept.`). Before that, finding your app in embedded mode is one line and never a question or a wait: `Found http://localhost:3000.`; with several dev servers up a terminal lists them and asks `Which one should I open? [1]` (off a terminal: `crt: found N dev servers (…); opening http://localhost:3000 — run \`crt <port>\` to pick another`); with none, `No dev server on ports 3000, 5173, 8080, 4200, 8000, 3001 — start it and open it in your browser; the CRT button appears when the page loads the CRT loader (crt <port> to have CRT open it next time).` and CRT is ready anyway; a remembered or configured app that is down gets `crt: http://localhost:3100 (remembered) is not responding — start it; CRT is ready for it`. The CRT button appears on your app's own URL once the page loads the CRT loader ([Add CRT to your app](#add-crt-to-your-app)); `http://localhost:4400` itself shows a landing page that says so, and when CRT opened your app but the page never asked for the loader it says `crt: opened http://localhost:3000 but the page never loaded the CRT loader — add the integration (\`crt init\` prints the snippet, /crt:init applies it), or run \`crt proxy\``; the first page that does load it gets `crt: overlay loaded in the browser (from http://localhost:3000)`. When a CRT from an earlier session already serves the same project in the same mode on the port, `crt` says `CRT <version> is already serving this project (embedded) at http://localhost:4400 (since 09:12) — opened http://localhost:3000.` (`… — open your app in the browser.` when none is known; `CRT <version> is already serving … for this project at … — opened it.` in proxy mode) and exits 0; when it serves something else, or the port is held by something that is not CRT, `crt` takes the next free port and says so (`crt: port 4400 is held by another CRT (→ <target>, project <root>); using 4401` / `crt: port 4400 is in use by a process that is not CRT; using 4401`), and in embedded mode adds `crt: your app's CRT loader expects :4400 — run \`crt --replace\`, or set port in .crt/config.json and in the snippet`, because the snippet in your app still points at 4400. `crt` never sets a project up on its own: when `.crt/tasks/` is missing it prints the `crt init` plan and asks `Set up CRT in <root>? [Y/n]` on a terminal, sets it up under `--yes`, and otherwise refuses with `crt: <root> is not set up for CRT — run \`crt init\` (or \`crt --yes\`)` — see [CRT is not set up](#crt-is-not-set-up). Every failure is a single `crt: …` line on stderr and a non-zero exit — run `crt doctor` first, then see [Troubleshooting](#troubleshooting) for what each one means.
 
@@ -165,13 +165,13 @@ It is written to `.crt/captures/<id>/capture.json` (+ PNGs) and moves to `.crt/t
 
 ## Providers
 
-The agent behind the in-page chat is a *provider*. Claude Code is the default and needs nothing; `crt --provider codex` (or `provider: "codex"` in `.crt/config.json`, or the caret next to **Send**) runs the intake on the developer's own Codex CLI instead. The provider for a session is the first of these that is set:
+The agent behind the in-page chat is a *provider*. Claude Code is the default and needs nothing; `crt --provider codex` or `crt --provider gemini` (or `provider: "codex"` / `"gemini"` in `.crt/config.json`, or the caret next to **Send**) runs the intake on the developer's own Codex CLI or Gemini CLI instead, and `provider: { "kind": "acp", … }` in `.crt/config.json` names any other agent that speaks the [Agent Client Protocol](https://agentclientprotocol.com) (below). The provider for a session is the first of these that is set:
 
 1. `provider` in the `POST /__crt/sessions` body — the caret next to **Send**, for that one send;
 2. the running server's active provider — `--provider` or `CRT_PROVIDER` at start, replaced by **Remember** in the Agent menu for the life of the process;
 3. `provider` in `.crt/config.local.json` (per machine, gitignored — what **Remember** writes);
 4. `provider` in `.crt/config.json` (per project, committed);
-5. auto-detection: what is installed and logged in here, disambiguated by the project's markers (`.claude/`, `CLAUDE.md`, `.codex/`, `AGENTS.md`);
+5. auto-detection: what is installed and logged in here, disambiguated by the project's markers (`.claude/`, `CLAUDE.md`, `.codex/`, `.gemini/`, `GEMINI.md`, `AGENTS.md`);
 6. `claude`.
 
 A provider chosen explicitly (1–4) that is not usable is never swapped for another: the session fails with the provider's one-line problem. Only auto-detection falls back — a logged-out Claude is stepped over when Codex is usable, and the ready line says why (`provider: codex — claude not logged in`). `crt providers` prints every provider's state and which one a new session would use, with the reason:
@@ -179,6 +179,7 @@ A provider chosen explicitly (1–4) that is not usable is never swapped for ano
 ```
 claude   ready        Claude Code (Agent SDK) 0.3.270  logged in                                markers: .claude/, CLAUDE.md
 codex    not on PATH  Codex CLI                        install: npm i -g @openai/codex          markers: none
+gemini   ready        Gemini CLI 0.60.0 (experimental)  login unknown                          markers: none
 → claude — .claude/, CLAUDE.md; codex not on PATH
 ```
 
@@ -253,6 +254,68 @@ write_task was called with a stale token — the session had ended
 ```
 
 The agent called `write_task` after the session it belonged to was discarded or the server restarted (every session gets its own token for the life of that session). Start a new session and send again.
+
+### Gemini CLI
+
+**Experimental.** The Gemini profile has never run against a real Gemini: CLI 0.60.0 refuses the free personal Google login (below), and no other credential was available when it was built, so it was tested against a fake ACP agent that follows Gemini's own protocol code and recordings. The provider menu and the session footer wear an `experimental` badge (the reason is the tooltip) and `crt providers` prints `(experimental)` after the name. If you have a Gemini API key, try it and report what you see — the driver is complete; what is unverified is Gemini's live behaviour.
+
+Built against Gemini CLI `0.60.0` (`npm i -g @google/gemini-cli`). CRT never bundles Gemini: it runs the `gemini` on your PATH (Windows: the npm `gemini.cmd` shim is parsed and its JS entry run with CRT's own Node), or the executable you name in `.crt/config.json` under `providers.gemini.command`, in its Agent Client Protocol mode (`gemini --acp`) — one process for the whole session, JSON-RPC over stdio, nothing else in between.
+
+What a Gemini session looks like: **Send to Gemini** starts `gemini --acp` in your project root with the intake instructions at the top of the first message and the screenshots inline (Gemini 0.60.0 accepts image prompts; an agent that does not gets the message without them and the first message says so). Text streams; tool calls show as collapsed lines; a tool call Gemini itself would ask about becomes an **Allow / Deny** card, decided by the same policy as for Claude but over ACP's tool *kinds*: reads, searches and thinking are allowed silently, edits/deletes/moves are allowed only under `.crt/`, a command is allowed only when it is a read-only `git` command, fetching from the network is denied, everything else asks you. CRT answers with the agent's `allow_once` / `reject_once` option and never "always". `write_task` reaches Gemini through `crt mcp`, the same stdio MCP server Codex uses; the file is written by the server with `provider: gemini` and Gemini's session id in `session:`. The footer's `gemini --resume <id>` continues the same conversation in a terminal, from the same project directory (Gemini stores sessions per project). **Stop** sends `session/cancel`.
+
+**Login.** Gemini CLI has no login-status command, so CRT reads what the CLI itself reads: `GEMINI_API_KEY` / `GOOGLE_API_KEY` in the environment or in `~/.gemini/.env` count as logged in; cached Google credentials (`~/.gemini/oauth_creds.json`) show as `login unknown`, because 0.60.0 accepts the login but may refuse the account's tier when the session starts (below). `GEMINI_CLI_HOME` moves `~/.gemini`. Telemetry is Gemini's own `usageStatisticsEnabled` setting; CRT passes no flag for it (PRD-providers N-12).
+
+**Skills for Gemini.** `crt skills install --provider gemini` writes the seven CRT skills into `.gemini/skills/` in the project (`--global`: `~/.gemini/skills`). Same rewriting and caveats as for Codex.
+
+**Gemini problems** show up as one line in the panel (or on the `CRT ready` line and in `crt providers`):
+
+```
+gemini not found on PATH — npm i -g @google/gemini-cli, or set providers.gemini.command in .crt/config.json
+```
+
+Install the CLI, or point `providers.gemini.command` at the executable.
+
+```
+not logged in to Gemini — run `gemini` in a terminal and pick an auth method (or set GEMINI_API_KEY), then send again
+```
+
+No API key and no cached Google login, **or** the session start came back with Gemini's "API key is missing or not configured" / "Authentication required". Log in (or set the key), then send again; no need to restart `crt serve`.
+
+```
+Gemini refused the Google login for this CLI ("no longer supported for Gemini Code Assist for individuals") — use a Gemini API key: put GEMINI_API_KEY=… in ~/.gemini/.env and set security.auth.selectedType to gemini-api-key in ~/.gemini/settings.json
+```
+
+Gemini CLI 0.60.0 rejects the free personal tier of "Log in with Google" (it points at the Antigravity products instead). A Gemini Developer API key from AI Studio works; put it in `~/.gemini/.env` and switch `selectedType`, then send again.
+
+```
+gemini <version> is too old — CRT needs 0.60.0 or newer (npm i -g @google/gemini-cli@latest)
+```
+
+The ACP behaviour CRT relies on (`--acp`, the `session/new` shape, the permission options) was recorded on 0.60.0; older releases differ. Update the CLI.
+
+### Any other ACP agent
+
+**Experimental**, for the same reason: an agent CRT has never met was tested against the fake agent only, and its menu row and footer say so.
+
+Any agent that speaks the Agent Client Protocol over stdio can run an intake session without CRT knowing it by name. Put the command in `.crt/config.json` (this form is accepted from the config files only — never from the page or `PUT /__crt/config`):
+
+```json
+{ "provider": { "kind": "acp", "command": "my-agent", "args": ["--acp"], "name": "My Agent" } }
+```
+
+It registers as the provider id `acp`, with the display name you gave (`Send to My Agent`), no project markers, no launch signal and no resume hint (CRT does not know the agent's resume command; the session id is still in the task file), and the same session shape as Gemini: instructions in the first message, images when the agent advertises them at `initialize`, cards from the tool-kind policy, `write_task` through `crt mcp`, `session/cancel` on **Stop**, stdin closed on **Discard** (the agent gets two seconds to leave, then its process tree is killed). `crt providers` lists it as ready whenever the command resolves (login is `unknown`: CRT cannot ask an unknown agent), and what the agent says when it cannot start a session — an API-key or login message — is shown as `not logged in to <name> — <what it said>`.
+
+```
+<command> not found on PATH — install it, or fix provider.command in .crt/config.json
+```
+
+The command in `provider.command` does not resolve (PATH and, on Windows, PATHEXT and npm shims are searched; an absolute path is used as is).
+
+```
+<agent> speaks ACP <v>; CRT supports 1 — update CRT or the agent
+```
+
+The agent's `initialize` reply named a protocol version this CRT does not implement. Note that Gemini 0.60.0 answers `1` whatever the client asks for; the reply is what counts.
 
 ## Task format
 
@@ -352,11 +415,11 @@ ok    instructions CLAUDE.md carries the CRT section
 ok    port      4400 free
 ok    claude    Claude Code (Agent SDK 0.3.270) — logged in
 warn  codex     codex-cli 0.154.0 — not logged in — run `codex login`
-ok    plugin    crt@crt 0.4.0 installed (claude on PATH)
+ok    plugin    crt@crt 0.5.0 installed (claude on PATH)
 → claude — codex not logged in
 ```
 
-`FAIL` is reserved for what stops `crt` from serving: `FAIL  node      v18.20.0 — CRT needs Node 20 or newer`; in proxy mode `FAIL  target    none set and nothing on the probed ports — crt <port>` and `FAIL  target    http://localhost:3100 (remembered) — not responding` (in embedded mode the target is only what `crt` opens for you, so those rows are `--    target    none set; crt opens nothing (crt <port> to remember one)` and `warn  target    http://localhost:3100 (remembered) — not responding`); `FAIL  port      4400 held by CRT 0.4.0 → http://localhost:3000 (this project) — crt --replace`; `FAIL  port      4400 in use by a non-CRT process — crt --port 4401`; and the provider a session would use when it is unusable (its row carries the same line the panel shows). Everything else is a `warn` — `warn  project   C:\my-app\src — no .git above; .crt/ will be created here (run from the repo root, or git init)`, another provider's problem, `warn  plugin    crt@crt not installed — run crt setup`, `warn  plugin    crt@crt 0.3.0 installed, this is 0.4.0 — run crt setup` — or `--` for what was skipped (`--    .crt      not initialised — run crt init`, `--    plugin    claude not on PATH — skipped`), so a Claude-only machine passes. The v0.4 rows never fail: `.crt` says `warn  .crt      tasks/ (4 tasks), config.json, .gitignore entries — no README.md — run crt init` for a folder that predates `crt init`'s README; `mode` reads `ok    mode      embedded` or `ok    mode      proxy (.crt/config.json)`; `integration` reads only the snippet's candidate files for the detected framework — `ok    integration next — app/layout.tsx imports claude-review-tool/react`, `ok    integration vite — vite.config.ts uses claude-review-tool/vite`, `ok    integration loader — src/main.tsx imports claude-review-tool/loader`, `warn  integration not found (next) — run crt init for the snippet, or crt proxy`, `--    integration static page — add the <script> tag (crt init --snippet)`, `--    integration proxy mode`; `instructions` reads `ok    instructions CLAUDE.md carries the CRT section` (both names when both do), `warn  instructions CLAUDE.md has no CRT section — crt init adds it` or `--    instructions no CLAUDE.md or AGENTS.md — crt init creates one`. `crt` runs the same checks before its first question and prints only the `FAIL` and `warn` rows.
+`FAIL` is reserved for what stops `crt` from serving: `FAIL  node      v18.20.0 — CRT needs Node 20 or newer`; in proxy mode `FAIL  target    none set and nothing on the probed ports — crt <port>` and `FAIL  target    http://localhost:3100 (remembered) — not responding` (in embedded mode the target is only what `crt` opens for you, so those rows are `--    target    none set; crt opens nothing (crt <port> to remember one)` and `warn  target    http://localhost:3100 (remembered) — not responding`); `FAIL  port      4400 held by CRT 0.5.0 → http://localhost:3000 (this project) — crt --replace`; `FAIL  port      4400 in use by a non-CRT process — crt --port 4401`; and the provider a session would use when it is unusable (its row carries the same line the panel shows). Everything else is a `warn` — `warn  project   C:\my-app\src — no .git above; .crt/ will be created here (run from the repo root, or git init)`, another provider's problem, `warn  plugin    crt@crt not installed — run crt setup`, `warn  plugin    crt@crt 0.4.0 installed, this is 0.5.0 — run crt setup` — or `--` for what was skipped (`--    .crt      not initialised — run crt init`, `--    plugin    claude not on PATH — skipped`), so a Claude-only machine passes. The v0.4 rows never fail: `.crt` says `warn  .crt      tasks/ (4 tasks), config.json, .gitignore entries — no README.md — run crt init` for a folder that predates `crt init`'s README; `mode` reads `ok    mode      embedded` or `ok    mode      proxy (.crt/config.json)`; `integration` reads only the snippet's candidate files for the detected framework — `ok    integration next — app/layout.tsx imports claude-review-tool/react`, `ok    integration vite — vite.config.ts uses claude-review-tool/vite`, `ok    integration loader — src/main.tsx imports claude-review-tool/loader`, `warn  integration not found (next) — run crt init for the snippet, or crt proxy`, `--    integration static page — add the <script> tag (crt init --snippet)`, `--    integration proxy mode`; `instructions` reads `ok    instructions CLAUDE.md carries the CRT section` (both names when both do), `warn  instructions CLAUDE.md has no CRT section — crt init adds it` or `--    instructions no CLAUDE.md or AGENTS.md — crt init creates one`. `crt` runs the same checks before its first question and prints only the `FAIL` and `warn` rows.
 
 Each `crt` failure is one line on stderr, prefixed `crt: `, followed by a non-zero exit. `<…>` below marks values filled in at runtime.
 
@@ -385,7 +448,7 @@ crt init will, in C:\my-app:
   add a CRT section to CLAUDE.md
 ```
 
-then asks `Go ahead? [Y/n]` on a terminal (`--yes` skips it; off a terminal the command is explicit enough to apply without asking) and announces each write as it happens — `crt init: created .crt/README.md`, `crt init: created .crt/tasks/`, `crt init: created .crt/config.json`, `crt init: added .crt/captures/ and .crt/config.local.json to .gitignore`, `crt init: added the CRT section to CLAUDE.md` (or `crt init: created CLAUDE.md with the CRT section` when neither `CLAUDE.md` nor `AGENTS.md` existed, `crt init: updated the CRT section in CLAUDE.md` when the section's version stamp was older). When there is nothing to do it says `crt init: C:\my-app is set up (.crt/README.md, tasks/, config.json, .gitignore entries, CRT section in CLAUDE.md)`. It ends with the snippet for your framework (`Add CRT to your app (development only):`, the file, the lines, and `Production builds contain nothing from CRT (README › Production). /crt:init in Claude Code applies this for you.`); `crt init --snippet` prints only that and writes nothing. `crt tasks` on a project that is not set up prints `no tasks (CRT is not set up here — run crt init)` and exits 0 (`--json` answers `{ "tasksDir": null, "tasks": [] }`). The CRT section sits between `<!-- BEGIN:crt v0.4 -->` and `<!-- END:crt -->` in `CLAUDE.md` and `AGENTS.md` (an `@AGENTS.md`-only `CLAUDE.md` is skipped in favour of `AGENTS.md`), is replaced in place when the stamp's major.minor changes and never touched at runtime; `--no-instructions` leaves both files alone. In Claude Code, the SessionStart hook says `CRT: .crt/ is set up but CLAUDE.md has no CRT section — run crt init to add it` when the section is missing.
+then asks `Go ahead? [Y/n]` on a terminal (`--yes` skips it; off a terminal the command is explicit enough to apply without asking) and announces each write as it happens — `crt init: created .crt/README.md`, `crt init: created .crt/tasks/`, `crt init: created .crt/config.json`, `crt init: added .crt/captures/ and .crt/config.local.json to .gitignore`, `crt init: added the CRT section to CLAUDE.md` (or `crt init: created CLAUDE.md with the CRT section` when neither `CLAUDE.md` nor `AGENTS.md` existed, `crt init: updated the CRT section in CLAUDE.md` when the section's version stamp was older). When there is nothing to do it says `crt init: C:\my-app is set up (.crt/README.md, tasks/, config.json, .gitignore entries, CRT section in CLAUDE.md)`. It ends with the snippet for your framework (`Add CRT to your app (development only):`, the file, the lines, and `Production builds contain nothing from CRT (README › Production). /crt:init in Claude Code applies this for you.`); `crt init --snippet` prints only that and writes nothing. `crt tasks` on a project that is not set up prints `no tasks (CRT is not set up here — run crt init)` and exits 0 (`--json` answers `{ "tasksDir": null, "tasks": [] }`). The CRT section sits between `<!-- BEGIN:crt v0.5 -->` and `<!-- END:crt -->` in `CLAUDE.md` and `AGENTS.md` (an `@AGENTS.md`-only `CLAUDE.md` is skipped in favour of `AGENTS.md`), is replaced in place when the stamp's major.minor changes and never touched at runtime; `--no-instructions` leaves both files alone. In Claude Code, the SessionStart hook says `CRT: .crt/ is set up but CLAUDE.md has no CRT section — run crt init to add it` when the section is missing.
 
 ### No dev server found
 
@@ -451,7 +514,7 @@ crt: claude not found on PATH — install Claude Code (npm i -g @anthropic-ai/cl
 crt: `claude plugin install crt@crt` failed: <first line of what claude printed> — fix that, or run: claude plugin marketplace add simv/crt && claude plugin install crt@crt
 ```
 
-`crt setup` needs the `claude` CLI (it runs `claude plugin list --json`, `claude plugin marketplace add <dir>` and `claude plugin install crt@crt` — or `update` when an older `crt@crt` is there — and writes nothing itself). Install Claude Code, or pass the executable with `crt setup --claude <path>`; the second line quotes Claude Code's own error and the same two commands work by hand from GitHub. On success it prints `crt setup: registered marketplace crt from <path>` and `crt setup: installed crt@crt 0.4.0 — restart Claude Code to load /crt:serve, /crt:next, /crt:tasks, /crt:task, /crt:done, /crt:intake, /crt:init`; `crt setup: crt@crt 0.4.0 is already installed` means there was nothing to do. When the plugin and the project's `claude-review-tool` disagree on major.minor, the SessionStart hook says `CRT: plugin 0.4.0 but the project's claude-review-tool is 0.3.0 — npm update claude-review-tool (or crt setup after updating)`.
+`crt setup` needs the `claude` CLI (it runs `claude plugin list --json`, `claude plugin marketplace add <dir>` and `claude plugin install crt@crt` — or `update` when an older `crt@crt` is there — and writes nothing itself). Install Claude Code, or pass the executable with `crt setup --claude <path>`; the second line quotes Claude Code's own error and the same two commands work by hand from GitHub. On success it prints `crt setup: registered marketplace crt from <path>` and `crt setup: installed crt@crt 0.5.0 — restart Claude Code to load /crt:serve, /crt:next, /crt:tasks, /crt:task, /crt:done, /crt:intake, /crt:init`; `crt setup: crt@crt 0.5.0 is already installed` means there was nothing to do. When the plugin and the project's `claude-review-tool` disagree on major.minor, the SessionStart hook says `CRT: plugin 0.5.0 but the project's claude-review-tool is 0.4.0 — npm update claude-review-tool (or crt setup after updating)`.
 
 ### No `.git` in the project
 

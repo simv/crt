@@ -1,6 +1,6 @@
 {
   "name": "claude-review-tool",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Claude Review Tool (CRT): annotate your local site in the browser, talk to Claude in-page, get a self-contained task file in your repo.",
   "license": "MIT",
   "homepage": "https://github.com/simv/crt#readme",

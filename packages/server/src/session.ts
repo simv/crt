@@ -2,7 +2,8 @@
  * Provider registry (PRD-providers §5, F-42…F-45): which coding agent an intake session runs on.
  *
  * The drivers live under `providers/` (`claude.ts` on the Agent SDK, `stub.ts` scripted,
- * `codex.ts` over `codex exec --json`); this module knows them only as `ProviderProfile`s:
+ * `codex.ts` over `codex exec --json`, `gemini.ts` and the ad-hoc `acp` profile over `acp.ts`);
+ * this module knows them only as `ProviderProfile`s:
  *
  *   • `listProviders()` — the built-in profiles; `stub` only with `CRT_SESSION_STUB=1` (F-42).
  *   • `ProviderRegistry.resolve()` — the F-43 order: stub env → request body → the server's
@@ -15,9 +16,11 @@
  * Preflight results are cached per registry (`refresh()` re-runs them: server start, `--refresh`).
  */
 import { type CrtConfig, DEFAULT_CONFIG, LOCAL_CONFIG_FILE, CONFIG_FILE } from "./init.js";
+import { adHocAcpProfile } from "./providers/acp.js";
 import { claudeProfile } from "./providers/claude.js";
 import { codexProfile } from "./providers/codex.js";
 import { type Decision, DEFAULT_PROVIDER, detectProvider, formatDecision, scanMarkers } from "./providers/detect.js";
+import { geminiProfile } from "./providers/gemini.js";
 import { stubProfile } from "./providers/stub.js";
 import { type LoggedIn, type PreflightResult, preflightPasses, preflightState, type ProviderProfile, type ProviderState } from "./providers/types.js";
 import type { ProviderCapabilities, ProvidersPayload } from "./session-events.js";
@@ -27,7 +30,7 @@ export type { Decision } from "./providers/detect.js";
 export type { ProviderProfile } from "./providers/types.js";
 
 /** Registry order; `crt providers` prints rows in this order. `stub` is appended only when enabled. */
-export const BUILT_IN_PROFILES: readonly ProviderProfile[] = [claudeProfile, codexProfile];
+export const BUILT_IN_PROFILES: readonly ProviderProfile[] = [claudeProfile, codexProfile, geminiProfile];
 
 /** `CRT_SESSION_STUB=1` (any non-empty value, as v0.1 read it) enables the scripted provider. */
 export function stubEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -69,6 +72,8 @@ export interface ProviderStatus {
   /** F-44 markers found in the project root. */
   markers: string[];
   capabilities: ProviderCapabilities;
+  /** F-54 (M10): the profile ships untested against a real agent; the reason. */
+  experimental?: string;
   state: ProviderState;
   hints: ProviderProfile["hints"];
 }
@@ -104,7 +109,9 @@ export class ProviderRegistry {
     // Own copy of the model map: `setModels()` (PUT /__crt/config) must never touch DEFAULT_CONFIG.
     const config = opts.config ?? DEFAULT_CONFIG;
     this.config = { ...config, models: { ...config.models } };
-    this.profiles = opts.profiles ?? BUILT_IN_PROFILES;
+    const profiles = opts.profiles ?? BUILT_IN_PROFILES;
+    // F-54: the ad-hoc ACP agent from the config files joins the list under the id `acp` (file-only, N-8).
+    this.profiles = this.config.acp ? [...profiles, adHocAcpProfile(this.config.acp)] : profiles;
     this.log = opts.log ?? (() => undefined);
     const fromEnv = this.env.CRT_PROVIDER?.trim();
     this.active = opts.flag ? { id: opts.flag, source: "--provider" } : fromEnv ? { id: fromEnv, source: "CRT_PROVIDER" } : null;
@@ -204,10 +211,8 @@ export class ProviderRegistry {
     if (provider !== null && providerSource !== null) {
       const layer = providerSource;
       const file = `.crt/${providerSource === "local" ? LOCAL_CONFIG_FILE : CONFIG_FILE}`;
-      if (typeof provider !== "string") {
-        return { provider: "acp", layer, source: file, decision: null, problem: `${file} sets provider { kind: "acp" }, which this version of CRT does not support yet — remove it or set a built-in id (${this.ids().join(", ")})` };
-      }
-      return explicit(provider, layer, file);
+      // F-54: the object form names the ad-hoc `acp` profile registered from it.
+      return explicit(typeof provider === "string" ? provider : "acp", layer, file);
     }
     const decision = this.detection();
     return { provider: decision.provider, layer: decision.reason === null ? "default" : "detected", source: formatDecision(decision), decision, problem: null };
@@ -238,6 +243,7 @@ export class ProviderRegistry {
         problem: pf.problem,
         markers: markers[p.id] ?? [],
         capabilities: p.capabilities,
+        ...(p.experimental ? { experimental: p.experimental } : {}),
         state: preflightState(pf),
         hints: p.hints,
       };
@@ -267,13 +273,14 @@ export function describeResolution(r: Resolution): string {
  *
  *   claude   ready        Claude Code (Agent SDK)    logged in                                markers: .claude/, CLAUDE.md
  *   codex    not on PATH  Codex CLI                  install: npm i -g @openai/codex          markers: AGENTS.md
+ *   gemini   ready        Gemini CLI 0.60.0 (experimental)  login unknown                     markers: none
  *   → claude — .claude/, CLAUDE.md; codex not on PATH
  *
  * The login cell is `logged in` / `not logged in` / `login unknown` (PRD-setup F-74 amends F-45).
  */
 export function renderProviders(rows: ProviderStatus[], decision: Decision): string {
   const cells = rows.map((r) => {
-    const name = r.version ? `${r.agentName} ${r.version}` : r.agentName;
+    const name = `${r.version ? `${r.agentName} ${r.version}` : r.agentName}${r.experimental ? " (experimental)" : ""}`;
     const hint =
       r.state === "ready"
         ? loginWord(r.loggedIn)

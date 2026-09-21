@@ -17,6 +17,8 @@ export const CRT_ORIGIN = `http://localhost:${CRT_PORT}`;
 export const CRT_SANDBOXED_PORT = 4498;
 /** PRD-providers F-61 `codex` axis: a third CRT on `--provider codex` against the fake Codex CLI (e2e/fixture/fake-codex.mjs). */
 export const CRT_CODEX_PORT = 4497;
+/** PRD-providers F-54 / F-61 `acp` axis: a fourth CRT on the ad-hoc `{ kind: "acp" }` config against the fake ACP agent (e2e/fixture/fake-acp.mjs). */
+export const CRT_ACP_PORT = 4495;
 /** PRD-embedded F-92 / N-21: the proxy-mode server for proxy.spec.ts — the v0.3 shape, on its own scratch root. */
 export const CRT_PROXY_PORT = 4496;
 export const CRT_PROXY_ORIGIN = `http://localhost:${CRT_PROXY_PORT}`;
@@ -65,6 +67,15 @@ export default defineConfig({
       command: `node e2e/fixture/crt.mjs --target ${FIXTURE_ORIGIN} --port ${CRT_CODEX_PORT} --no-open`,
       env: { CRT_SESSION_STUB: "", CRT_PROVIDER: "codex", CRT_E2E_PROJECT: "codex", CRT_E2E_FAKE_CODEX: "1" },
       url: `http://localhost:${CRT_CODEX_PORT}/__crt/health`,
+      reuseExistingServer: false,
+      timeout: 30_000,
+    },
+    {
+      // The acp axis (chat.spec.ts "ad-hoc ACP agent" block): no stub, the provider is the F-54 object
+      // form in the scratch project's .crt/config.json (never a flag or a route, N-8).
+      command: `node e2e/fixture/crt.mjs --target ${FIXTURE_ORIGIN} --port ${CRT_ACP_PORT} --no-open`,
+      env: { CRT_SESSION_STUB: "", CRT_E2E_PROJECT: "acp", CRT_E2E_FAKE_ACP: "1" },
+      url: `http://localhost:${CRT_ACP_PORT}/__crt/health`,
       reuseExistingServer: false,
       timeout: 30_000,
     },

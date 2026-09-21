@@ -8,7 +8,7 @@ allowed-tools: Bash(npx *) Bash(curl *) Read Edit Write Glob Grep AskUserQuestio
 
 Start the CRT server for this project (PRD F-36, PRD-embedded F-105), from the project root `${CLAUDE_PROJECT_DIR}`. Never start the user's dev server for them: CRT works alongside one that is already running. In embedded mode (the default since v0.4) the app's own page loads the CRT overlay from the CRT server, so the CRT button appears on the app's own URL; `/crt:serve --proxy [target]` is the v0.3 flow that proxies the app through the CRT URL instead.
 
-`crt` below is `npx --no crt` when the project has it installed (a devDependency, a workspace, or a global install), else `npx -y claude-review-tool@0.4`. Remember which one you used: the fallback may have to download the package (~220 MB on a first run), which changes how long you wait in step 2.
+`crt` below is `npx --no crt` when the project has it installed (a devDependency, a workspace, or a global install), else `npx -y claude-review-tool@0.5`. Remember which one you used: the fallback may have to download the package (~220 MB on a first run), which changes how long you wait in step 2.
 
 ## 0. Is a CRT already running for this project?
 
@@ -91,4 +91,4 @@ Next: click the CRT button bottom-right (or Ctrl/Cmd+Shift+.), Select the elemen
 
 Under `--proxy` the first line reads `CRT is up at http://localhost:4400, proxying http://localhost:3000 (opened in your browser).`
 
-Fill in the real URL, app, project, tasks directory and count from the ready line or health. Line 3 names the provider from the ready line (`Claude` for `claude`, `Codex CLI` for `codex`) and its login: `logged in` for `login: ok`, `login not checked yet` for `unchecked`, and for `missing` the server's `crt: not logged in …` line instead. Append "(reused the CRT already running)" or "(target came from your answer; remembered in .crt/config.local.json)" when they apply, `(no dev server found — open your app; the button appears when the page loads)` when none was found, and the step 4 sentence when the loader or overlay was never fetched.
+Fill in the real URL, app, project, tasks directory and count from the ready line or health. Line 3 names the provider from the ready line (`Claude` for `claude`, `Codex CLI` for `codex`, `Gemini CLI` for `gemini`, the configured name for `acp`) and its login: `logged in` for `login: ok`, `login not checked yet` for `unchecked`, and for `missing` the server's `crt: not logged in …` line instead. Append "(reused the CRT already running)" or "(target came from your answer; remembered in .crt/config.local.json)" when they apply, `(no dev server found — open your app; the button appears when the page loads)` when none was found, and the step 4 sentence when the loader or overlay was never fetched.

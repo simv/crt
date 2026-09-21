@@ -3,11 +3,12 @@ import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { FIRST_MESSAGE_HEADING } from "../src/intake-message.js";
 import { INTERNAL_WRITE_TASK_PATH, STALE_TOKEN_LINE } from "../src/mcp-stdio.js";
+import { ACP_CAPABILITIES, ACP_EXPERIMENTAL } from "../src/providers/acp.js";
 import { CODEX_CAPABILITIES, codexProfile } from "../src/providers/codex.js";
 import { stubProfile } from "../src/providers/stub.js";
 import type { ProvidersPayload, SessionEvent } from "../src/session-events.js";
 import { parseTask, validateTaskText, writeIndex } from "../src/tasks.js";
-import { CRT_CODEX_PORT, CRT_ORIGIN, CRT_SANDBOXED_PORT } from "../playwright.config.js";
+import { CRT_ACP_PORT, CRT_CODEX_PORT, CRT_ORIGIN, CRT_SANDBOXED_PORT } from "../playwright.config.js";
 
 // M3 (task CRT-0003 Ask 7): Send opens the chat panel on an intake session. The pages are the
 // fixture's on the app's own origin (baseURL) and load the overlay from the embedded CRT server
@@ -461,13 +462,13 @@ test.describe("provider UX on the stub axis (F-46, F-47, F-49, F-56, F-57, F-61)
     await refreshed;
     const menu = pop.locator(".providers");
     await expect(menu).toBeVisible();
-    await expect(menu.locator(".provider")).toHaveCount(3);
+    await expect(menu.locator(".provider")).toHaveCount(4);
     await expect(menu.locator(".provider[data-provider=stub]")).toHaveClass(/active/);
     await expect(menu.locator(".provider[data-provider=claude] .name b")).toHaveText("Claude");
     await expect(menu.locator(".provider[data-provider=codex] .name small")).toHaveText("codex");
     await expect(menu.locator(".why")).toContainText("Auto-detected:");
     const payload = await page.evaluate(() => window.__crt.providers.load());
-    expect(payload.providers.map((p) => p.id)).toEqual(["claude", "codex", "stub"]);
+    expect(payload.providers.map((p) => p.id)).toEqual(["claude", "codex", "gemini", "stub"]);
     // Unusable rows are disabled with the problem as tooltip; usable ones say so.
     for (const p of payload.providers) {
       const row = menu.locator(`.provider[data-provider=${p.id}]`);
@@ -518,7 +519,7 @@ test.describe("provider UX on the stub axis (F-46, F-47, F-49, F-56, F-57, F-61)
     await shadow(page, ".launcher").click();
     await shadow(page, ".toolbar [data-action=agent]").click();
     const menu = shadow(page, ".dock .providers");
-    await expect(menu.locator(".provider")).toHaveCount(3);
+    await expect(menu.locator(".provider")).toHaveCount(4);
     await menu.locator(".remember input").check();
     const put = page.waitForRequest((r) => r.method() === "PUT" && r.url().endsWith("/__crt/config"));
     await menu.locator(".provider[data-provider=claude]").click();
@@ -650,7 +651,7 @@ test.describe("codex provider on the fake codex CLI (F-49, F-53, F-56, F-61)", (
     const payload = (await (await page.request.get(`${CODEX}/__crt/providers`)).json()) as ProvidersPayload;
     expect(payload.active).toBe("codex");
     expect(payload.providers.find((p) => p.id === "codex")).toMatchObject({ installed: true, loggedIn: true, version: "0.154.0", problem: null, capabilities: CODEX_CAPABILITIES });
-    expect(payload.providers.map((p) => p.id)).toEqual(["claude", "codex"]); // no stub without CRT_SESSION_STUB (F-42)
+    expect(payload.providers.map((p) => p.id)).toEqual(["claude", "codex", "gemini"]); // no stub without CRT_SESSION_STUB (F-42)
 
     await page.goto(`/app?crt=${CODEX}`);
     await shadow(page, ".launcher").click();
@@ -661,8 +662,9 @@ test.describe("codex provider on the fake codex CLI (F-49, F-53, F-56, F-61)", (
     });
     await page.evaluate(() => window.__crt.send());
     await expect(shadow(page, ".chat")).toBeVisible();
-    // Turn 1 replays first-turn.jsonl: an MCP tool line, a command line, then the whole message.
-    await expect(shadow(page, ".tool summary").first()).toHaveText("crt/crt_ping");
+    // Turn 1 replays first-turn.jsonl: an MCP tool line, a command line, then the whole message. The first
+    // line waits longer: the fake spawns node + the crt mcp shim while five servers and the other specs load the machine.
+    await expect(shadow(page, ".tool summary").first()).toHaveText("crt/crt_ping", { timeout: 15_000 });
     await expect(shadow(page, ".tool .out").first()).toHaveText("listener replied 200: pong #5");
     await expect(shadow(page, ".tool summary").nth(1)).toHaveText(/^Run /);
     await expect(shadow(page, ".msg.assistant").first()).toContainText("listener replied 200: pong #5");
@@ -738,5 +740,126 @@ test.describe("codex provider on the fake codex CLI (F-49, F-53, F-56, F-61)", (
     await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
     const list = await page.evaluate(() => window.__crt.sessions.list());
     expect(list.find((s) => s.id === snap.sessionId)?.provider).toBe("codex");
+  });
+});
+
+test.describe("ad-hoc ACP agent from .crt/config.json (F-49, F-54, F-56, F-61)", () => {
+  const ACP = `http://localhost:${CRT_ACP_PORT}`;
+  test.afterEach(async ({ page }) => {
+    await page.evaluate(() => window.__crt.chat.discard()).catch(() => undefined);
+  });
+
+  test("Send to Fake Agent: streamed text, a read tool line, an Allow card from the F-54 kind policy, write_task through crt mcp, a footer with no resume hint that survives a reload, Stop via session/cancel (F-49, F-54, F-56, F-61)", async ({ page }) => {
+    // F-43 steps 3–4 / F-54: the object form in .crt/config.json registers the `acp` id and the server runs on it.
+    const health = (await (await page.request.get(`${ACP}/__crt/health`)).json()) as { provider: string };
+    expect(health.provider).toBe("acp");
+    const payload = (await (await page.request.get(`${ACP}/__crt/providers`)).json()) as ProvidersPayload;
+    expect(payload.active).toBe("acp");
+    expect(payload.providers.map((p) => p.id)).toEqual(["claude", "codex", "gemini", "acp"]);
+    expect(payload.providers.find((p) => p.id === "acp")).toMatchObject({ displayName: "Fake Agent", installed: true, loggedIn: "unknown", version: null, problem: null, markers: [], capabilities: ACP_CAPABILITIES, experimental: ACP_EXPERIMENTAL });
+    // N-8: the object form is never page-writable.
+    expect((await page.request.put(`${ACP}/__crt/config`, { data: { provider: { kind: "acp", command: "evil", name: "x" } } })).status()).toBe(400);
+
+    await page.goto(`/app?crt=${ACP}`);
+    await shadow(page, ".launcher").click();
+    await expect(shadow(page, ".pop.page [data-action=send]")).toHaveText("Send to Fake Agent");
+    await page.evaluate(() => {
+      window.__crt.addSelect("[data-testid=card-1] .price");
+      window.__crt.setNote(1, "total excludes discount");
+    });
+    // F-54 (M10): the menu rows of the untested profiles wear the experimental badge with the reason as its tooltip.
+    await page.evaluate(() => window.__crt.togglePop(1, true));
+    const pop = shadow(page, '.pop[data-n="1"]');
+    await pop.locator("[data-action=agent].caret").click();
+    const badge = pop.locator(".providers .provider[data-provider=acp] .name .badge");
+    await expect(badge).toHaveText("experimental");
+    await expect(badge).toHaveAttribute("title", ACP_EXPERIMENTAL);
+    await expect(pop.locator(".providers .provider[data-provider=gemini] .name .badge")).toHaveText("experimental");
+    await expect(pop.locator(".providers .provider[data-provider=codex] .name .badge")).toHaveCount(0);
+    await pop.locator(".providers [data-providers=close]").click();
+    await page.evaluate(() => window.__crt.send());
+    await expect(shadow(page, ".chat")).toBeVisible();
+    // Turn 1: streamed text, the pre-allowed `read` tool, then the `execute` card (F-54 policy: npm test is not read-only git).
+    // The first assertion waits longer: the fake agent spawns the crt mcp shim at session/new while the other specs load the machine.
+    await expect(shadow(page, ".msg.assistant").first()).toContainText("I looked at the capture", { timeout: 15_000 });
+    await expect(shadow(page, ".tool summary").first()).toHaveText("ReadFile AGENTS.md");
+    await expect(shadow(page, ".perm .t")).toHaveText("Shell npm test");
+    await expect(shadow(page, ".perm pre")).toHaveText("npm test");
+    await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "waiting");
+    await shadow(page, ".perm button.allow").click();
+    await expect(shadow(page, ".perm.resolved .done")).toHaveText("Allowed");
+    await expect(shadow(page, ".tool summary").nth(1)).toHaveText("Shell npm test");
+    await expect(shadow(page, ".tool .out").nth(1)).toHaveText("3 passing");
+    await expect(shadow(page, ".msg.assistant").last()).toContainText("Tests pass.");
+    await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
+    await expect(shadow(page, ".chat-head .agent")).toHaveText("Fake Agent");
+
+    const snap = await page.evaluate(() => window.__crt.chat.snapshot());
+    expect(snap.provider).toBe("acp");
+    expect(snap.events.filter((e) => e.type === "error")).toEqual([]);
+    const init = snap.events.find((e) => e.type === "init") as Extract<SessionEvent, { type: "init" }>;
+    // F-47/F-54: the native id is the agent's session id; the model comes from session/new, the version from initialize; no resume.
+    expect(init).toMatchObject({ provider: "acp", displayName: "Fake Agent", model: "gemini-2.5-pro", agentVersion: "0.60.0", resumeCommand: null, capabilities: ACP_CAPABILITIES });
+    expect(init.nativeSessionId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(init.nativeSessionId).not.toBe(snap.sessionId);
+    // F-46/F-56: footer = provider · model · version · experimental badge; no resume hint (resume: false), no sandbox badge (interactive).
+    const foot = shadow(page, ".chat-foot");
+    await expect(foot).toHaveText("Fake Agent · gemini-2.5-pro · 0.60.0 · experimental");
+    await expect(foot.locator(".badge")).toHaveCount(1);
+    await expect(foot.locator(".badge.experimental")).toHaveAttribute("title", ACP_EXPERIMENTAL);
+    await expect(shadow(page, "[data-chat=interrupt]")).toBeVisible();
+    // F-51/F-50: instructions in the first message; images inline (the fake rejects an image block without data).
+    const first = snap.events[0] as Extract<SessionEvent, { type: "user" }>;
+    expect(first.text.startsWith(`${FIRST_MESSAGE_HEADING}\n\n`)).toBe(true);
+    expect(first.images).toEqual(["viewport (annotated)", "annotation 1"]);
+    // Streamed: more text events than assistant messages.
+    expect(snap.events.filter((e) => e.type === "text").length).toBeGreaterThan(snap.events.filter((e) => e.type === "assistant_start").length);
+
+    await page.reload();
+    await expect(shadow(page, ".chat")).toBeVisible();
+    await expect(foot).toHaveText("Fake Agent · gemini-2.5-pro · 0.60.0 · experimental");
+    await expect(shadow(page, ".chat-head .agent")).toHaveText("Fake Agent");
+
+    // Turn 2: the fake calls write_task through `crt mcp` → the internal route writes the file.
+    await shadow(page, ".chat-input textarea").fill("write");
+    await shadow(page, ".chat-input textarea").press("Enter");
+    await expect(shadow(page, ".chat-task b")).toHaveText(/^CRT-\d{4}$/);
+    await expect(shadow(page, ".tool summary").last()).toHaveText("Write task: Cart total excludes applied discount");
+    await expect(shadow(page, ".tool").last()).toHaveClass(/done/);
+    await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
+    const after = await page.evaluate(() => window.__crt.chat.snapshot());
+    const written = after.events.find((e) => e.type === "task_written") as Extract<SessionEvent, { type: "task_written" }>;
+    expect(after.events.filter((e) => e.type === "task_written")).toHaveLength(1);
+    expect(after.events.filter((e) => e.type === "init")).toHaveLength(1);
+    expect(after.events.filter((e) => e.type === "error")).toEqual([]);
+    const root = await projectRoot(page, ACP);
+    const tasksDir = join(root, ".crt", "tasks");
+    try {
+      const text = readFileSync(join(root, written.path), "utf8");
+      expect(validateTaskText(text, `${written.id}-cart-total-excludes-applied-discount.md`)).toEqual([]);
+      expect(parseTask(text).frontmatter).toMatchObject({ provider: "acp", session: init.nativeSessionId });
+      expect(text).toContain(`created by intake session ${init.nativeSessionId} (acp)`);
+      // F-49/N-8: the token never reaches the log or the page.
+      const token = /(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/;
+      const log = readFileSync(join(root, "crt-serve.log"), "utf8");
+      expect(log).toContain("is Fake Agent");
+      expect(log).not.toMatch(token);
+      expect(log).not.toMatch(/Bearer|CRT_MCP_TOKEN/);
+      expect(JSON.stringify(after.events)).not.toMatch(token);
+    } finally {
+      rmSync(join(root, written.path), { force: true });
+      rmSync(join(tasksDir, "assets", written.id), { recursive: true, force: true });
+      writeIndex(tasksDir);
+    }
+
+    // Turn 3: a slow turn, cut by Stop (session/cancel); the session stays usable.
+    await shadow(page, ".chat-input textarea").fill("be slow please");
+    await shadow(page, ".chat-input textarea").press("Enter");
+    await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "running");
+    await shadow(page, "[data-chat=interrupt]").click();
+    await expect(shadow(page, ".sys").last()).toHaveText("interrupted");
+    await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
+    const list = await page.evaluate(() => window.__crt.sessions.list());
+    expect(list.find((s) => s.id === snap.sessionId)?.provider).toBe("acp");
   });
 });

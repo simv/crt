@@ -112,6 +112,7 @@ export const CHAT_CSS = `
                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .chat-foot code { font-family: ui-monospace, Menlo, Consolas, monospace; user-select: all; color: #333; }
   .chat-foot .badge { display: inline-block; padding: 0 6px; border-radius: 999px; background: #e8f0fe; color: #1a4d99; font-weight: 600; }
+  .chat-foot .badge.experimental { background: #fff3cd; color: #7a5200; }
 `;
 
 export interface ChatSnapshot {
@@ -620,6 +621,7 @@ export class ChatPanel {
     if (init.model) parts.push(escapeHtml(init.model));
     if (init.agentVersion) parts.push(escapeHtml(init.agentVersion));
     if (init.capabilities.permissions === "sandboxed") parts.push(`<span class="badge">read-only sandbox</span>`);
+    if (init.experimental) parts.push(`<span class="badge experimental" title="${escapeHtml(init.experimental)}">experimental</span>`);
     if (init.capabilities.resume && init.resumeCommand) parts.push(`continue in a terminal: <code>${escapeHtml(init.resumeCommand)}</code>`);
     this.foot.innerHTML = parts.join(" · ");
     this.foot.title = `session ${id}${init.resumeCommand ? ` · ${init.resumeCommand}` : ""}`;

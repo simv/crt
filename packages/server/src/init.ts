@@ -50,7 +50,7 @@ export const LOCAL_CONFIG_FILE = "config.local.json";
 export const README_FILE = "README.md";
 export const REPO_URL = "https://github.com/simv/crt";
 
-/** F-54 ad-hoc ACP agent, accepted from the config files only (N-8); the driver arrives with M10. */
+/** F-54 ad-hoc ACP agent, accepted from the config files only (N-8); `providers/acp.ts` runs it (M10). */
 export interface AcpProviderConfig {
   kind: "acp";
   command: string;
@@ -86,6 +86,11 @@ export interface CrtConfig {
   provider: string | AcpProviderConfig | null;
   /** Which file `provider` came from (the local file wins); null when neither sets it. */
   providerSource: "local" | "project" | null;
+  /**
+   * F-54: the ad-hoc ACP agent either file describes (the local one wins), whatever `provider`
+   * resolved to — so a local `provider: "acp"` string still finds the project's object.
+   */
+  acp: AcpProviderConfig | null;
   models: Record<string, string>;
   providers: Record<string, { command: string[] }>;
 }
@@ -102,6 +107,7 @@ export const DEFAULT_CONFIG: CrtConfig = {
   port: DEFAULT_PORT,
   provider: null,
   providerSource: null,
+  acp: null,
   models: {},
   providers: {},
 };
@@ -604,6 +610,7 @@ export function readConfig(root: string): CrtConfig {
     port: portOf(local) ?? portOf(project) ?? DEFAULT_PORT,
     provider: localProvider ?? projectProvider,
     providerSource: localProvider ? "local" : projectProvider ? "project" : null,
+    acp: [localProvider, projectProvider].find((p): p is AcpProviderConfig => typeof p === "object" && p !== null) ?? null,
     models: { ...modelsOf(project), ...modelsOf(local) },
     providers: { ...providersOf(project), ...providersOf(local) },
   };

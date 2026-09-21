@@ -80,6 +80,8 @@ export type SessionEvent =
       agentVersion: string | null;
       resumeCommand: string | null;
       capabilities: ProviderCapabilities;
+      /** F-54 (M10): set when the profile has not been verified against a real agent; the footer shows an "experimental" badge with this reason. */
+      experimental?: string;
     }
   /** Echo of a developer message, so a reconnecting panel can rebuild the transcript. */
   | { type: "user"; text: string; images: string[] }
@@ -135,6 +137,8 @@ export interface ProviderRow {
   /** F-44 markers found in the project root. */
   markers: string[];
   capabilities: ProviderCapabilities;
+  /** F-54 (M10): the profile is shipped untested against a real agent; the one-line reason (menu badge tooltip). */
+  experimental?: string;
 }
 
 export interface ProvidersPayload {

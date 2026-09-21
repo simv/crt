@@ -113,6 +113,7 @@ const STYLE = `${WELCOME_CSS}
   .provider .dot[data-state="not on PATH"], .provider .dot[data-state="not logged in"], .provider .dot[data-state="too old"] { background: #c00; }
   .provider .dot[data-state="unknown"] { background: #e0a800; }
   .provider .name small { color: #777; margin-left: 6px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; }
+  .provider .name .badge { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: #fff3cd; color: #7a5200; font-size: 10px; font-weight: 600; vertical-align: 1px; }
   .provider .tick { color: #2e9e5b; font-weight: 700; visibility: hidden; }
   .provider.active .tick { visibility: visible; }
   .provider .spin { width: 10px; height: 10px; border: 2px solid #ddd; border-top-color: #333; border-radius: 50%;
@@ -1708,6 +1709,14 @@ function providerRow(p: ProviderRow, active: boolean): HTMLButtonElement {
   (btn.querySelector(".dot") as HTMLElement).dataset.state = state;
   (btn.querySelector(".name b") as HTMLElement).textContent = p.displayName;
   (btn.querySelector(".name small") as HTMLElement).textContent = p.id;
+  if (p.experimental) {
+    // F-54 (M10): a profile shipped untested against a real agent wears a badge; the reason is its tooltip.
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = "experimental";
+    badge.title = p.experimental;
+    (btn.querySelector(".name") as HTMLElement).appendChild(badge);
+  }
   return btn;
 }
 

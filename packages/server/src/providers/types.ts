@@ -42,7 +42,7 @@ export interface ProviderMarkers {
 }
 
 export interface ProviderProfile {
-  /** Built-in id: `claude`, `codex`, `stub` (M7); `gemini`, `acp` arrive with M10. */
+  /** Built-in id: `claude`, `codex`, `gemini`, `stub`; `acp` is the ad-hoc ACP agent from the config files (F-54). */
   id: string;
   /** The noun the overlay uses for the agent ("Send to Codex", "Claude has a question"; F-56). */
   displayName: string;
@@ -59,6 +59,12 @@ export interface ProviderProfile {
     login: string;
   };
   capabilities: ProviderCapabilities;
+  /**
+   * F-54 (M10): set when the profile ships untested against a real agent — one line saying why.
+   * The overlay badges the menu row and the session footer "experimental", `crt providers`
+   * prints `(experimental)` after the agent name, and the README says so.
+   */
+  experimental?: string;
   /** Per-invocation flags that switch the agent's own telemetry off (N-12); may be empty. */
   telemetryOptOut: string[];
   /**
