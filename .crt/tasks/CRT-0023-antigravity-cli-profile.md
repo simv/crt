@@ -1,10 +1,10 @@
 ---
 id: CRT-0023
 title: Antigravity CLI profile — spike on `agy --print --output-format stream-json`, then a native driver
-status: backlog
+status: in_progress
 priority: normal
 created: 2026-09-21T13:10:00+08:00
-updated: 2026-09-21T13:10:00+08:00
+updated: 2026-09-21T13:15:00+08:00
 url: null
 route: null
 session: null
@@ -40,3 +40,4 @@ No page capture: created from the CRT-0013 session at Simon's request ("i have a
 
 ## Log
 - 2026-09-21T13:10+08:00 — created by session f36246b7-e1ec-4291-95b0-f7a38ba6c3c3 while finishing CRT-0013, after Simon asked whether the Antigravity CLI could be added; `agy` 1.2.7 found at `%LOCALAPPDATA%\agy\bin\agy.exe`, no ACP mode, stream-json loop present, `agy models` lists Gemini 3.x (logged in).
+- 2026-09-21T13:15+08:00 — claimed by /crt:next, session 73480a4c-3400-4053-b1e9-1eb435371ec4, branch crt/CRT-0023-antigravity-cli-profile
