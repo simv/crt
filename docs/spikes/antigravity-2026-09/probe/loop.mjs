@@ -2,7 +2,7 @@
 // written only after the previous `result` event. Records out/<name>.jsonl (stdout as printed),
 // out/<name>.stderr.txt and out/<name>.meta.json.
 //
-//   node loop.mjs <name> [--cwd <dir>] [--env K=V]... [--kill-on <regex>] [--kill-after <ms>] -- <agy args...> -- <message json>...
+//   node loop.mjs <name> [--cwd <dir>] [--env K=V]... [--kill-on <substring>] [--kill-after <ms>] -- <agy args...> -- <message json>...
 //
 // Each <message json> is one NDJSON line; the literal `@sleep:<ms>` waits instead of sending.
 import { spawn, spawnSync } from "node:child_process";
@@ -29,7 +29,7 @@ while (argv.length && argv[0] !== "--") {
     const kv = argv.shift();
     const eq = kv.indexOf("=");
     env[kv.slice(0, eq)] = kv.slice(eq + 1);
-  } else if (a === "--kill-on") killOn = new RegExp(argv.shift());
+  } else if (a === "--kill-on") killOn = argv.shift();
   else if (a === "--kill-after") killAfter = Number(argv.shift());
   else throw new Error(`unknown option ${a}`);
 }
@@ -65,7 +65,7 @@ child.stdout.on("data", (c) => {
     const line = buffer.slice(0, idx);
     buffer = buffer.slice(idx + 1);
     times.push(`${new Date().toISOString()} ${line.slice(0, 160)}`);
-    if (killOn && killOn.test(line)) kill(`matched ${killOn}`);
+    if (killOn && line.includes(killOn)) kill(`matched ${killOn}`);
     try {
       const ev = JSON.parse(line);
       if (ev.event === "result" && resolveResult) resolveResult(ev);
