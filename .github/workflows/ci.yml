@@ -7,14 +7,62 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # Docs-only changes skip the test jobs (Simon, 2026-09-21): a PR or push whose every file is
+  # documentation nothing in the build or the tests reads — docs/, .crt/tasks/, .crt/README.md,
+  # CLAUDE.md, SECURITY.md, .claude/agents/*.md — sets `code=false`, and `check` / `e2e` below are
+  # skipped by their `if:`. A job skipped by a job-level condition reports "Skipped", which the
+  # main ruleset's required status checks accept as passing; a workflow-level `paths-ignore`
+  # would leave them "Expected" and block the merge, hence this job. README.md and plugin/**
+  # are NOT docs here: test/readme.test.ts and the skill tests read them. Anything unknown, a
+  # first push or an API failure counts as code (fail safe).
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+      - id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -u
+          if [ "$EVENT" = "pull_request" ]; then
+            files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[].filename') || files="__api_failed__"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            files=$(gh api "repos/$REPO/compare/$BEFORE...$SHA" --jq '.files[].filename') || files="__api_failed__"
+          else
+            files="__first_push__"
+          fi
+          code=false
+          [ -z "$files" ] && code=true
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              docs/*|.crt/tasks/*|.crt/README.md|CLAUDE.md|SECURITY.md|.claude/agents/*.md) ;;
+              *) code=true ;;
+            esac
+          done <<< "$files"
+          echo "changed files:"; printf '  %s\n' $files
+          echo "code=$code"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
   check:
     name: check (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -51,7 +99,8 @@ jobs:
     # The job name is what the main ruleset requires: "e2e (ubuntu)" is a required status check.
     name: e2e (ubuntu)
     runs-on: ubuntu-latest
-    needs: check
+    needs: [changes, check]
+    if: needs.changes.outputs.code == 'true'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
