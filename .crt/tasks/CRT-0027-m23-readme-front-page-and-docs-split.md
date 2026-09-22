@@ -1,10 +1,10 @@
 ---
 id: CRT-0027
 title: M23 — README as a front page (≤ 200 lines, lockup, screenshots, illustration); the reference moves to eight docs/ pages with its doc tests re-pointed
-status: backlog
+status: in_progress
 priority: high
 created: 2026-09-21T19:55:00+08:00
-updated: 2026-09-21T19:55:00+08:00
+updated: 2026-09-22T11:56:00+08:00
 url: null
 route: null
 session: null
@@ -42,3 +42,4 @@ Depends on CRT-0024 (lockup), CRT-0025 (landing page — the "no scripts" e2e ch
 
 ## Log
 - 2026-09-21T19:55+08:00 — created from docs/PRD-polish.md milestone M23 by the planning session that wrote it (session 78b6555f-fedb-4424-b1ab-1d8477f99af8); the screenshots and illustrations were split into CRT-0026 on the design review's advice, so this task is text, tests and the two server strings.
+- 2026-09-22T11:56+08:00 — claimed by /crt:next, session 936b2ea5-3c24-425e-8a23-a38fb72af5a1, branch crt/CRT-0027-m23-readme-front-page-and-docs-split
