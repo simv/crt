@@ -1,10 +1,10 @@
 ---
 id: CRT-0026
 title: M22 — Reproducible screenshots (npm run screenshots over the e2e fixture and the stub) and the two SVG illustrations
-status: review
+status: done
 priority: high
 created: 2026-09-21T19:55:00+08:00
-updated: 2026-09-22T11:52:00+08:00
+updated: 2026-09-22T11:53:00+08:00
 url: null
 route: null
 session: null
@@ -57,3 +57,4 @@ Depends on CRT-0024 (tokens, brand geometry). `landing.png` needs CRT-0025 merge
 - 2026-09-22T11:41+08:00 — verified: `docs/images/README.md` (what each file shows, `npm run build && npm run screenshots`, what varies, never hand-edit, SVGs hand-drawn) and the `CLAUDE.md` Commands + Don'ts lines in place; the five PNGs and four SVGs committed (2b6fa2f, 4409a55) ✔.
 - 2026-09-22T11:50+08:00 — prd-reviewer ran on the branch: every hunk traceable to F-116 / F-117 / N-27 / §9 / §12 rule 4, every new test cites its requirement, no invariant breach (no new routes, no off-machine calls, the screenshot script writes only docs/images/ and the gitignored scratch project, node:path throughout, LF only, no dependency added, overlay untouched); PR-ready with notes — tick the DoD with Log lines and commit the GitHub render screenshots, done here.
 - 2026-09-22T11:52+08:00 — ready for review: changed CLAUDE.md, package.json, packages/server/{package.json,playwright.config.ts,playwright.screenshots.config.ts (new)}, packages/server/e2e/screenshots.spec.ts (new), packages/server/src/providers/stub.ts, packages/server/test/{docs-images.test.ts (new),providers/stub.test.ts}, docs/images/{README.md,arrival,select,chat,marker-states,landing}.png, docs/images/{loop,loop-dark,architecture,architecture-dark}.svg, .crt/tasks/assets/CRT-0026/github-*.png. Reviewer notes: (1) N-27 holds up to what the server mints or the machine is — session id, capture id, project path, the landing page's clock/Node/plugin/provider rows — listed in docs/images/README.md; §5.3's "the stub's fixed session ids" is not the case today and would be a sessions.ts change, left for M24's §9/§10 evidence; (2) the one e2e failure on this machine (embedded.spec.ts:271) is the probe finding Simon's own Apex servers on :3000/:8080, not this change; (3) docs/images/README.md embeds the two drawings through <picture> so the folder view on GitHub shows them and the image test follows that page too — M23 lifts the same markup into the root README; (4) spare ports 3998/4490 as F-116 says, so the pictures read localhost:3998 rather than the product defaults.
+- 2026-09-22T11:53+08:00 — done; merged in https://github.com/simv/crt/pull/72
