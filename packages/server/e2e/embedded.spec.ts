@@ -241,6 +241,12 @@ test.describe("an embedded server of its own (F-91, F-93, F-94, F-96)", () => {
     expect(html).toContain("Run <code>crt init</code> for the one-line snippet for your framework, or <code>crt proxy</code> to proxy your app instead.");
     expect(html).not.toMatch(/<script/i);
     expect((await fetch("http://localhost:4461/any/route?x=1")).status).toBe(200);
+    // PRD-polish F-112: the favicon the landing page links (M21), served from dist/ in embedded mode.
+    const favicon = await fetch("http://localhost:4461/__crt/favicon.svg");
+    expect(favicon.status).toBe(200);
+    expect(favicon.headers.get("content-type")).toBe("image/svg+xml");
+    expect(favicon.headers.get("cache-control")).toBe("max-age=86400");
+    expect(await favicon.text()).toMatch(/^<svg /);
     await page.goto("http://localhost:4461/");
     await expect(page).toHaveTitle(`CRT ${h.version as string}`);
     await expect(page.locator("#crt-host")).toHaveCount(0);

@@ -28,6 +28,7 @@ Entry points: `packages/server/src/cli.ts` → `serve.ts` (resolves the mode —
 - Intake instructions have one source, `plugin/skills/intake/SKILL.md`; edit the skill, never `dist/intake.md`.
 - Overlay pure logic is unit-tested from `packages/server/test` by importing `../../overlay/src/*` directly (e.g. `owner-stack.test.ts`).
 - Overlay is framework-free, renders inside Shadow DOM, no globals except `window.__crt` for debugging.
+- Overlay colours come from `packages/overlay/src/tokens.ts`; the landing page repeats them and a test pins the two equal (PRD-polish F-112).
 - The browser entries (`packages/overlay/src/{loader,react}.ts`) and `packages/server/src/integrations/` import nothing from the server runtime (`init.ts`/`project.ts` excepted) and are dev-only by construction (PRD-embedded N-18): every browser-facing body sits behind `process.env.NODE_ENV !== "production"` in the positive form, and `exports` routes the `production` condition to the no-op modules.
 - Every CRT HTTP/WS route is under `/__crt/`. Server binds `127.0.0.1` only.
 - Windows is the primary dev platform: use `node:path`, never hand-build paths; spawn with `shell: false`; write files with `\n`.

@@ -34,7 +34,7 @@ import { nearestComponentName } from "./component.js";
 import { labelOf } from "./element.js";
 import { CHECKING_TOOLTIP, crtPort, deriveHealth, fetchHealth, type HealthPayload, type HealthState, rememberServer } from "./health.js";
 import { placePopover } from "./popover.js";
-import { ACCENT } from "./screenshot.js";
+import { ACCENT, ACCENT_HOVER, DANGER, ERROR, EXPERIMENTAL, IDLE, INK, OK, PILL, WARN } from "./tokens.js";
 import { isOverlayNode } from "./selector.js";
 import { buildWelcome, markWelcomeSeen, shouldShowWelcome, WELCOME_CSS, welcomeCopy, welcomeSeen } from "./welcome.js";
 
@@ -56,14 +56,15 @@ const UNKNOWN_AGENT = "the agent";
 /** F-67: what a marker shows for a thread; `task` once the task file exists, else the session state. */
 export type ThreadState = SessionState | "task";
 
-const STYLE = `${WELCOME_CSS}
+/** The overlay's stylesheet (one string; test/brand.test.ts pins the token sites in it, F-112). */
+export const OVERLAY_CSS = `${WELCOME_CSS}
   :host { all: initial; position: fixed; inset: 0; z-index: 2147483647; pointer-events: none;
-          font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color: #111; display: block; }
+          font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color: ${INK}; display: block; }
   *, *::before, *::after { box-sizing: border-box; }
   button { font: inherit; cursor: pointer; border: 0; background: none; color: inherit; padding: 0; }
   .launcher { position: fixed; pointer-events: auto; user-select: none; touch-action: none;
               display: inline-flex; align-items: center; gap: 6px; padding: 10px 14px; border-radius: 999px;
-              background: #111; color: #fff; font-weight: 600; box-shadow: 0 4px 16px rgba(0,0,0,.25); cursor: grab; }
+              background: ${INK}; color: #fff; font-weight: 600; box-shadow: 0 4px 16px rgba(0,0,0,.25); cursor: grab; }
   .launcher:active { cursor: grabbing; }
   .launcher .count { display: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
                      background: ${ACCENT}; color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
@@ -71,9 +72,9 @@ const STYLE = `${WELCOME_CSS}
   .launcher .health { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #9a9a9a;
                       box-shadow: 0 0 0 2px rgba(255,255,255,.25); }
   .launcher[data-health="checking"] .health { animation: crt-pulse 1.2s ease-in-out infinite; }
-  .launcher[data-health="connected"] .health { background: #2e9e5b; }
-  .launcher[data-health="agent not ready"] .health, .launcher[data-health="different project"] .health { background: #e0a800; }
-  .launcher[data-health="unreachable"] .health { background: #d7263d; }
+  .launcher[data-health="connected"] .health { background: ${OK}; }
+  .launcher[data-health="agent not ready"] .health, .launcher[data-health="different project"] .health { background: ${WARN}; }
+  .launcher[data-health="unreachable"] .health { background: ${DANGER}; }
   @keyframes crt-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
   .dock { position: fixed; pointer-events: auto; display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
           width: min(440px, calc(100vw - 32px)); }
@@ -83,7 +84,7 @@ const STYLE = `${WELCOME_CSS}
              width: max-content; max-width: calc(100vw - 32px); overflow-x: auto; }
   .toolbar button { padding: 6px 10px; border-radius: 8px; font-weight: 500; white-space: nowrap; }
   .toolbar button:hover { background: #f0f0f0; }
-  .toolbar button.active { background: #111; color: #fff; }
+  .toolbar button.active { background: ${INK}; color: #fff; }
   .toolbar button:disabled { opacity: .5; cursor: default; }
   .toolbar .sep { width: 1px; height: 20px; background: rgba(0,0,0,.1); margin: 0 2px; }
   .toolbar .badge { min-width: 20px; padding: 0 6px; border-radius: 10px; background: #eee; text-align: center;
@@ -92,7 +93,7 @@ const STYLE = `${WELCOME_CSS}
                   background: var(--st, #ccc); }
   .toolbar .dot[hidden] { display: none; }
   button.primary { background: ${ACCENT}; color: #fff; font-weight: 600; }
-  button.primary:hover { background: #e62e63; }
+  button.primary:hover { background: ${ACCENT_HOVER}; }
   .split { display: inline-flex; }
   .split button.primary { border-radius: 8px 0 0 8px; }
   .split button.caret { border-radius: 0 8px 8px 0; padding: 6px 7px; border-left: 1px solid rgba(255,255,255,.4); }
@@ -109,12 +110,12 @@ const STYLE = `${WELCOME_CSS}
   .provider:disabled { opacity: .5; cursor: default; }
   .provider:disabled:hover { background: none; }
   .provider .dot { width: 8px; height: 8px; border-radius: 4px; background: #ccc; }
-  .provider .dot[data-state="ready"] { background: #2e9e5b; }
+  .provider .dot[data-state="ready"] { background: ${OK}; }
   .provider .dot[data-state="not on PATH"], .provider .dot[data-state="not logged in"], .provider .dot[data-state="too old"] { background: #c00; }
-  .provider .dot[data-state="unknown"] { background: #e0a800; }
+  .provider .dot[data-state="unknown"] { background: ${WARN}; }
   .provider .name small { color: #777; margin-left: 6px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; }
-  .provider .name .badge { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: #fff3cd; color: #7a5200; font-size: 10px; font-weight: 600; vertical-align: 1px; }
-  .provider .tick { color: #2e9e5b; font-weight: 700; visibility: hidden; }
+  .provider .name .badge { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: ${EXPERIMENTAL[0]}; color: ${EXPERIMENTAL[1]}; font-size: 10px; font-weight: 600; vertical-align: 1px; }
+  .provider .tick { color: ${OK}; font-weight: 700; visibility: hidden; }
   .provider.active .tick { visibility: visible; }
   .provider .spin { width: 10px; height: 10px; border: 2px solid #ddd; border-top-color: #333; border-radius: 50%;
                     animation: crt-spin .8s linear infinite; visibility: hidden; }
@@ -123,10 +124,10 @@ const STYLE = `${WELCOME_CSS}
   .providers .why { padding: 4px 8px 2px; font-size: 11px; color: #777; }
   .providers .remember { display: flex; gap: 6px; align-items: center; padding: 8px 8px 4px; font-size: 12px; color: #555;
                          border-top: 1px solid rgba(0,0,0,.06); margin-top: 4px; cursor: pointer; }
-  .status { width: 100%; padding: 8px 10px; border-radius: 10px; background: #111; color: #fff; font-size: 12px;
+  .status { width: 100%; padding: 8px 10px; border-radius: 10px; background: ${INK}; color: #fff; font-size: 12px;
             word-break: break-all; }
   .status[hidden] { display: none; }
-  .status.error { background: #b00020; }
+  .status.error { background: ${ERROR}; }
   .status code { font-family: ui-monospace, Menlo, Consolas, monospace; user-select: all; }
   .status button { color: #ffd166; text-decoration: underline; margin-left: 6px; }
   .sessions { width: 100%; max-height: 40vh; overflow: auto; border-radius: 12px; background: #fff;
@@ -144,17 +145,17 @@ const STYLE = `${WELCOME_CSS}
   .session .meta { grid-column: 1 / 3; font-size: 11px; color: #777; font-family: ui-monospace, Menlo, Consolas, monospace;
                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pill { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: #eee; color: #555; white-space: nowrap; }
-  .pill[data-state="running"], .pill[data-state="starting"] { background: #fff3cd; color: #7a5a00; }
+  .pill[data-state="running"], .pill[data-state="starting"] { background: ${PILL.running[0]}; color: ${PILL.running[1]}; }
   .pill[data-state="waiting"] { background: ${ACCENT}; color: #fff; }
-  .pill[data-state="idle"] { background: #dbe7ff; color: #1a4d99; }
-  .pill[data-state="task"] { background: #d9f5e3; color: #0a5b2b; }
-  .pill[data-state="error"] { background: #fde2e2; color: #8b0000; }
+  .pill[data-state="idle"] { background: ${PILL.idle[0]}; color: ${PILL.idle[1]}; }
+  .pill[data-state="task"] { background: ${PILL.task[0]}; color: ${PILL.task[1]}; }
+  .pill[data-state="error"] { background: ${PILL.error[0]}; color: ${PILL.error[1]}; }
   .layer { position: fixed; inset: 0; pointer-events: auto; cursor: crosshair; touch-action: none; }
   .layer[hidden] { display: none; }
   .hover { position: fixed; pointer-events: none; border: 2px solid ${ACCENT}; background: rgba(255,61,113,.08);
            border-radius: 2px; display: none; }
   .hover-label { position: fixed; pointer-events: none; display: none; padding: 3px 7px; border-radius: 6px;
-                 background: #111; color: #fff; font-size: 11px; font-family: ui-monospace, Menlo, Consolas, monospace;
+                 background: ${INK}; color: #fff; font-size: 11px; font-family: ui-monospace, Menlo, Consolas, monospace;
                  max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hover-label b { color: #ffd166; font-weight: 600; }
   .drag { position: fixed; pointer-events: none; border: 2px dashed ${ACCENT}; background: rgba(255,61,113,.08); display: none; }
@@ -166,11 +167,11 @@ const STYLE = `${WELCOME_CSS}
               box-shadow: 0 0 0 2px ${ACCENT}; }
   .mark.detached { opacity: .4; }
   /* F-67: one colour per thread state, shared by the badge, the marker outline and the toolbar dot. */
-  [data-state="starting"], [data-state="running"] { --st: #e0a800; }
+  [data-state="starting"], [data-state="running"] { --st: ${WARN}; }
   [data-state="waiting"] { --st: ${ACCENT}; }
-  [data-state="idle"] { --st: #2f6fed; }
-  [data-state="task"] { --st: #2e9e5b; }
-  [data-state="error"] { --st: #b00020; }
+  [data-state="idle"] { --st: ${IDLE}; }
+  [data-state="task"] { --st: ${OK}; }
+  [data-state="error"] { --st: ${ERROR}; }
   [data-state="ended"] { --st: #888; }
   .mark[data-state] { border-color: var(--st); }
   .num-badge { position: fixed; pointer-events: auto; cursor: pointer; width: 22px; height: 22px; border-radius: 11px;
@@ -197,7 +198,7 @@ const STYLE = `${WELCOME_CSS}
                      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pop-head .title { flex: 1; font-weight: 600; }
   .pop-head .close { width: 22px; height: 22px; border-radius: 11px; color: #888; font-size: 16px; line-height: 22px; text-align: center; }
-  .pop-head .close:hover { background: #eee; color: #111; }
+  .pop-head .close:hover { background: #eee; color: ${INK}; }
   .compose { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 8px; }
   .compose textarea { width: 100%; min-height: 64px; resize: vertical; font: inherit; padding: 8px; border-radius: 8px;
                       border: 1px solid rgba(0,0,0,.15); background: #fafafa; }
@@ -208,7 +209,7 @@ const STYLE = `${WELCOME_CSS}
   .pop-foot .spacer { flex: 1; }
   .pop-foot button { padding: 6px 10px; border-radius: 8px; font-weight: 500; white-space: nowrap; }
   .pop-foot button:hover { background: #f0f0f0; }
-  .pop-foot button.primary:hover { background: #e62e63; }
+  .pop-foot button.primary:hover { background: ${ACCENT_HOVER}; }
   .pop-foot button:disabled { opacity: .5; cursor: default; }
   .pop-foot button.del { color: #888; }
   .pop-foot button.del:hover { background: #fee; color: #c00; }
@@ -317,7 +318,7 @@ export class OverlayUI {
     this.host.setAttribute("data-crt", "");
     this.root = this.host.attachShadow({ mode: "open" });
     this.root.innerHTML = `
-      <style>${STYLE}</style>
+      <style>${OVERLAY_CSS}</style>
       <div class="layer" hidden>
         <div class="hover"></div><div class="hover-label"></div><div class="drag"></div>
       </div>

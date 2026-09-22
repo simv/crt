@@ -7,6 +7,8 @@
  *     the version and project, the app link when known, the `crt init` / `crt proxy` sentence, no scripts.
  *   • GET /__crt/loader.js serves dist/loader.js (F-94, F-96) with the F-6 CORS rules and no-store;
  *     health's `overlay.loader` counts it.
+ *   • GET /__crt/favicon.svg (PRD-polish F-112) serves dist/favicon.svg — the mark the landing page links —
+ *     with a day of cache and the F-6 CORS rules, in both modes; the PNG fallbacks sit beside it.
  *   • F-94: one 15 s timer per server, armed by `browserOpened(url)` (serve.ts calls it after opening
  *     the app); when it fires with neither the loader nor the overlay requested, the terminal says so once.
  *   • The F-75 "overlay loaded" line names the requesting page's origin (Origin, else Referer).
@@ -121,6 +123,14 @@ export const CRT_PREFIX = "/__crt";
 export const CAPTURES_PATH = `${CRT_PREFIX}/captures`;
 /** F-94/F-96: the IIFE loader, `dist/loader.js`, next to the overlay bundle. */
 export const LOADER_PATH = `${CRT_PREFIX}/loader.js`;
+/** PRD-polish F-112: the favicon the landing page links, `dist/favicon.svg`, next to the overlay bundle. */
+export const FAVICON_PATH = `${CRT_PREFIX}/favicon.svg`;
+/** F-112: the brand files the build copies into dist/ (copy-intake.mjs) — the favicon and its PNG fallbacks (Should). */
+const BRAND_ASSETS = new Map<string, { file: string; type: string }>([
+  [FAVICON_PATH, { file: "favicon.svg", type: "image/svg+xml" }],
+  [`${CRT_PREFIX}/favicon-32.png`, { file: "favicon-32.png", type: "image/png" }],
+  [`${CRT_PREFIX}/favicon-16.png`, { file: "favicon-16.png", type: "image/png" }],
+]);
 
 /** The server plus the one call embedded mode needs from serve.ts (F-94). */
 export interface CrtServer extends Server {
@@ -523,6 +533,25 @@ async function handleCrtRoute(
     } catch {
       res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
       res.end(`CRT: overlay bundle missing at ${file} — run \`npm run build\``);
+    }
+    return;
+  }
+  const asset = BRAND_ASSETS.get(path);
+  if (asset) {
+    // F-112: a static file with a day of cache (the bundles above are no-store on purpose; the mark never changes at runtime).
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      res.setHeader("allow", "GET, HEAD");
+      json(res, 405, { ok: false, error: `GET ${path}` });
+      return;
+    }
+    const file = siblingOf(opts.overlayPath, asset.file);
+    try {
+      const body = await readFile(file);
+      res.writeHead(200, { "content-type": asset.type, "content-length": String(body.length), "cache-control": "max-age=86400" });
+      res.end(req.method === "HEAD" ? undefined : body);
+    } catch {
+      res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+      res.end(`CRT: ${asset.file} missing at ${file} — run \`npm run build\``);
     }
     return;
   }

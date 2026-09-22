@@ -17,12 +17,17 @@ let tmp: string;
 const overlayJs = 'console.log("overlay stub")';
 const earlyJs = 'console.log("early stub")';
 const loaderJs = 'console.log("loader stub")';
+const faviconSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"/>';
+const faviconPng = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 beforeAll(async () => {
   tmp = mkdtempSync(join(tmpdir(), "crt-proxy-"));
   writeFileSync(join(tmp, "overlay.js"), overlayJs);
   writeFileSync(join(tmp, "early.js"), earlyJs);
   writeFileSync(join(tmp, "loader.js"), loaderJs);
+  writeFileSync(join(tmp, "favicon.svg"), faviconSvg);
+  writeFileSync(join(tmp, "favicon-32.png"), faviconPng);
+  writeFileSync(join(tmp, "favicon-16.png"), faviconPng);
   fixture = await startFixture();
   proxy = createProxyServer({ target: fixture.url, projectRoot: tmp, overlayPath: join(tmp, "overlay.js") });
   await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
@@ -201,6 +206,35 @@ describe("CRT routes (F-4)", () => {
     expect(r.status).toBe(200);
     expect(r.headers["content-type"]).toMatch(/^text\/javascript/);
     expect(r.body.toString()).toBe(earlyJs);
+  });
+
+  it("serves /__crt/favicon.svg from next to the overlay bundle: image/svg+xml, a day of cache, CORS for a loopback origin, HEAD allowed, other methods 405 (PRD-polish F-112)", async () => {
+    const r = await raw("/__crt/favicon.svg");
+    expect(r.status).toBe(200);
+    expect(r.headers["content-type"]).toBe("image/svg+xml");
+    expect(r.headers["cache-control"]).toBe("max-age=86400");
+    expect(r.headers["content-length"]).toBe(String(Buffer.byteLength(faviconSvg)));
+    expect(r.body.toString()).toBe(faviconSvg);
+    const head = await raw("/__crt/favicon.svg", { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(head.headers["content-type"]).toBe("image/svg+xml");
+    expect(head.body.length).toBe(0);
+    // F-6: the CORS headers for a loopback origin, nothing for another origin.
+    expect((await raw("/__crt/favicon.svg", { headers: { origin: "http://localhost:3000" } })).headers["access-control-allow-origin"]).toBe("http://localhost:3000");
+    expect((await raw("/__crt/favicon.svg", { headers: { origin: "http://evil.example" } })).headers["access-control-allow-origin"]).toBeUndefined();
+    for (const method of ["POST", "PUT", "DELETE"]) {
+      const bad = await raw("/__crt/favicon.svg", { method });
+      expect(bad.status, method).toBe(405);
+      expect(bad.headers.allow).toBe("GET, HEAD");
+    }
+    // The PNG fallbacks (F-112 Should) beside it, same headers.
+    for (const name of ["favicon-32.png", "favicon-16.png"]) {
+      const png = await raw(`/__crt/${name}`);
+      expect(png.status, name).toBe(200);
+      expect(png.headers["content-type"]).toBe("image/png");
+      expect(png.headers["cache-control"]).toBe("max-age=86400");
+      expect(png.body.equals(faviconPng)).toBe(true);
+    }
   });
 
   it("returns 404 for unknown /__crt/ paths without touching the target", async () => {
@@ -519,6 +553,23 @@ describe("embedded mode (PRD-embedded F-91, F-93, F-94)", () => {
       const answer = await new Promise<string>((r) => socket.once("data", (c: Buffer) => r(c.toString())));
       expect(answer).toMatch(/^HTTP\/1\.1 404/);
       socket.destroy();
+    } finally {
+      await e.close();
+    }
+  });
+
+  it("serves /__crt/favicon.svg in embedded mode too, with the same headers (PRD-polish F-112)", async () => {
+    const e = await embedded({ target: "http://localhost:3000" });
+    try {
+      const r = await e.get("/__crt/favicon.svg", { origin: "http://localhost:3000" });
+      expect(r.status).toBe(200);
+      expect(r.headers["content-type"]).toBe("image/svg+xml");
+      expect(r.headers["cache-control"]).toBe("max-age=86400");
+      expect(r.headers["access-control-allow-origin"]).toBe("http://localhost:3000");
+      expect(r.body.toString()).toBe(faviconSvg);
+      expect((await e.get("/__crt/favicon.svg", {}, "POST")).status).toBe(405);
+      // It does not count as a loader or overlay fetch.
+      expect(((await e.health()).overlay as { loader: number; fetched: number })).toMatchObject({ loader: 0, fetched: 0 });
     } finally {
       await e.close();
     }

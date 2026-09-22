@@ -13,6 +13,7 @@
 import { domToCanvas } from "modern-screenshot";
 import type { Rect } from "../../server/src/capture-schema.js";
 import { isOverlayNode } from "./selector.js";
+import { ACCENT } from "./tokens.js";
 
 export interface MarkerSpec {
   n: number;
@@ -32,7 +33,6 @@ export interface ScreenshotResult {
   error: string | null;
 }
 
-export const ACCENT = "#ff3d71";
 const CROP_PAD = 24;
 const PIN_CROP = 160;
 const FIXED_ATTR = "data-crt-fixed";
