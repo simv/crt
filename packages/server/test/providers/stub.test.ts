@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeCapture } from "../../src/captures.js";
 import { FIRST_MESSAGE_HEADING } from "../../src/intake-message.js";
-import { isQuickNote, makeStubProfile, STUB_CAPABILITIES, STUB_VARIANTS, stubCapabilities, stubProfile, stubVariantFromEnv } from "../../src/providers/stub.js";
+import { HOLD_PHRASE, isQuickNote, makeStubProfile, STUB_CAPABILITIES, STUB_VARIANTS, stubCapabilities, stubProfile, stubVariantFromEnv } from "../../src/providers/stub.js";
 import { samplePost } from "../helpers/sample-capture.js";
 import { runConformance } from "./conformance.js";
 
@@ -94,6 +94,31 @@ describe("stub provider variants (F-42, F-46)", () => {
       "stub (sandboxed) expected no system prompt text when instructions travel in the first message",
       "stub (sandboxed) received base64 image data it did not ask for (F-50)",
     ]);
+    driver.close();
+  });
+
+  it(`stays running after its first sentence when the note says "${HOLD_PHRASE}" — no tool, no result — until interrupted (PRD-polish F-116, §12 rule 4)`, async () => {
+    const events: Array<{ type: string; state?: string }> = [];
+    let asked = 0;
+    const driver = makeStubProfile().start({
+      id: "hold",
+      cwd: root,
+      systemPromptAppend: "",
+      first: { text: `CRT intake for capture x\n\n1. [select] "Heading reads like a placeholder — ${HOLD_PHRASE}"` },
+      decide: () => (asked++, { kind: "ask" }),
+      writeTask: async () => ({ id: "CRT-0001", path: "x" }),
+      mcp: { command: "node", args: [], env: {} },
+      model: null,
+    });
+    driver.onEvent((e) => events.push(e));
+    await new Promise((r) => setTimeout(r, 600));
+    // The first sentence streamed, then nothing: no Read, no permission, no result.
+    expect(events.map((e) => e.type).filter((t) => t !== "text")).toEqual(["user", "init", "state", "assistant_start", "assistant_end"]);
+    expect(events.filter((e) => e.type === "state").map((e) => e.state)).toEqual(["running"]);
+    expect(asked).toBe(0);
+    await driver.interrupt();
+    expect(events.at(-2)).toMatchObject({ type: "result", ok: false, errors: ["interrupted"] });
+    expect(events.at(-1)).toEqual({ type: "state", state: "idle" });
     driver.close();
   });
 });

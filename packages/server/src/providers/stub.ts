@@ -12,6 +12,9 @@
  *   A first message carrying the F-14 quick-note instructions skips the permission prompt and the
  *   DoD wait: Read, then `writeTask` straight away (unless the note says "ask me", which makes
  *   the stub ask a question instead, so the panel-opens-itself path can be tested too).
+ *   A first message whose note says "take your time" keeps the stub `running` after its first
+ *   sentence until an interrupt or close (PRD-polish F-116, §12 rule 4: the `thinking…` marker
+ *   for `npm run screenshots`); no e2e note carries the phrase, so the specs never see it.
  *
  * Variants (F-46 "the stub also runs the conformance scenario with `first-message` and
  * `sandboxed`"): `CRT_SESSION_STUB=first-message` moves the intake instructions into the first
@@ -75,6 +78,10 @@ export const stubProfile: ProviderProfile = makeStubProfile(stubVariantFromEnv(p
 export function isQuickNote(text: string): boolean {
   return /^Quick note \(F-14\)/.test(text.trim().split(/\n{2,}/).at(-1) ?? "");
 }
+
+/** PRD-polish F-116: the note that keeps the stub thinking (the screenshot script's `thinking…` marker). */
+export const HOLD_PHRASE = "take your time";
+const HOLD_RE = new RegExp(`\\b${HOLD_PHRASE}\\b`, "i");
 
 export function startStubSession(opts: StartSessionOptions, variant: StubVariant = "default"): SessionDriver {
   const caps = stubCapabilities(variant);
@@ -186,6 +193,11 @@ export function startStubSession(opts: StartSessionOptions, variant: StubVariant
     setState("running");
     await say(t, "I read the capture. The annotated element is rendered by **CartSummary**; let me look at the source.\n");
     if (cancelled(t)) return;
+    if (HOLD_RE.test(first.text)) {
+      // F-116: stay `running` — no tool, no result — until the session is interrupted or closed.
+      while (!cancelled(t)) await sleep(TICK_MS * 10);
+      return;
+    }
     if (!(await useTool(t, "Read", { file_path: "src/components/Cart.tsx" }, "Read src/components/Cart.tsx", "88 lines"))) return;
     const ran = await useTool(t, "Bash", { command: "npm test" }, "Bash npm test", "12 passing");
     if (cancelled(t)) return;

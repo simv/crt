@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 300" role="img" aria-label="How CRT fits together: your app on its own origin carries the dev-only loader and the overlay; they talk to the CRT server on 127.0.0.1:4400, which runs the agent session; the agent calls write_task and the task file lands in .crt/tasks/">
+<defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#f2f2f4"/></marker></defs>
+<g font-family="system-ui, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#f2f2f4">
+<!-- your app: its own origin, the loader and the overlay inside -->
+<rect x="20" y="30" width="270" height="200" rx="12" fill="#17171b" stroke="#2a2a30"/>
+<text x="36" y="56" font-weight="700">Your app</text>
+<text x="274" y="56" text-anchor="end" font-family="ui-monospace, Consolas, Menlo, monospace" font-size="12" fill="#9a9aa3">localhost:3000</text>
+<g transform="translate(36 70)">
+<path fill="#3a3a42" stroke="#2a2a30" stroke-width="1" d="M112 64C112 99.8 107.8 103 60 103C12.2 103 8 99.8 8 64C8 28.2 12.2 25 60 25C107.8 25 112 28.2 112 64Z" transform="translate(-8 -25) scale(1 1)"/>
+<path fill="#1e1e24" d="M104 64C104 92.5 100.4 95 60 95C19.6 95 16 92.5 16 64C16 35.5 19.6 33 60 33C100.4 33 104 35.5 104 64Z" transform="translate(-8 -25)"/>
+<rect x="52" y="47" width="38" height="16" rx="8" fill="#fff"/>
+<text x="67" y="59" font-size="9" font-weight="700" fill="#111" text-anchor="middle">CRT</text>
+<circle cx="83" cy="55" r="3" fill="#2e9e5b"/>
+<rect x="18" y="16" width="36" height="24" rx="2" fill="none" stroke="#ff3d71" stroke-width="2" stroke-dasharray="5 3"/>
+<circle cx="54" cy="16" r="8" fill="#ff3d71"/>
+<path fill="#fff" d="M52.8 11.2h3.3v9.6h-3.3v-6.3h-2.9Z"/>
+</g>
+<text x="166" y="94" font-weight="600">the loader</text>
+<text x="166" y="111" font-size="11" fill="#9a9aa3">one dev-only import,</text>
+<text x="166" y="126" font-size="11" fill="#9a9aa3">3 KB, gone in production</text>
+<text x="166" y="158" font-weight="600">the overlay</text>
+<text x="166" y="175" font-size="11" fill="#9a9aa3">Shadow DOM: annotate,</text>
+<text x="166" y="190" font-size="11" fill="#9a9aa3">chat, markers</text>
+<text x="36" y="216" font-size="11" fill="#9a9aa3">served by your dev server, on its own origin</text>
+<!-- the CRT server -->
+<rect x="370" y="30" width="230" height="200" rx="12" fill="#17171b" stroke="#2a2a30"/>
+<text x="386" y="56" font-weight="700">CRT server</text>
+<text x="584" y="56" text-anchor="end" font-family="ui-monospace, Consolas, Menlo, monospace" font-size="12" fill="#9a9aa3">127.0.0.1:4400</text>
+<rect x="386" y="72" width="198" height="26" rx="6" fill="#202026"/>
+<text x="396" y="89" font-family="ui-monospace, Consolas, Menlo, monospace" font-size="11">/__crt/*</text>
+<text x="574" y="89" text-anchor="end" font-size="11" fill="#9a9aa3">loader, overlay, routes</text>
+<text x="386" y="122" font-size="12">captures → <tspan font-family="ui-monospace, Consolas, Menlo, monospace" font-size="11">.crt/captures/</tspan></text>
+<text x="386" y="142" font-size="12">sessions, permissions, the landing page</text>
+<rect x="386" y="160" width="198" height="52" rx="8" fill="#202026" stroke="#2a2a30"/>
+<text x="396" y="181" font-size="12" fill="#f2f2f4" font-weight="600">agent session</text>
+<text x="396" y="199" font-size="11" fill="#9a9aa3">Claude Code · Codex · Gemini · ACP</text>
+<!-- write_task and the task file -->
+<path fill="#17171b" stroke="#2a2a30" d="M760 60H860L900 100V230H760Z"/>
+<path fill="none" stroke="#2a2a30" d="M860 60V100H900"/>
+<text x="830" y="130" text-anchor="middle" font-family="ui-monospace, Consolas, Menlo, monospace" font-size="12" font-weight="700">CRT-0007</text>
+<rect x="778" y="146" width="104" height="5" rx="2.5" fill="#9a9aa3" opacity=".6"/>
+<rect x="778" y="160" width="80" height="5" rx="2.5" fill="#9a9aa3" opacity=".6"/>
+<rect x="778" y="174" width="96" height="5" rx="2.5" fill="#9a9aa3" opacity=".6"/>
+<rect x="778" y="188" width="60" height="5" rx="2.5" fill="#9a9aa3" opacity=".6"/>
+<rect x="778" y="202" width="88" height="5" rx="2.5" fill="#9a9aa3" opacity=".6"/>
+<text x="830" y="252" text-anchor="middle" font-family="ui-monospace, Consolas, Menlo, monospace" font-size="12">.crt/tasks/</text>
+<text x="830" y="270" text-anchor="middle" font-size="11" fill="#9a9aa3">self-contained, committed with the project</text>
+<!-- the arrows -->
+<g fill="none" stroke="#f2f2f4" stroke-width="1.5">
+<path d="M298 120H362" marker-start="url(#a)" marker-end="url(#a)"/>
+<path d="M608 186H752" marker-end="url(#a)"/>
+</g>
+<text x="330" y="108" text-anchor="middle" font-size="11" fill="#9a9aa3">fetch, SSE</text>
+<text x="330" y="140" text-anchor="middle" font-size="11" fill="#9a9aa3">cross-origin</text>
+<text x="680" y="174" text-anchor="middle" font-family="ui-monospace, Consolas, Menlo, monospace" font-size="12">write_task</text>
+<text x="680" y="204" text-anchor="middle" font-size="11" fill="#9a9aa3">the one tool CRT adds</text>
+<text x="20" y="270" font-size="11" fill="#9a9aa3">Nothing leaves the machine except the model calls the agent already makes; the server binds 127.0.0.1 only.</text>
+</g>
+</svg>

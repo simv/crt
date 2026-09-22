@@ -16,6 +16,7 @@
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "e2e": "npm run e2e --workspace packages/server --if-present",
+    "screenshots": "npm run screenshots --workspace packages/server --if-present",
     "check": "npm run typecheck && npm run lint && npm test && npm run build"
   }
 }

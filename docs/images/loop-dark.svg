@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 250" role="img" aria-label="The CRT loop: annotate your app in the browser, chat in the page, get a task file, /crt:next takes it to a pull request, and the fix lands back in the running app">
+<defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#f2f2f4"/></marker></defs>
+<g font-family="system-ui, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" text-anchor="middle" fill="#f2f2f4">
+<!-- 1 · the browser: the tube with the CRT pill bottom-right -->
+<g transform="translate(20 11)">
+<path fill="#3a3a42" stroke="#2a2a30" stroke-width="1" d="M112 64C112 99.8 107.8 103 60 103C12.2 103 8 99.8 8 64C8 28.2 12.2 25 60 25C107.8 25 112 28.2 112 64Z"/>
+<path fill="#1e1e24" d="M104 64C104 92.5 100.4 95 60 95C19.6 95 16 92.5 16 64C16 35.5 19.6 33 60 33C100.4 33 104 35.5 104 64Z"/>
+<rect x="60" y="72" width="38" height="16" rx="8" fill="#fff"/>
+<text x="75" y="84" font-size="9" font-weight="700" fill="#111">CRT</text>
+<circle cx="91" cy="80" r="3" fill="#2e9e5b"/>
+</g>
+<text x="80" y="158">Your app</text>
+<text x="80" y="176" font-size="11" fill="#9a9aa3">in the browser, the CRT pill</text>
+<!-- 2 · annotate: the selection outline and the numbered badge -->
+<rect x="185" y="30" width="110" height="90" rx="10" fill="#17171b" stroke="#2a2a30"/>
+<rect x="203" y="48" width="64" height="40" rx="2" fill="none" stroke="#ff3d71" stroke-width="2.5" stroke-dasharray="6 4"/>
+<circle cx="267" cy="48" r="11" fill="#ff3d71"/>
+<path fill="#fff" d="M265.3 41.4h4.5v13h-4.5v-8.5h-3.9Z"/>
+<rect x="203" y="98" width="52" height="4" rx="2" fill="#9a9aa3" opacity=".6"/>
+<rect x="203" y="106" width="34" height="4" rx="2" fill="#9a9aa3" opacity=".6"/>
+<text x="240" y="158">Annotate</text>
+<text x="240" y="176" font-size="11" fill="#9a9aa3">select · box · pin · a note</text>
+<!-- 3 · chat in the page: two bubbles and the Allow / Deny card -->
+<rect x="345" y="30" width="110" height="90" rx="10" fill="#17171b" stroke="#2a2a30"/>
+<rect x="355" y="40" width="78" height="16" rx="6" fill="#f2f2f4"/>
+<rect x="361" y="46" width="60" height="4" rx="2" fill="#111" opacity=".7"/>
+<rect x="367" y="62" width="78" height="16" rx="6" fill="#202026"/>
+<rect x="373" y="68" width="50" height="4" rx="2" fill="#9a9aa3" opacity=".7"/>
+<rect x="355" y="86" width="90" height="24" rx="6" fill="#17171b" stroke="#ff3d71"/>
+<rect x="361" y="91" width="34" height="14" rx="4" fill="#f2f2f4"/>
+<text x="378" y="101" font-size="8" font-weight="700" fill="#111">Allow</text>
+<rect x="400" y="91" width="34" height="14" rx="4" fill="#202026"/>
+<text x="417" y="101" font-size="8" font-weight="700">Deny</text>
+<text x="400" y="158">Chat in the page</text>
+<text x="400" y="176" font-size="11" fill="#9a9aa3">Allow / Deny · what done means</text>
+<!-- 4 · the task file -->
+<path fill="#17171b" stroke="#2a2a30" d="M526 30H580L598 48V120H526Z"/>
+<path fill="none" stroke="#2a2a30" d="M580 30V48H598"/>
+<text x="562" y="60" font-family="ui-monospace, Consolas, Menlo, monospace" font-size="10" font-weight="700">CRT-0007</text>
+<rect x="536" y="70" width="52" height="4" rx="2" fill="#9a9aa3" opacity=".6"/>
+<rect x="536" y="80" width="40" height="4" rx="2" fill="#9a9aa3" opacity=".6"/>
+<rect x="536" y="90" width="48" height="4" rx="2" fill="#9a9aa3" opacity=".6"/>
+<rect x="536" y="100" width="30" height="4" rx="2" fill="#9a9aa3" opacity=".6"/>
+<text x="562" y="158">A task file</text>
+<text x="562" y="176" font-size="11" fill="#9a9aa3">lands in .crt/tasks/</text>
+<!-- 5 · /crt:next in a terminal -->
+<rect x="663" y="45" width="114" height="60" rx="8" fill="#202026" stroke="#2a2a30"/>
+<text x="720" y="80" font-family="ui-monospace, Consolas, Menlo, monospace" font-size="12" fill="#f2f2f4">&gt; /crt:next</text>
+<rect x="753" y="84" width="7" height="3" fill="#2e9e5b"/>
+<text x="720" y="158">/crt:next</text>
+<text x="720" y="176" font-size="11" fill="#9a9aa3">any later session takes it</text>
+<!-- 6 · the pull request: the merge glyph -->
+<rect x="825" y="30" width="110" height="90" rx="10" fill="#17171b" stroke="#2a2a30"/>
+<path fill="none" stroke="#f2f2f4" stroke-width="2.5" d="M858 52V100M858 54C858 76 898 66 898 88"/>
+<circle cx="858" cy="52" r="6" fill="#2f6fed"/>
+<circle cx="858" cy="100" r="6" fill="#2f6fed"/>
+<circle cx="898" cy="90" r="6" fill="#ff3d71"/>
+<text x="880" y="158">A pull request</text>
+<text x="880" y="176" font-size="11" fill="#9a9aa3">review, merge</text>
+<!-- the arrows -->
+<g fill="none" stroke="#f2f2f4" stroke-width="1.5" marker-end="url(#a)">
+<path d="M152 75H178"/>
+<path d="M302 75H338"/>
+<path d="M462 75H518"/>
+<path d="M606 75H656"/>
+<path d="M784 75H818"/>
+<path d="M937 75H950V225H10V75H22"/>
+</g>
+<text x="480" y="219" font-size="11" fill="#9a9aa3">merged — the fix is in the app you are looking at; annotate the next thing</text>
+</g>
+</svg>

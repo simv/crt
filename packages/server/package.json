@@ -54,7 +54,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "dev": "tsc -p tsconfig.json --watch",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "screenshots": "playwright test -c playwright.screenshots.config.ts"
   },
   "peerDependencies": {
     "react": ">=18",
