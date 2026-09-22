@@ -1,10 +1,10 @@
 ---
 id: CRT-0026
 title: M22 — Reproducible screenshots (npm run screenshots over the e2e fixture and the stub) and the two SVG illustrations
-status: backlog
+status: in_progress
 priority: high
 created: 2026-09-21T19:55:00+08:00
-updated: 2026-09-21T19:55:00+08:00
+updated: 2026-09-22T11:06:00+08:00
 url: null
 route: null
 session: null
@@ -46,3 +46,4 @@ Depends on CRT-0024 (tokens, brand geometry). `landing.png` needs CRT-0025 merge
 
 ## Log
 - 2026-09-21T19:55+08:00 — created from docs/PRD-polish.md milestone M22 by the planning session that wrote it (session 78b6555f-fedb-4424-b1ab-1d8477f99af8), split out of the README task on the design review's advice (§D: T3 screenshots + SVGs before T4 README).
+- 2026-09-22T11:06+08:00 — claimed by /crt:next, session e0ff97f7-bfeb-448f-a446-b6e7cd1264dc, branch crt/CRT-0026-m22-screenshots-and-illustrations
