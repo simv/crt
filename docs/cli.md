@@ -68,3 +68,4 @@ Everything is gathered at Send time from the live page, because the session cann
 - your notes.
 
 It is written to `.crt/captures/<id>/capture.json` (+ PNGs) and moves to `.crt/tasks/assets/<ID>/` when the task is written. Captures older than 7 days that never became tasks are pruned on the next `crt serve`.
+
