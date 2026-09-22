@@ -221,7 +221,7 @@ export function createProxyServer(opts: ProxyOptions): CrtServer {
       if (state.overlay.fetched > 0 || state.warned.missing) return;
       state.warned.missing = true;
       log(
-        `crt: injected the overlay into GET ${state.lastInjected} but the browser never fetched ${OVERLAY_PATH} — a Content-Security-Policy or a JS-rendered shell is blocking it; see README › Overlay does not appear`,
+        `crt: injected the overlay into GET ${state.lastInjected} but the browser never fetched ${OVERLAY_PATH} — a Content-Security-Policy or a JS-rendered shell is blocking it; see docs/troubleshooting.md › Overlay does not appear`,
       );
     }, overlayTimeout);
     state.timer.unref();

@@ -15,16 +15,18 @@ concurrency:
 
 jobs:
   # Docs-only changes skip the test jobs (Simon, 2026-09-21): a PR or push whose every file is
-  # documentation nothing in the build or the tests reads — docs/, .crt/tasks/, .crt/README.md,
-  # CLAUDE.md, SECURITY.md, .claude/agents/*.md — sets `code=false`, and `check` / `e2e` below are
+  # documentation nothing in the build or the tests reads — docs/PRD*.md, docs/spikes/, docs/brand/,
+  # docs/design/, docs/images/, .crt/tasks/, .crt/README.md, CLAUDE.md, SECURITY.md,
+  # .claude/agents/*.md — sets `code=false`, and `check` / `e2e` below are
   # skipped: `e2e` by its job-level `if:` (a skipped job reports "Skipped", which the main
   # ruleset's required status checks accept as passing; a workflow-level `paths-ignore` would
   # leave them "Expected" and block the merge), `check` step by step — a matrix job skipped at
   # the job level reports under the unexpanded name `check (${{ matrix.os }})` (seen on PR #64),
   # so its required contexts `check (ubuntu-latest)` / `check (windows-latest)` would never
-  # arrive; with the steps skipped instead, each leg reports Success under its real name in seconds. README.md and plugin/**
-  # are NOT docs here: test/readme.test.ts and the skill tests read them. Anything unknown, a
-  # first push or an API failure counts as code (fail safe).
+  # arrive; with the steps skipped instead, each leg reports Success under its real name in seconds. README.md, plugin/**
+  # and the eight reference pages docs/*.md (install, integration, cli, providers, task-format,
+  # how-it-works, troubleshooting, develop — M23) are NOT docs here: test/docs.test.ts and the skill
+  # tests read them. Anything unknown, a first push or an API failure counts as code (fail safe).
   changes:
     name: changes
     runs-on: ubuntu-latest
@@ -54,7 +56,7 @@ jobs:
           while IFS= read -r f; do
             [ -z "$f" ] && continue
             case "$f" in
-              docs/*|.crt/tasks/*|.crt/README.md|CLAUDE.md|SECURITY.md|.claude/agents/*.md) ;;
+              docs/PRD*.md|docs/spikes/*|docs/brand/*|docs/design/*|docs/images/*|.crt/tasks/*|.crt/README.md|CLAUDE.md|SECURITY.md|.claude/agents/*.md) ;;
               *) code=true ;;
             esac
           done <<< "$files"

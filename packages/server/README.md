@@ -1,6 +1,8 @@
 # claude-review-tool
 
-The `crt` CLI for the **Claude Review Tool**: a local CRT server plus an annotation overlay that one dev-only line in your app loads onto your app's own URL (or that `crt proxy` injects into a proxied copy), lets you talk to Claude (or Codex) in the page, and writes self-contained task files to `.crt/tasks/` that any later Claude Code session can complete with `/crt:next`.
+<img alt="CRT — Claude Review Tool" src="https://raw.githubusercontent.com/simv/crt/main/docs/brand/crt-lockup.svg" width="320">
+
+The `crt` CLI for the **Claude Review Tool**: annotate your local site in the browser, talk to Claude (or Codex, Gemini CLI, Antigravity CLI, any ACP agent) in the page, and get a self-contained task file in `.crt/tasks/` that any later Claude Code session can complete with `/crt:next`.
 
 ```bash
 # one-time, per machine
@@ -42,6 +44,14 @@ if (process.env.NODE_ENV !== "production") mountCrt();   // the guard is optiona
 <script src="http://localhost:4400/__crt/loader.js"></script>
 ```
 
-The plugin ships inside this package (`dist/plugin-marketplace/`), so `crt setup` needs no GitHub access and the plugin version always equals the `crt` version. `npx claude-review-tool` works with no install at all (the first run downloads ~220 MB). `crt doctor` checks node, project, `.crt`, mode, target, integration, instructions, port, agents and plugin when something is off.
+What you get:
 
-Full documentation — install options, the four snippets and where each starts capturing, the production guarantee, what lands in your repo, the loop, providers, the task format, proxy mode, troubleshooting — is in the repository README: https://github.com/simv/crt#readme. Node ≥ 20; Windows, macOS and Linux. MIT.
+- A **CRT** button on your app's own URL: Select, Box or Pin what is wrong, write a note, Send — the same popover becomes the chat with a real Claude Code session in your project.
+- A task file in `.crt/tasks/` with the screenshots, the element, the console and the failed requests, and a definition of done — committed with the project, workable cold.
+- `/crt:next` in any later session takes a task to an open pull request without asking you anything; `/crt:tasks`, `/crt:task`, `/crt:done` keep the list.
+
+Node ≥ 20 on Windows, macOS or Linux; Claude Code installed and logged in (no API key — CRT reuses that login). The plugin ships inside this package, so `crt setup` needs no GitHub access. `npx claude-review-tool` works with no install at all (the first run downloads ~220 MB). `crt doctor` names the fix when something is off.
+
+<img alt="Select armed: the hover outline and label on a price, one pinned marker with its popover and a typed note" src="https://raw.githubusercontent.com/simv/crt/main/docs/images/select.png" width="960">
+
+Documentation — the loop, the four snippets and where each starts capturing, the production guarantee, what lands in your repo, providers, the task format, proxy mode, troubleshooting: https://github.com/simv/crt#readme. MIT.

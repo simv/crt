@@ -133,7 +133,7 @@ describe("gemini profile (F-42, F-54)", () => {
   });
 
   it("the README quotes every Gemini and ACP N-7 line verbatim and states the telemetry and resume facts (N-7, N-12, N-13)", () => {
-    const readme = readFileSync(join(import.meta.dirname, "..", "..", "..", "..", "README.md"), "utf8");
+    const readme = readFileSync(join(import.meta.dirname, "..", "..", "..", "..", "docs", "providers.md"), "utf8"); // docs/providers.md since M23 (PRD-polish §9, N-26)
     for (const line of [GEMINI_NOT_FOUND, GEMINI_NOT_LOGGED_IN, GEMINI_TIER_REFUSED, geminiTooOld("<version>"), unsupportedProtocol("<agent>", "<v>"), acpNotFound("<command>")]) {
       expect(readme, line).toContain(`
 ${line}

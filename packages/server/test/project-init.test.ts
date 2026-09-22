@@ -185,7 +185,7 @@ describe("crt init (PRD-embedded F-100)", () => {
       '    import { CrtDevTools } from "claude-review-tool/react";',
       "    …",
       "    <body>{children}<CrtDevTools /></body>",
-      "Production builds contain nothing from CRT (README › Production). /crt:init in Claude Code applies this for you.",
+      "Production builds contain nothing from CRT (docs/integration.md › Production). /crt:init in Claude Code applies this for you.",
     ]);
     expect(existsSync(join(tmp, ".crt"))).toBe(false);
     expect(existsSync(join(tmp, "CLAUDE.md"))).toBe(false);
@@ -276,7 +276,7 @@ describe("detectIntegration (PRD-embedded F-102)", () => {
       '    import { CrtDevTools } from "claude-review-tool/react";',
       "    …",
       "    <body>{children}<CrtDevTools /></body>",
-      "Production builds contain nothing from CRT (README › Production). /crt:init in Claude Code applies this for you.",
+      "Production builds contain nothing from CRT (docs/integration.md › Production). /crt:init in Claude Code applies this for you.",
     ]);
   });
 });

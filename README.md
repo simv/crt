@@ -2,7 +2,16 @@
 
 Annotate your local site in the browser, talk to Claude in the page, and get a self-contained task file in your repo that any Claude Code session can pick up later with `/crt:next`. CRT started as Claude-only; since v0.2 it also works with Codex, since v0.5 with Gemini CLI and any Agent Client Protocol agent (both experimental — see Providers) and with the Antigravity CLI, and Claude Code remains the default. The name is historical.
 
-> v0.5.0. [docs/PRD.md](docs/PRD.md) defines the scope, requirement IDs (F-n, N-n) and the definition of done; [docs/PRD-providers.md](docs/PRD-providers.md) (v0.2, providers), [docs/PRD-setup.md](docs/PRD-setup.md) (v0.3, setup and first run) and [docs/PRD-embedded.md](docs/PRD-embedded.md) (v0.4, embedded mode) amend it; v0.5 ships PRD-providers M10 (Gemini CLI and any ACP agent, experimental). This README is the user manual.
+> v0.5.0. [docs/PRD.md](docs/PRD.md) defines the scope, requirement IDs (F-n, N-n) and the definition of done; [docs/PRD-providers.md](docs/PRD-providers.md) (v0.2, providers), [docs/PRD-setup.md](docs/PRD-setup.md) (v0.3, setup and first run), [docs/PRD-embedded.md](docs/PRD-embedded.md) (v0.4, embedded mode) and [docs/PRD-polish.md](docs/PRD-polish.md) (v0.6, polish) amend it; v0.5 ships PRD-providers M10 (Gemini CLI and any ACP agent, experimental). This README is the front page; the manual is [`docs/`](#docs).
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/crt-lockup-dark.svg">
+    <img alt="CRT — Claude Review Tool" src="docs/brand/crt-lockup.svg" width="320">
+  </picture>
+</p>
+
+![Your app in the browser with the CRT button bottom-right and the first-visit card saying which CRT server the page talks to](docs/images/arrival.png)
 
 ## Install
 
@@ -20,23 +29,13 @@ npm run dev                       # your dev server, your URL
 crt                               # CRT server on :4400; opens your app; the CRT button is on your page
 ```
 
-`crt setup` gives every Claude Code session `/crt:init`, `/crt:serve`, `/crt:next`, `/crt:tasks`, `/crt:task`, `/crt:done` and `/crt:intake`, plus a SessionStart hook that says `CRT: N of M tasks in backlog …` whenever the project has backlog tasks (and stays silent otherwise). The plugin ships inside the npm package — `crt setup` runs `claude plugin marketplace add <the package's dist/plugin-marketplace>` and `claude plugin install crt@crt` for you, so nothing is fetched from GitHub and the plugin version always equals the `crt` version. Restart Claude Code after installing. After `npm update -g claude-review-tool`, run `crt setup` again (it says `already installed` when there is nothing to do). Node ≥ 20 on Windows, macOS or Linux; Claude Code installed and logged in (`claude` → `/login`). No API key: CRT reuses the machine's Claude Code login.
-
 `crt init` sets a project up once, saying what it will write before it writes it (see [What lands in your repo](#what-lands-in-your-repo)), and ends with the snippet for your framework; the next section has all four forms. Install the package in the project too (`npm i -D claude-review-tool`) so the snippet's import resolves — the script-tag form needs no package.
 
-Other ways to install:
-
-- **Teams that want the version in the lockfile:** `npm i -D claude-review-tool` in the project, then `npx crt` (or `crt` from an npm script). The skills always prefer a project install (`npx --no crt`) over anything global.
-- **Zero-install:** `npx claude-review-tool` in the project folder does what `crt` does, and `npx claude-review-tool tasks` / `task <ID>` list what `/crt:tasks` / `/crt:task` show. The first run downloads the package and the Claude Code binary it bundles (~220 MB); npm caches it after that. The skills fall back to `npx -y claude-review-tool@0.5` the same way when no local install exists — the one lookup outside CRT's control.
-- **From GitHub, without the npm package:** `claude plugin marketplace add simv/crt && claude plugin install crt@crt`. The repository is public, so this works for anyone; the plugin then tracks `main` (`claude plugin update crt@crt` picks up new skills) and the skills run `crt` through `npx` as above.
-
-**Windows:** `npm i -g` puts `crt.cmd`, `crt.ps1` and a `crt` shell script on PATH. PowerShell prefers `crt.ps1`, which its execution policy may refuse (`running scripts is disabled on this system`) — run `crt.cmd` instead, or `npx.cmd claude-review-tool`, both of which work regardless of the policy; CMD and Git Bash are unaffected. The skills use `npx --no crt`, which resolves the bin without the shell shim.
-
-**Older task files:** v0.2 added `provider:` to the task frontmatter and made the validator ignore unknown keys. A project pinned to `claude-review-tool@0.1.x` fails `crt task --validate` on files written by 0.2 or later — update to `0.2.0` or newer.
+Node ≥ 20 on Windows, macOS or Linux; Claude Code installed and logged in (`claude` → `/login`) — no API key, CRT reuses that login. What `crt setup` installs, the other ways to install (in the lockfile, zero-install `npx`, from GitHub), the Windows note and older task files: [docs/install.md](docs/install.md).
 
 ## Add CRT to your app
 
-Embedded mode (the default since v0.4) needs one dev-only line in the app, so the CRT button appears on the app's own URL: the line loads a small **loader** from the running CRT server, and the loader puts the overlay on the page. `crt init` prints the form for your framework (`crt init --snippet` prints only that; `/crt:init` in Claude Code applies it); these are the four:
+One dev-only line in the app puts the CRT button on the app's own URL: the line loads a small loader from the running CRT server, and the loader puts the overlay on the page. `crt init` prints the form for your framework (`/crt:init` in Claude Code applies it); these are the four:
 
 ```tsx
 // Next.js (App Router) — app/layout.tsx
@@ -62,18 +61,64 @@ if (process.env.NODE_ENV !== "production") mountCrt();   // the guard is optiona
 <script src="http://localhost:4400/__crt/loader.js"></script>
 ```
 
-Where each one starts capturing console errors and failed requests:
+The Vite plugin starts capturing console errors and failed requests before the app's first module, `<CrtDevTools />` after hydration, `mountCrt()` from wherever you call it, and the script tag from the tag onward. The loader itself, its options (`{ port }`, `data-crt-port`), the pill it shows while `crt` is not running and the plain overlay tag: [docs/integration.md](docs/integration.md).
 
-- **Vite / `crt()`** — before the app's first module: the plugin prepends the loader module to `<head>` (under `vite` only, never in `vite build`).
-- **React / Next.js / `<CrtDevTools />`** — after hydration: the component renders nothing and mounts the loader from its first effect, so a `console.error` logged before the React tree hydrated is missed.
-- **`mountCrt()`** — from wherever you call it: put it as early in the client entry as you can.
-- **The script tag** — from the tag onward: put it first in `<head>` of your development page. With this form the script itself is missing when the server is down, so there is no pill — the pill needs the bundled forms above.
+## The loop
 
-Each takes `{ port }` (or `{ origin }`) when `port` in `.crt/config.json` is not 4400 (`data-crt-port="4401"` on the script tag); the Vite plugin reads the config files itself. The loader installs the console/network hooks at once, appends `<script src="http://localhost:4400/__crt/overlay.js" defer>` so the overlay always comes from the running server (its version always equals the server's), and — in the bundled forms — shows a pill when that script fails to load (`CRT server not running on :4400 — run \`crt\` in the project, then click here`) that retries on click or when the tab regains focus, so starting `crt` after the page is open needs no reload. It does nothing at all on a page whose hostname is not `localhost`, `*.localhost`, `127.0.0.1` or `[::1]`, and it loads the overlay only from a CRT origin on one of those hosts — a non-loopback `origin` option or script source is ignored and `http://localhost:4400` is used instead. `react` (≥ 18) and `vite` (≥ 5) are optional peer dependencies. The plain overlay tag, `<script src="http://localhost:4400/__crt/overlay.js" defer></script>`, still works too (no early hooks, no pill).
+```bash
+cd my-app && npm run dev     # your dev server, e.g. http://localhost:3000
+crt                          # the CRT server on http://localhost:4400; opens your app — the CRT button is on your page
+```
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/loop-dark.svg">
+  <img alt="The CRT loop: annotate in the browser, chat in the page, a task file, /crt:next, a pull request, and back" src="docs/images/loop.svg" width="960">
+</picture>
+
+Inside Claude Code, `/crt:serve` does what `crt` does — it reuses a CRT that is already serving the project, offers `/crt:init` first when the project is not set up, and replies with four lines saying where CRT is, where tasks go, which agent answers and what to click next.
+
+1. **Browse your app as usual** — `http://localhost:3000`, your own URL, no proxied copy. A **CRT** button sits in the bottom-right corner (drag it anywhere; `Ctrl/Cmd+Shift+.` toggles it). Its dot says how things stand — hover it: green is connected (which project, which agent, whether it is logged in), amber means the agent is not ready (the fix is in the tooltip), red means the CRT server stopped answering. On a project’s first visit a small card above the button says which CRT server the page talks to (`Talking to CRT at http://localhost:4400 for C:\my-app.`), where tasks go and which agent will answer; **Got it** dismisses it for that project, **Show me** opens the toolbar with Select armed.
+2. **Point at the problem.** Open the toolbar and pick a tool:
+   - **Select** — hover shows an outline and a label (tag, id/classes, and the React/Vue component name when detectable); click pins the element. `↑` moves to the parent, `↓` to the first child, `Enter` pins, `Esc` cancels.
+   - **Box** — drag a rectangle; the elements inside it are recorded.
+   - **Pin** — click a point with no element ("something is missing here").
+   Each annotation gets a number and a popover beside the element with its note. Add as many as you like; **Delete** one from its popover, **Clear** drops them all. They survive in-page navigation and a reload, and clicking a number badge reopens its popover.
+
+![Select armed: the hover outline and label on a price, one pinned marker with its popover and a typed note](docs/images/select.png)
+
+3. **Send to Claude** — the button in the popover. The overlay captures the page and the same popover becomes the chat. Claude — a real Claude Code session with `cwd` set to your project, with your `CLAUDE.md`, settings, plugins and MCP servers loaded — reads the capture and your code, asks at most a couple of questions only if it has to, proposes a definition of done, and on your OK writes `.crt/tasks/CRT-0007-<slug>.md` with the screenshots under `.crt/tasks/assets/CRT-0007/`. The marker stays on the page: its badge takes the session's colour and a pill next to it says `thinking…`, `needs permission`, `your turn` or the task ID, so you can close the popover, annotate something else and start a second thread while the first is still working. Each thread has its own popover; one is open at a time.
+   - Sending captures that one annotation. Tick **include the N other unsent annotations** in the popover to send several as one capture ("these two should match").
+   - **Quick note** instead of Send, when the note is written: the popover closes and Claude writes the task on its own. The status line shows the task ID when it lands; the popover opens by itself only if Claude has a question or needs a permission.
+   - **Chat** in the toolbar starts a conversation about the page as a whole — no element, just your message plus the screenshot, console and failed requests. It docks above the toolbar, and the Chat button shows its state.
+   - **Sessions** lists the recent intake sessions (note, state, task ID) so you can reopen one — for example a quick note that turned into a question while you were browsing elsewhere.
+   - Tool use shows as collapsed lines; anything not pre-allowed (reads, searches, read-only `git`, writes under `.crt/`) asks you in the popover with **Allow / Deny** (if you are busy in another popover, the marker pulses and the status line points at it instead). **Stop** interrupts the turn; **Discard** closes the session and removes the annotation; **×** just hides the popover. The footer shows the session ID and `claude --resume <id>` to continue the same conversation in a terminal.
+
+![The popover as the chat: the streamed text, a collapsed tool line, the Allow / Deny card](docs/images/chat.png)
+
+![Three markers on one page: thinking…, your turn, CRT-0007](docs/images/marker-states.png)
+
+4. **Later, in any session on that project:**
+
+```
+/crt:tasks           # what's outstanding
+/crt:next            # pick the next backlog task and take it to a PR, without stopping
+/crt:next CRT-0007   # work (or retry) a specific task
+/crt:task CRT-0007   # show one task and the next action for it
+/crt:done CRT-0007   # after the PR merges: mark it done, record the PR URL
+```
+
+`/crt:next` claims the task (`status: in_progress`, log entry, branch `crt/CRT-0007-<slug>`), implements the **Ask**, ticks each **Definition of Done** item it verified, runs the project's tests/lint/build, sets `status: review`, commits, pushes and opens a PR whose body is the task's Summary + DoD + a link to the task file. It never asks you anything: if the task file is not enough to proceed it sets `status: blocked` with the question in the **Log** — answer it under **Notes** and run `/crt:next CRT-0007` again. Merging is yours.
+
+If you open `http://localhost:4400` itself instead of your app, you get CRT's status page: where your app is, anything `crt doctor` would flag with the fix beside it, this server's facts and the three steps above — served from the CRT origin only, nothing fetched from anywhere else.
+
+![The CRT server's own page: the link to your app, the checkup with passes collapsed, this server's facts and the three steps](docs/images/landing.png)
+
+Every command and flag, what `crt` prints on the way to `CRT ready`, and what Claude gets at Send time: [docs/cli.md](docs/cli.md). The task file: [docs/task-format.md](docs/task-format.md). The pieces and how they talk: [docs/how-it-works.md](docs/how-it-works.md).
 
 ## Production
 
-Nothing from CRT ships in a production build of an app that uses any of the entries, in four layers, each sufficient on its own: (1) the package's `production` export condition maps `claude-review-tool/loader` and `claude-review-tool/react` to no-op modules with the same exports — Vite, webpack 5 / Next, Rspack, Turbopack and esbuild (`--conditions=production`) honour it; (2) every entry's body sits behind `process.env.NODE_ENV !== "production"`, which those bundlers define statically, so the loader code is dropped even where the condition is not; (3) `mountCrt` does nothing unless the page is on `localhost`, `*.localhost`, `127.0.0.1` or `[::1]`; (4) the Vite plugin is `apply: "serve"`, and the script tag lives in the development page only. Verify any build with `grep -r "__crt" dist/` (or `.next/static`) after a production build — it finds nothing — and by checking in the browser's network panel that the production page never requests the CRT port. Verified so far: esbuild 0.25 and Vite 8.3 by the package's own test, which builds fixture apps for production and asserts the outputs contain none of `__crt`, `/loader.js`, `overlay.js`, `mountCrt`, `4400` (and that the development builds do carry the loader); Next.js 16.3 (Turbopack) by hand on a real app — `next build` output clean, with the no-op module's `CrtDevTools` export name the only trace, and a scratch `npm create vite@latest` app's `vite build` clean.
+Nothing from CRT ships in a production build: the package's `production` export condition maps the entries to no-op modules, every entry's body sits behind `process.env.NODE_ENV !== "production"`, the loader does nothing off a loopback hostname, and the Vite plugin is `apply: "serve"`.
+Verify any build with `grep -r "__crt" dist/` (or `.next/static`) — it finds nothing; the four layers and the verified bundlers are in [docs/integration.md › Production](docs/integration.md#production).
 
 ## What lands in your repo
 
@@ -87,370 +132,19 @@ Nothing from CRT ships in a production build of an app that uses any of the entr
 
 That is the complete list. At runtime the server (`crt`, `crt serve`, `crt proxy`) writes only under `.crt/` — captures, tasks, the index, `config.local.json` — and never touches `.gitignore`, `CLAUDE.md`, `AGENTS.md` or any app file; `crt init` is the one command that writes outside `.crt/`, and it names every file on stdout as it does (the other explicit CLI writes are `crt skills install`, into `.agents/skills/`, and `crt setup`, into Claude Code's own plugin store).
 
-## The loop
-
-```bash
-cd my-app && npm run dev     # your dev server, e.g. http://localhost:3000
-crt                          # the CRT server on http://localhost:4400; opens your app — the CRT button is on your page
-```
-
-Inside Claude Code, `/crt:serve` does what `crt` does — it reuses a CRT that is already serving the project, offers `/crt:init` first when the project is not set up, and replies with four lines saying where CRT is, where tasks go, which agent answers and what to click next.
-
-If you open `http://localhost:4400` itself instead of your app, you get CRT's status page: where your app is, anything `crt doctor` would flag with the fix beside it, this server's facts and the three steps below — served from the CRT origin only, nothing fetched from anywhere else.
-
-1. **Browse your app as usual** — `http://localhost:3000`, your own URL, no proxied copy. A **CRT** button sits in the bottom-right corner (drag it anywhere; `Ctrl/Cmd+Shift+.` toggles it). Its dot says how things stand — hover it: green is connected (which project, which agent, whether it is logged in), amber means the agent is not ready (the fix is in the tooltip), red means the CRT server stopped answering. On a project’s first visit a small card above the button says which CRT server the page talks to (`Talking to CRT at http://localhost:4400 for C:\my-app.`), where tasks go and which agent will answer; **Got it** dismisses it for that project, **Show me** opens the toolbar with Select armed.
-2. **Point at the problem.** Open the toolbar and pick a tool:
-   - **Select** — hover shows an outline and a label (tag, id/classes, and the React/Vue component name when detectable); click pins the element. `↑` moves to the parent, `↓` to the first child, `Enter` pins, `Esc` cancels.
-   - **Box** — drag a rectangle; the elements inside it are recorded.
-   - **Pin** — click a point with no element ("something is missing here").
-   Each annotation gets a number and a popover beside the element with its note. Add as many as you like; **Delete** one from its popover, **Clear** drops them all. They survive in-page navigation and a reload, and clicking a number badge reopens its popover.
-3. **Send to Claude** — the button in the popover. The overlay captures the page and the same popover becomes the chat. Claude — a real Claude Code session with `cwd` set to your project, with your `CLAUDE.md`, settings, plugins and MCP servers loaded — reads the capture and your code, asks at most a couple of questions only if it has to, proposes a definition of done, and on your OK writes `.crt/tasks/CRT-0007-<slug>.md` with the screenshots under `.crt/tasks/assets/CRT-0007/`. The marker stays on the page: its badge takes the session's colour and a pill next to it says `thinking…`, `needs permission`, `your turn` or the task ID, so you can close the popover, annotate something else and start a second thread while the first is still working. Each thread has its own popover; one is open at a time.
-   - Sending captures that one annotation. Tick **include the N other unsent annotations** in the popover to send several as one capture ("these two should match").
-   - **Quick note** instead of Send, when the note is written: the popover closes and Claude writes the task on its own. The status line shows the task ID when it lands; the popover opens by itself only if Claude has a question or needs a permission.
-   - **Chat** in the toolbar starts a conversation about the page as a whole — no element, just your message plus the screenshot, console and failed requests. It docks above the toolbar, and the Chat button shows its state.
-   - **Sessions** lists the recent intake sessions (note, state, task ID) so you can reopen one — for example a quick note that turned into a question while you were browsing elsewhere.
-   - Tool use shows as collapsed lines; anything not pre-allowed (reads, searches, read-only `git`, writes under `.crt/`) asks you in the popover with **Allow / Deny** (if you are busy in another popover, the marker pulses and the status line points at it instead). **Stop** interrupts the turn; **Discard** closes the session and removes the annotation; **×** just hides the popover. The footer shows the session ID and `claude --resume <id>` to continue the same conversation in a terminal.
-4. **Later, in any session on that project:**
-
-```
-/crt:tasks           # what's outstanding
-/crt:next            # pick the next backlog task and take it to a PR, without stopping
-/crt:next CRT-0007   # work (or retry) a specific task
-/crt:task CRT-0007   # show one task and the next action for it
-/crt:done CRT-0007   # after the PR merges: mark it done, record the PR URL
-```
-
-`/crt:next` claims the task (`status: in_progress`, log entry, branch `crt/CRT-0007-<slug>`), implements the **Ask**, ticks each **Definition of Done** item it verified, runs the project's tests/lint/build, sets `status: review`, commits, pushes and opens a PR whose body is the task's Summary + DoD + a link to the task file. It never asks you anything: if the task file is not enough to proceed it sets `status: blocked` with the question in the **Log** — answer it under **Notes** and run `/crt:next CRT-0007` again. Merging is yours.
-
-### `crt` flags
-
-```
-crt [target] [--port <n>] [--open | --no-open] [--yes] [--replace] [--provider <id>]
-crt serve [target] [--target <url>] [--mode <embedded|proxy>] …   # the same command under its explicit name
-crt proxy [target] …                           # proxy your app through http://localhost:4400 instead (= crt serve --mode proxy)
-crt doctor                                     # checklist: node, project, .crt, mode, target, integration, instructions, port, providers, plugin
-crt init [--yes] [--no-instructions] [--snippet [--json]]   # set the project up, each write announced; then the snippet for your framework
-crt setup [--claude <path>]                    # register the bundled Claude Code plugin (idempotent)
-crt --version                                  # crt <version> (agent sdk <version>)
-```
-
-| Flag | Default | Meaning |
-|---|---|---|
-| `[target]` | auto | Your app's URL, as a positional: `3000`, `localhost:3000` or a full URL — what CRT opens for you in embedded mode, what it proxies in proxy mode. Remembered in `.crt/config.local.json` once it responds; `crt <port>` switches it. |
-| `--target <url>` | auto | The same, as a flag (what scripts and the skills pass); never remembered. Without either, CRT reads `target` from `.crt/config.local.json`, then `.crt/config.json`, then probes ports 3000, 5173, 8080, 4200, 8000, 3001. In proxy mode a terminal asks when there are several or none and waits for the one you name; embedded mode never waits — it says what it found (or did not) and is ready either way. |
-| `crt proxy [target]` | | Proxy mode: the v0.3 experience for an app that cannot be touched — browse `http://localhost:4400`, CRT injects the overlay into every HTML page (WebSocket/HMR passthrough, CSP relaxing). The same flags as `crt`. |
-| `--mode <embedded\|proxy>` | `embedded` (or `mode` in `.crt/config.local.json` / `.crt/config.json`) | Which mode `crt serve` runs in; `crt proxy` is `--mode proxy`. Put `"mode": "proxy"` in `.crt/config.json` to make proxy mode a project's default. |
-| `--port <n>` | `4400` (or `port` in `.crt/config.local.json` / `.crt/config.json`) | Port CRT listens on. Always bound to `127.0.0.1`. Never stepped around; without it a held port falls back to 4401…4409. |
-| `--open` / `--no-open` | on for a terminal, off otherwise | Open the CRT URL in your default browser once ready. |
-| `--yes` | off | Never prompt: every question takes its default or fails with one `crt:` line (also the behaviour off a terminal or with `CI` set). |
-| `--replace` | off | Stop a CRT already holding the port (through its `POST /__crt/internal/shutdown`, which any local process may call — page scripts cannot, and it is no more than a signal could do) and take it over. |
-| `--provider <id>` | auto | The agent behind the chat: `claude` (default) or `codex`. See [Providers](#providers). |
-| `crt doctor` | | Read-only checklist, one row per check; exit 1 on any `FAIL`. First step in [Troubleshooting](#troubleshooting). |
-| `crt init [--yes] [--no-instructions] [--snippet [--json]]` | | Sets the project up explicitly: prints its plan (`.crt/README.md`, `.crt/tasks/`, `.crt/config.json`, the two `.gitignore` lines, a CRT section in `CLAUDE.md` / `AGENTS.md` — only what is not in place), asks `Go ahead? [Y/n]` on a terminal (`--yes` skips the question; off a terminal it applies without asking), announces every write, and ends with the one-line snippet for your framework. `--no-instructions` leaves `CLAUDE.md` / `AGENTS.md` alone; `--snippet` prints only the snippet and writes nothing (`--json` for tooling). Idempotent: a second run says `crt init: <root> is set up (…)`. |
-| `crt setup [--claude <path>]` | `claude` on PATH | Registers the plugin bundled in the package with Claude Code and installs (or updates) `crt@crt`; says `already installed` when it is. `--claude` names the Claude Code executable when it is not on PATH. |
-| `crt --version` | | `crt 0.5.0 (agent sdk 0.3.270)`, read from local files — CRT never checks a registry. |
-
-On success it prints one line — `CRT ready at http://localhost:4400 for http://localhost:3000 (embedded; project: C:\my-app, 3 tasks in .crt\tasks, provider: claude (default), login: ok)` (`for <app>` is omitted when no dev server was found; `CRT ready at http://localhost:4400 → http://localhost:3000 (proxy; project: …)` under `crt proxy`) — and, on a terminal, `Open http://localhost:3000 → CRT button bottom-right (Ctrl/Cmd+Shift+.) → Select · note · Send. Ctrl+C stops CRT; your dev server keeps running.` (`Open your dev server in the browser → …` when none is known; `Open http://localhost:4400 → …` in proxy mode), then keeps running until Ctrl+C (`Stopping CRT … 1 session ended; written task files are kept.`). Before that, finding your app in embedded mode is one line and never a question or a wait: `Found http://localhost:3000.`; with several dev servers up a terminal lists them and asks `Which one should I open? [1]` (off a terminal: `crt: found N dev servers (…); opening http://localhost:3000 — run \`crt <port>\` to pick another`); with none, `No dev server on ports 3000, 5173, 8080, 4200, 8000, 3001 — start it and open it in your browser; the CRT button appears when the page loads the CRT loader (crt <port> to have CRT open it next time).` and CRT is ready anyway; a remembered or configured app that is down gets `crt: http://localhost:3100 (remembered) is not responding — start it; CRT is ready for it`. The CRT button appears on your app's own URL once the page loads the CRT loader ([Add CRT to your app](#add-crt-to-your-app)); `http://localhost:4400` itself shows a landing page that says so, and when CRT opened your app but the page never asked for the loader it says `crt: opened http://localhost:3000 but the page never loaded the CRT loader — add the integration (\`crt init\` prints the snippet, /crt:init applies it), or run \`crt proxy\``; the first page that does load it gets `crt: overlay loaded in the browser (from http://localhost:3000)`. When a CRT from an earlier session already serves the same project in the same mode on the port, `crt` says `CRT <version> is already serving this project (embedded) at http://localhost:4400 (since 09:12) — opened http://localhost:3000.` (`… — open your app in the browser.` when none is known; `CRT <version> is already serving … for this project at … — opened it.` in proxy mode) and exits 0; when it serves something else, or the port is held by something that is not CRT, `crt` takes the next free port and says so (`crt: port 4400 is held by another CRT (→ <target>, project <root>); using 4401` / `crt: port 4400 is in use by a process that is not CRT; using 4401`), and in embedded mode adds `crt: your app's CRT loader expects :4400 — run \`crt --replace\`, or set port in .crt/config.json and in the snippet`, because the snippet in your app still points at 4400. `crt` never sets a project up on its own: when `.crt/tasks/` is missing it prints the `crt init` plan and asks `Set up CRT in <root>? [Y/n]` on a terminal, sets it up under `--yes`, and otherwise refuses with `crt: <root> is not set up for CRT — run \`crt init\` (or \`crt --yes\`)` — see [CRT is not set up](#crt-is-not-set-up). Every failure is a single `crt: …` line on stderr and a non-zero exit — run `crt doctor` first, then see [Troubleshooting](#troubleshooting) for what each one means.
-
-### What Claude gets
-
-Everything is gathered at Send time from the live page, because the session cannot see the page afterwards (PRD §6.3):
-
-- page URL, route, title, viewport, device pixel ratio, scroll position, user agent, timestamp;
-- a viewport screenshot with the annotation markers drawn on, a clean one, and a crop per annotation (in-page rasterisation — best effort for canvas, WebGL and cross-origin images);
-- per annotated element: a unique CSS selector, XPath, tag, id, classes, `data-*`, ARIA role/label, text, bounding box, a curated computed-style subset, and its outer HTML plus its parent's (4 KB each);
-- the component chain and source file for React dev builds (`_debugSource` on React ≤ 18, owner stacks on React 19) and Vue; the detected framework, bundler and Next.js route pattern;
-- `console.error`/`warn`, uncaught errors and unhandled rejections since page load (50 most recent), and failed network requests — `fetch`/XHR with status ≥ 400 or a thrown error, plus any image, script or stylesheet whose response was ≥ 400 (50 most recent);
-- your notes.
-
-It is written to `.crt/captures/<id>/capture.json` (+ PNGs) and moves to `.crt/tasks/assets/<ID>/` when the task is written. Captures older than 7 days that never became tasks are pruned on the next `crt serve`.
-
 ## Providers
 
-The agent behind the in-page chat is a *provider*. Claude Code is the default and needs nothing; `crt --provider codex`, `crt --provider gemini` or `crt --provider antigravity` (or `provider: "codex"` / `"gemini"` / `"antigravity"` in `.crt/config.json`, or the caret next to **Send**) runs the intake on the developer's own Codex CLI, Gemini CLI or Antigravity CLI instead, and `provider: { "kind": "acp", … }` in `.crt/config.json` names any other agent that speaks the [Agent Client Protocol](https://agentclientprotocol.com) (below). The provider for a session is the first of these that is set:
-
-1. `provider` in the `POST /__crt/sessions` body — the caret next to **Send**, for that one send;
-2. the running server's active provider — `--provider` or `CRT_PROVIDER` at start, replaced by **Remember** in the Agent menu for the life of the process;
-3. `provider` in `.crt/config.local.json` (per machine, gitignored — what **Remember** writes);
-4. `provider` in `.crt/config.json` (per project, committed);
-5. auto-detection: what is installed and logged in here, disambiguated by the project's markers (`.claude/`, `CLAUDE.md`, `.codex/`, `.gemini/`, `GEMINI.md`, `.agents/`, `AGENTS.md`);
-6. `claude`.
-
-A provider chosen explicitly (1–4) that is not usable is never swapped for another: the session fails with the provider's one-line problem. Only auto-detection falls back — a logged-out Claude is stepped over when Codex is usable, and the ready line says why (`provider: codex — claude not logged in`). `crt providers` prints every provider's state and which one a new session would use, with the reason:
-
-```
-claude       ready        Claude Code (Agent SDK) 0.3.270   logged in                                markers: .claude/, CLAUDE.md
-codex        not on PATH  Codex CLI                         install: npm i -g @openai/codex          markers: none
-gemini       ready        Gemini CLI 0.60.0 (experimental)  login unknown                            markers: none
-antigravity  ready        Antigravity CLI 1.2.7             login unknown                            markers: none
-→ claude — .claude/, CLAUDE.md; codex not on PATH
-```
-
-The full rules are in [docs/PRD-providers.md](docs/PRD-providers.md) F-43/F-44; this section covers what you need per provider. CRT itself has no telemetry; nothing leaves the machine except the model calls the chosen agent already makes, and that agent's own telemetry where it has any (below, per provider).
-
-### Claude Code
-
-Nothing to install beyond Claude Code itself: CRT runs sessions through the Agent SDK, which bundles its own Claude Code binary, and reuses the machine's login (`claude` → `/login`, or `CLAUDE_CODE_OAUTH_TOKEN`). Login is checked at start with the bundled binary's `auth status`; only its yes/no is read. Telemetry is Claude Code's own setting.
-
-```
-not logged in to Claude Code — run `claude` in a terminal and complete /login (or set CLAUDE_CODE_OAUTH_TOKEN), then send again
-```
-
-Log in, then send again — no restart needed; the page re-checks. When `claude` is not on your PATH the line ends with `(install Claude Code first: npm i -g @anthropic-ai/claude-code)`.
-
-```
-Claude Code binary not found — reinstall claude-review-tool (`npm install`) so @anthropic-ai/claude-agent-sdk-<platform>-<arch> is present
-```
-
-The SDK's platform package for this OS did not install (an `--omit=optional` install, or a package manager that skipped it). Reinstall `claude-review-tool`.
-
-### Codex
-
-Tested with `codex-cli 0.154.0` (`npm i -g @openai/codex`, then `codex login` — a ChatGPT account). CRT never bundles Codex: it runs the `codex` on your PATH (Windows: the npm `codex.cmd` shim is parsed and its JS entry run with CRT's own Node, so no shell is involved), or the executable you name in `.crt/config.json`:
-
-```json
-{ "providers": { "codex": { "command": ["C:\\tools\\codex\\codex.exe"] } } }
-```
-
-What a Codex session looks like: **Send to Codex** starts `codex exec --json` in your project root under Codex's **read-only sandbox** — no Allow/Deny cards; the footer shows a `read-only sandbox` badge — with the intake instructions at the top of the first message and the screenshots passed as files. `write_task` reaches Codex through `crt mcp`, a tiny stdio MCP server in the same package that the session's Codex process spawns and that hands the call to the running `crt serve`; the file is written by the server exactly as it is for Claude, with `provider: codex` and Codex's thread id in `session:`. The footer's `codex resume <thread id>` continues the same conversation in a terminal.
-
-**Every later message is a new `codex exec resume` process.** Codex re-reads the whole thread on each resume, so a second or third turn costs about as much as the first and takes a few seconds before the first token; the panel shows the running state while it waits. This is Codex's behaviour, not something CRT can shorten (PRD-providers N-13).
-
-**Telemetry.** Codex has its own analytics; CRT passes `-c analytics.enabled=false` on every invocation it starts, so nothing beyond the model calls Codex itself makes leaves the machine (PRD-providers N-12). CRT has no telemetry of its own.
-
-**Skills for Codex.** `crt skills install --provider codex` writes the seven CRT skills (`next`, `tasks`, `task`, `done`, `intake`, `serve`, `init`) as Agent Skills into `.agents/skills/` in the project (`--global` puts them in `~/.codex/skills`, or `$CODEX_HOME/skills`; `--dir <path>` anywhere else). The text is the plugin's with the Claude-only tokens rewritten; the no-questions guarantee of `/crt:next` is tested on Claude Code only. Running it again changes nothing. `--provider claude` is refused — Claude Code gets the skills from the plugin.
-
-**Codex problems** show up as one line in the panel (or on the `CRT ready` line and in `crt providers`):
-
-```
-codex not found on PATH — npm i -g @openai/codex, or set providers.codex.command in .crt/config.json
-```
-
-Codex is not installed where CRT can see it — the desktop app and IDE extensions do not put `codex` on PATH. Install the CLI, or point `providers.codex.command` at the executable.
-
-```
-not logged in to Codex — run `codex login` in a terminal, then send again
-```
-
-`codex login status` said so, **or** a turn failed with Codex's "log out and sign in again" (a stale login that `login status` still reports as logged in). Run `codex login`, then send again; no need to restart `crt serve`.
-
-```
-codex <version> is too old — CRT needs 0.154.0 or newer (npm i -g @openai/codex@latest)
-```
-
-The `codex exec --json` event names and flags CRT relies on were recorded on 0.154.0; older releases differ. Update the CLI.
-
-```
-Codex could not resume thread <id> — start a new session
-```
-
-`codex exec resume <id>` came back with a different thread id, which means Codex silently started a new conversation instead of continuing yours (it does that for an unknown non-UUID id, or when its session store lost the thread). Press **New session**; the task file, if one was written, is already on disk.
-
-```
-Codex finished the turn without replying or calling write_task — check that Codex lists the crt MCP server (node <cli.js> mcp) and that nothing on stderr says it failed to start
-```
-
-The turn completed with no text and no tool call, which almost always means Codex could not start `crt mcp` (a missing `node`, a broken install) and so never saw the `write_task` tool. Run `crt serve` from a terminal and look at what Codex prints, or run `codex mcp list` inside the project.
-
-```
-write_task was called with a stale token — the session had ended
-```
-
-The agent called `write_task` after the session it belonged to was discarded or the server restarted (every session gets its own token for the life of that session). Start a new session and send again.
-
-### Gemini CLI
-
-**Experimental.** The Gemini profile has never run against a real Gemini: CLI 0.60.0 refuses the free personal Google login (below), and no other credential was available when it was built, so it was tested against a fake ACP agent that follows Gemini's own protocol code and recordings. The provider menu and the session footer wear an `experimental` badge (the reason is the tooltip) and `crt providers` prints `(experimental)` after the name. If you have a Gemini API key, try it and report what you see — the driver is complete; what is unverified is Gemini's live behaviour.
-
-Built against Gemini CLI `0.60.0` (`npm i -g @google/gemini-cli`). CRT never bundles Gemini: it runs the `gemini` on your PATH (Windows: the npm `gemini.cmd` shim is parsed and its JS entry run with CRT's own Node), or the executable you name in `.crt/config.json` under `providers.gemini.command`, in its Agent Client Protocol mode (`gemini --acp`) — one process for the whole session, JSON-RPC over stdio, nothing else in between.
-
-What a Gemini session looks like: **Send to Gemini** starts `gemini --acp` in your project root with the intake instructions at the top of the first message and the screenshots inline (Gemini 0.60.0 accepts image prompts; an agent that does not gets the message without them and the first message says so). Text streams; tool calls show as collapsed lines; a tool call Gemini itself would ask about becomes an **Allow / Deny** card, decided by the same policy as for Claude but over ACP's tool *kinds*: reads, searches and thinking are allowed silently, edits/deletes/moves are allowed only under `.crt/`, a command is allowed only when it is a read-only `git` command, fetching from the network is denied, everything else asks you. CRT answers with the agent's `allow_once` / `reject_once` option and never "always". `write_task` reaches Gemini through `crt mcp`, the same stdio MCP server Codex uses; the file is written by the server with `provider: gemini` and Gemini's session id in `session:`. The footer's `gemini --resume <id>` continues the same conversation in a terminal, from the same project directory (Gemini stores sessions per project). **Stop** sends `session/cancel`.
-
-**Login.** Gemini CLI has no login-status command, so CRT reads what the CLI itself reads: `GEMINI_API_KEY` / `GOOGLE_API_KEY` in the environment or in `~/.gemini/.env` count as logged in; cached Google credentials (`~/.gemini/oauth_creds.json`) show as `login unknown`, because 0.60.0 accepts the login but may refuse the account's tier when the session starts (below). `GEMINI_CLI_HOME` moves `~/.gemini`. Telemetry is Gemini's own `usageStatisticsEnabled` setting; CRT passes no flag for it (PRD-providers N-12).
-
-**Skills for Gemini.** `crt skills install --provider gemini` writes the seven CRT skills into `.gemini/skills/` in the project (`--global`: `~/.gemini/skills`). Same rewriting and caveats as for Codex.
-
-**Gemini problems** show up as one line in the panel (or on the `CRT ready` line and in `crt providers`):
-
-```
-gemini not found on PATH — npm i -g @google/gemini-cli, or set providers.gemini.command in .crt/config.json
-```
-
-Install the CLI, or point `providers.gemini.command` at the executable.
-
-```
-not logged in to Gemini — run `gemini` in a terminal and pick an auth method (or set GEMINI_API_KEY), then send again
-```
-
-No API key and no cached Google login, **or** the session start came back with Gemini's "API key is missing or not configured" / "Authentication required". Log in (or set the key), then send again; no need to restart `crt serve`.
-
-```
-Gemini refused the Google login for this CLI ("no longer supported for Gemini Code Assist for individuals") — use a Gemini API key: put GEMINI_API_KEY=… in ~/.gemini/.env and set security.auth.selectedType to gemini-api-key in ~/.gemini/settings.json
-```
-
-Gemini CLI 0.60.0 rejects the free personal tier of "Log in with Google" (it points at the Antigravity products instead). A Gemini Developer API key from AI Studio works; put it in `~/.gemini/.env` and switch `selectedType`, then send again.
-
-```
-gemini <version> is too old — CRT needs 0.60.0 or newer (npm i -g @google/gemini-cli@latest)
-```
-
-The ACP behaviour CRT relies on (`--acp`, the `session/new` shape, the permission options) was recorded on 0.60.0; older releases differ. Update the CLI.
-
-### Antigravity CLI
-
-Not experimental: the driver was built from real runs of the CLI on Windows ([docs/spikes/antigravity-2026-09.md](docs/spikes/antigravity-2026-09.md)) and a real intake on the trial app has been recorded (2026-09-21): capture read, source files read, a task written through `write_task`, the conversation continued in a terminal.
-
-Built against Antigravity CLI `agy` `1.2.7` (a single binary installed by [antigravity.google/docs/cli](https://antigravity.google/docs/cli)). CRT never bundles it: it runs the `agy` on your PATH (`agy.exe` on Windows), or the executable you name in `.crt/config.json` under `providers.antigravity.command`, in its non-interactive JSON mode: one `agy --output-format stream-json --input-format stream-json --print "" …` process for the whole session, one turn per developer message on its stdin, nothing else in between.
-
-What an Antigravity session looks like: **Send to Antigravity** starts `agy` in your project root with the intake instructions at the top of the first message and the screenshot *paths* in the text (the CLI takes no image blocks on stdin; the model reads the PNGs with its `view_file` tool). Text streams; tool calls show as collapsed lines; there are no Allow/Deny cards — the footer shows a **read-only sandbox** badge, and the sandbox is CRT's own: Antigravity's headless mode cannot prompt, so it auto-denies every tool that needs a permission (even reading a file in your project), and its allow rules live only in `~/.gemini/antigravity-cli/settings.json`. CRT therefore runs `agy` with `--dangerously-skip-permissions` **and** a `PreToolUse` hook of its own that lets through file reads (`view_file`, `list_dir`, `grep_search`, `find_by_name`, `read_resource`, `list_resources`) and the `crt` MCP server, and refuses everything else — commands, edits, browser and web tools — with a one-line reason the model sees. The hook, the MCP server and a second hook that proves the hooks are loaded before the model is called live in a per-session plugin under `.crt/captures/antigravity/<session>/` (gitignored, removed when the session ends), which CRT hands to `agy --add-dir`; nothing outside `.crt/` is written and `agy mcp add` (which edits your user-level `mcp_config.json`) is never run. `write_task` reaches Antigravity through `crt mcp` as the plugin server `crt_crt`; the file is written by the server with `provider: antigravity` and the conversation id in `session:`. The footer's `agy --conversation <id>` continues the same conversation in a terminal. **Stop** kills the process; the next message resumes the conversation in a new one (Antigravity keeps it), and CRT checks it is the same conversation.
-
-**Login.** Antigravity has no login-status command and keeps its token in the OS keyring, so `crt providers` shows `login unknown`; a logged-out CLI is reported when the session starts. Telemetry is Antigravity's own `enableTelemetry` setting; CRT passes no flag for it (PRD-providers N-12). The model is `models.antigravity` in `.crt/config.json` (one of `agy models`'s ids); CRT never passes `--effort`.
-
-**Skills for Antigravity.** `crt skills install --provider antigravity` writes the seven CRT skills into `.agents/skills/` in the project (`--global`: `~/.gemini/config/skills`). Same rewriting and caveats as for Codex.
-
-**Antigravity problems** show up as one line in the panel (or on the `CRT ready` line and in `crt providers`):
-
-```
-agy not found on PATH — install the Antigravity CLI (https://antigravity.google/docs/cli), or set providers.antigravity.command in .crt/config.json
-```
-
-Install the CLI (it puts `agy` on your PATH), or point `providers.antigravity.command` at the executable.
-
-```
-not logged in to Antigravity — run `agy` in a terminal and sign in, then send again
-```
-
-Print mode cannot open the browser login. Run `agy` once and sign in, then send again; no need to restart `crt serve`.
-
-```
-agy <version> is too old — CRT needs 1.2.7 or newer (run `agy update`)
-```
-
-The stream-json loop, the plugin discovery and the hook contract CRT relies on were recorded on 1.2.7; older releases differ.
-
-```
-Antigravity could not resume conversation <id> — start a new session
-```
-
-After **Stop** the next message resumes the conversation by id; Antigravity silently starts a new one when the id is unknown, and CRT refuses to continue on it.
-
-```
-Antigravity did not load the CRT hooks from <sessionDir> — the turn was stopped before any tool ran; update agy (tested 1.2.7) or start a new session
-```
-
-The hook that proves CRT's permission policy is in force did not run before the model was called, so CRT killed the process rather than let it act with `--dangerously-skip-permissions` alone. A newer CLI may have moved plugin discovery; report it.
-
-```
-Antigravity finished the turn without replying or calling write_task — check that agy lists the crt_crt MCP server from the session plugin (node <cli.js> mcp) and that nothing on stderr says it failed to start
-```
-
-The MCP server was not spawned or did not list `write_task`; `crt serve --verbose` shows what `agy` printed on stderr.
-
-### Any other ACP agent
-
-**Experimental**, for the same reason: an agent CRT has never met was tested against the fake agent only, and its menu row and footer say so.
-
-Any agent that speaks the Agent Client Protocol over stdio can run an intake session without CRT knowing it by name. Put the command in `.crt/config.json` (this form is accepted from the config files only — never from the page or `PUT /__crt/config`):
-
-```json
-{ "provider": { "kind": "acp", "command": "my-agent", "args": ["--acp"], "name": "My Agent" } }
-```
-
-It registers as the provider id `acp`, with the display name you gave (`Send to My Agent`), no project markers, no launch signal and no resume hint (CRT does not know the agent's resume command; the session id is still in the task file), and the same session shape as Gemini: instructions in the first message, images when the agent advertises them at `initialize`, cards from the tool-kind policy, `write_task` through `crt mcp`, `session/cancel` on **Stop**, stdin closed on **Discard** (the agent gets two seconds to leave, then its process tree is killed). `crt providers` lists it as ready whenever the command resolves (login is `unknown`: CRT cannot ask an unknown agent), and what the agent says when it cannot start a session — an API-key or login message — is shown as `not logged in to <name> — <what it said>`.
-
-```
-<command> not found on PATH — install it, or fix provider.command in .crt/config.json
-```
-
-The command in `provider.command` does not resolve (PATH and, on Windows, PATHEXT and npm shims are searched; an absolute path is used as is).
-
-```
-<agent> speaks ACP <v>; CRT supports 1 — update CRT or the agent
-```
-
-The agent's `initialize` reply named a protocol version this CRT does not implement. Note that Gemini 0.60.0 answers `1` whatever the client asks for; the reply is what counts.
-
-## Task format
-
-Tasks live at `.crt/tasks/CRT-NNNN-<slug>.md` (the ID is allocated by scanning the folder for the highest one, so there is no counter file to conflict on), with a generated `.crt/tasks/README.md` index that the server and `crt tasks` rewrite whenever a task changes. Commit `.crt/`; only `.crt/captures/` and `.crt/config.local.json` are ignored.
-
-```markdown
----
-id: CRT-0007
-title: Cart total excludes applied discount
-status: backlog            # backlog | in_progress | review | done | blocked
-priority: normal           # low | normal | high
-created: 2026-09-14T10:32:00+08:00
-updated: 2026-09-14T10:32:00+08:00
-url: http://localhost:4400/cart?promo=SAVE10
-route: /cart
-session: 7a3d…             # intake session id — `claude --resume 7a3d…` continues it
-provider: claude           # which agent ran the intake (absent in v0.1 files)
-tags: [cart, pricing]
-files: [src/components/Cart.tsx, src/lib/pricing.ts]
----
-
-## Summary
-One paragraph: what is wrong / wanted, in plain language.
-
-## Context
-What the page showed, how to reproduce (URL, state, steps), what component renders it, where the logic lives.
-
-## Evidence
-![viewport (annotated)](assets/CRT-0007/viewport-annotated.png)
-![annotation 1](assets/CRT-0007/ann-1.png)
-Annotation 1 — `<span class="cart-total">` in `CartSummary` (src/components/Cart.tsx:88), selector `#total`: "this total doesn't include the discount"
-
-## Ask
-The change requested, precisely.
-
-## Definition of Done
-- [ ] Checkable item 1
-- [ ] Checkable item 2
-- [ ] Existing tests pass; new test covers the fix
-
-## Notes
-Constraints, hunches, non-goals, alternatives considered during intake.
-
-## Log
-- 2026-09-14T10:32+08:00 — created by intake session 7a3d… (claude) from capture 20260914-103200-ab12.
-```
-
-The seven sections are fixed and in this order. The **Log** is append-only: every status change, work session and verification result is a new bullet with a timestamp and the session that wrote it. A task is workable cold when a session that has never seen the page can start from the file alone — that is the bar intake holds itself to. `crt task CRT-0007 --validate` checks a file against the format; `crt tasks --json` is what the skills read.
-
-## Proxy mode
-
-For an app you cannot or should not touch — no JS entry, a layout owned by someone else, a quick look at a site you did not set up — `crt proxy` is the v0.1–v0.3 experience: CRT proxies your app and you browse the proxied copy instead of the app's own URL.
-
-```bash
-npm run dev                  # your dev server, e.g. http://localhost:3000
-crt proxy                    # finds it (or asks for its URL once) → http://localhost:4400 opens; browse, annotate, send
-```
-
-`crt proxy [target]` ≡ `crt serve --mode proxy [target]`; `"mode": "proxy"` in `.crt/config.json` makes it a project's default so `crt` alone proxies there (the ready line then reads `(proxy; …)`), and `/crt:serve --proxy` does it from Claude Code. Everything proxy mode did in v0.3 still applies, unchanged and still tested: the guided target step (a terminal asks `Dev server URL or port:` and waits when nothing answers; `Which one? [1]` when several do), HTML injection of the early hook and the overlay tag into every `text/html` response (gzip and brotli decompressed first), WebSocket/HMR passthrough, absolute redirects to the target rewritten to the CRT origin, a CSP that would block the script relaxed for `'self'`, the `crt: injected the overlay into GET / but the browser never fetched /__crt/overlay.js …` diagnosis when the page never asks for the overlay, and the welcome card's `Proxying http://localhost:3000 for C:\my-app.` line. Nothing is added to the app; the overlay is injected on the way through. The flip side is that everything the app does with its own origin — absolute links and redirects, cookies scoped to a port, OAuth callbacks and `postMessage` targets registered for `:3000`, service workers, strict CSP — behaves differently on the proxied one, which is why embedded mode is the default. `crt doctor` shows `ok    mode      proxy (.crt/config.json)` and `--    integration proxy mode` for such a project.
-
-## How it works
-
-```
-Browser tab  http://localhost:3000 ──── your app, on its own origin, served by your dev server
-   ├─ CRT loader (the snippet: one dev-only import, or a <script> tag)
-   │     installs the console/network hooks, then appends <script src="http://localhost:4400/__crt/overlay.js" defer>
-   └─ CRT overlay (Shadow DOM) ──── /__crt/* cross-origin (loopback CORS) ──┐
-                                                                            ▼
-crt server (Node, 127.0.0.1:4400 only)                       ┌──────────────────────┐
-   /__crt/loader.js, /__crt/overlay.js, /__crt/health …      │ agent session        │
-   capture store  .crt/captures/ → .crt/tasks/assets/        │ Claude Code (SDK) or │
-   task store     .crt/tasks/*.md + README index             │ Codex CLI            │
-   session manager ──────────────────────────────────────────▶ write_task tool     │
-   landing page at / (proxy mode: your app, proxied)         └──────────────────────┘
-```
-
-- **Embedded mode** (`crt`). The CRT server is the agent host: it binds `127.0.0.1:4400`, serves the loader, the overlay and the `/__crt/*` API, and proxies nothing — `http://localhost:4400/` is a landing page that says so and links to your app. Your app's own dev server serves your app; the one dev-only line in it loads the loader from CRT, the loader installs the console/network hooks and appends the overlay script from the running server, and the overlay talks to the API cross-origin. The server allows that only for `localhost`, `*.localhost`, `127.0.0.1` and `[::1]` origins (any port, http or https); every other origin gets no CORS headers and its preflight is refused. `crt` finds your app the way proxy mode does (positional, `--target`, the remembered or configured `target`, then the probed ports) but only to open it and print it; it never waits for it.
-- **Proxy mode** (`crt proxy`). The same server, in front of your dev server: it forwards everything, rewrites `text/html` responses to inject the early hook and the deferred overlay script before `</head>`, pipes WebSocket upgrades through untouched so Next.js and Vite HMR keep working, and you browse `http://localhost:4400`. Every CRT route lives under `/__crt/`; nothing else is added to your app. See [Proxy mode](#proxy-mode).
-- **Overlay.** One framework-free bundle (~85 KB, 28 KB gzipped) rendered inside a Shadow DOM host so your CSS and its CSS never meet, always fetched from the running server so it can never be a different version than the server. It is idle until you open it. `window.__crt` is its only global — a debugging/test surface (`window.__crt.loader` is the loader's: its origin and a `retry()`).
-- **Intake session.** Send starts a real Claude Code session through `@anthropic-ai/claude-agent-sdk` with `cwd` = your project root (the nearest ancestor with `.git`, else the launch directory), `settingSources` user + project + local, and the Claude Code system prompt with the intake instructions appended (the same text as `/crt:intake`). The first message is the capture summary, your notes, the path to `capture.json` and the screenshots as images. The process boots while the page is still being rasterised so the panel is live within a few seconds. Text streams over SSE; a `write_task` tool exposed by the server allocates the ID, renders the file, moves the assets and regenerates the index, so the file can never drift from the format.
-- **Permissions.** The session runs in Claude Code's `default` mode. Reads, searches, read-only `git` commands, CRT's own tool and writes under `.crt/` are allowed silently; `WebFetch`/`WebSearch` are denied; everything else prompts in the panel and is denied after five minutes without an answer. Intake does not modify source code; that is `/crt:next`'s job, in a normal session you can watch.
-- **Privacy.** At runtime the server writes only under `.crt/` (and the OS temp dir); `crt init` is the one command that writes elsewhere, and it names every file first. Nothing leaves the machine except the model calls the agent already makes: the loader talks to `127.0.0.1` only, and only from a page on a loopback hostname. Embedded mode changes nothing about what a page can reach: your app's own scripts run on your app's origin and can call the CRT API cross-origin exactly as the overlay does (loopback CORS) — the same capability page scripts had on the proxied origin in proxy mode. There is no new route and no new page-writable key; `/__crt/internal/*` refuses any request carrying an `Origin` header, and the loader carries no token. No telemetry.
+The agent behind the in-page chat is a *provider*: Claude Code unless you say otherwise — `crt --provider <id>`, `provider` in `.crt/config.json`, or the caret next to **Send** for one send. `crt providers` prints every provider's state and which one a new session would use, with the reason.
+
+| Agent | Status | Install | Login |
+|---|---|---|---|
+| Claude Code | the default | Claude Code itself (`npm i -g @anthropic-ai/claude-code`); CRT bundles the Agent SDK's own binary | `claude` → `/login`, or `CLAUDE_CODE_OAUTH_TOKEN` |
+| Codex CLI | tested with `codex-cli 0.154.0` | `npm i -g @openai/codex` | `codex login` |
+| Gemini CLI | experimental — the driver is complete, never run against a real Gemini | `npm i -g @google/gemini-cli` | `GEMINI_API_KEY` in `~/.gemini/.env` (0.60.0 refuses the free Google login) |
+| Antigravity CLI | built from real runs of `agy` 1.2.7 | [antigravity.google/docs/cli](https://antigravity.google/docs/cli) | `agy` → sign in |
+| Any ACP agent | experimental — tested against a fake agent | `provider: { "kind": "acp", "command": … }` in `.crt/config.json` | the agent's own |
+
+Per provider — what a session looks like, telemetry, skills, every problem line and what it means: [docs/providers.md](docs/providers.md).
 
 ## Troubleshooting
 
@@ -472,130 +166,20 @@ ok    plugin    crt@crt 0.5.0 installed (claude on PATH)
 → claude — codex not logged in
 ```
 
-`FAIL` is reserved for what stops `crt` from serving: `FAIL  node      v18.20.0 — CRT needs Node 20 or newer`; in proxy mode `FAIL  target    none set and nothing on the probed ports — crt <port>` and `FAIL  target    http://localhost:3100 (remembered) — not responding` (in embedded mode the target is only what `crt` opens for you, so those rows are `--    target    none set; crt opens nothing (crt <port> to remember one)` and `warn  target    http://localhost:3100 (remembered) — not responding`); `FAIL  port      4400 held by CRT 0.5.0 → http://localhost:3000 (this project) — crt --replace`; `FAIL  port      4400 in use by a non-CRT process — crt --port 4401`; and the provider a session would use when it is unusable (its row carries the same line the panel shows). Everything else is a `warn` — `warn  project   C:\my-app\src — no .git above; .crt/ will be created here (run from the repo root, or git init)`, another provider's problem, `warn  plugin    crt@crt not installed — run crt setup`, `warn  plugin    crt@crt 0.4.0 installed, this is 0.5.0 — run crt setup` — or `--` for what was skipped (`--    .crt      not initialised — run crt init`, `--    plugin    claude not on PATH — skipped`), so a Claude-only machine passes. The v0.4 rows never fail: `.crt` says `warn  .crt      tasks/ (4 tasks), config.json, .gitignore entries — no README.md — run crt init` for a folder that predates `crt init`'s README; `mode` reads `ok    mode      embedded` or `ok    mode      proxy (.crt/config.json)`; `integration` reads only the snippet's candidate files for the detected framework — `ok    integration next — app/layout.tsx imports claude-review-tool/react`, `ok    integration vite — vite.config.ts uses claude-review-tool/vite`, `ok    integration loader — src/main.tsx imports claude-review-tool/loader`, `warn  integration not found (next) — run crt init for the snippet, or crt proxy`, `--    integration static page — add the <script> tag (crt init --snippet)`, `--    integration proxy mode`; `instructions` reads `ok    instructions CLAUDE.md carries the CRT section` (both names when both do), `warn  instructions CLAUDE.md has no CRT section — crt init adds it` or `--    instructions no CLAUDE.md or AGENTS.md — crt init creates one`. `crt` runs the same checks before its first question and prints only the `FAIL` and `warn` rows.
+Every failure is one `crt:` line on stderr and a non-zero exit; the catalogue — each line and each doctor row, what it means and the fix — is in [docs/troubleshooting.md](docs/troubleshooting.md).
 
-Each `crt` failure is one line on stderr, prefixed `crt: `, followed by a non-zero exit. `<…>` below marks values filled in at runtime.
+## Docs
 
-### Unknown command
-
-```
-crt: unknown command "<x>" — a target is a port, host:port or URL; `crt help` lists commands
-```
-
-The first argument was neither a command (`serve`, `doctor`, `setup`, `init`, `tasks`, `task`, `providers`, `skills`, `help`) nor something that looks like a dev server (`3000`, `localhost:3000`, `http://…`). Exit 2.
-
-### CRT is not set up
-
-```
-crt: C:\my-app is not set up for CRT — run `crt init` (or `crt --yes`)
-```
-
-`crt` creates nothing on its own (v0.4): a project without `.crt/tasks/` is set up only by `crt init`, or by `crt` after you said yes. On a terminal `crt` prints the plan and asks `Set up CRT in C:\my-app? [Y/n]` (Enter sets it up and starts; `n` prints `crt: cancelled` and exits 130 — the same line ends a `crt init` answered `n`); off a terminal — a skill, CI — it refuses with the line above unless `--yes` was given, which sets the project up with every write printed and starts. `crt init` itself prints the plan first, only the items not already in place:
-
-```
-crt init will, in C:\my-app:
-  create .crt/README.md
-  create .crt/tasks/
-  create .crt/config.json
-  add .crt/captures/ and .crt/config.local.json to .gitignore
-  add a CRT section to CLAUDE.md
-```
-
-then asks `Go ahead? [Y/n]` on a terminal (`--yes` skips it; off a terminal the command is explicit enough to apply without asking) and announces each write as it happens — `crt init: created .crt/README.md`, `crt init: created .crt/tasks/`, `crt init: created .crt/config.json`, `crt init: added .crt/captures/ and .crt/config.local.json to .gitignore`, `crt init: added the CRT section to CLAUDE.md` (or `crt init: created CLAUDE.md with the CRT section` when neither `CLAUDE.md` nor `AGENTS.md` existed, `crt init: updated the CRT section in CLAUDE.md` when the section's version stamp was older). When there is nothing to do it says `crt init: C:\my-app is set up (.crt/README.md, tasks/, config.json, .gitignore entries, CRT section in CLAUDE.md)`. It ends with the snippet for your framework (`Add CRT to your app (development only):`, the file, the lines, and `Production builds contain nothing from CRT (README › Production). /crt:init in Claude Code applies this for you.`); `crt init --snippet` prints only that and writes nothing. `crt tasks` on a project that is not set up prints `no tasks (CRT is not set up here — run crt init)` and exits 0 (`--json` answers `{ "tasksDir": null, "tasks": [] }`). The CRT section sits between `<!-- BEGIN:crt v0.5 -->` and `<!-- END:crt -->` in `CLAUDE.md` and `AGENTS.md` (an `@AGENTS.md`-only `CLAUDE.md` is skipped in favour of `AGENTS.md`), is replaced in place when the stamp's major.minor changes and never touched at runtime; `--no-instructions` leaves both files alone. In Claude Code, the SessionStart hook says `CRT: .crt/ is set up but CLAUDE.md has no CRT section — run crt init to add it` when the section is missing.
-
-### No dev server found
-
-```
-crt: no dev server on ports 3000, 5173, 8080, 4200, 8000, 3001 — start it and open it in your browser; the CRT button appears when the page loads the CRT loader (crt <port> to have CRT open it next time)
-crt: found N dev servers (…); opening http://localhost:3000 — run `crt <port>` to pick another
-```
-
-Not errors, in embedded mode: your app is only what `crt` opens for you, so `crt` is ready either way (the ready line has no `for <app>`), and the CRT button appears on whichever loopback page loads the loader. The first line means nothing answered HTTP on the probed ports and you gave no target (`crt 3100` remembers one per machine in `.crt/config.local.json`; `--target <url>` and `target` in `.crt/config.json` also work); on a terminal it reads `No dev server on ports … — start it and open it in your browser; the CRT button appears when the page loads the CRT loader (crt <port> to have CRT open it next time).` and the browser is not opened. The second line is the off-terminal form of the list a terminal shows with `Which one should I open? [1]`: the first responder was opened. In proxy mode the target is what CRT forwards to, so the same situations are errors there:
-
-```
-crt: no dev server found on ports 3000, 5173, 8080, 4200, 8000, 3001 — start it, or run `crt <port>`
-crt: found N dev servers (…); using http://localhost:3000 — run `crt <port>` to pick another
-```
-
-You ran `crt proxy` off a terminal (or with `--yes`) without a target, without `target` in either config file, and nothing answered HTTP on any of the probed ports. Start your dev server first, or name it as above. On a terminal `crt proxy` asks for the URL or port instead (`Dev server URL or port:`) and waits for it to come up, re-probing every 2 s; with several dev servers up it lists them and asks `Which one? [1]`. The second line is the off-terminal form of that list: the first responder was taken.
-
-### Target unreachable
-
-```
-crt: http://localhost:3100 (remembered) is not responding — start it; CRT is ready for it
-crt: target <origin> is not responding — start your dev server there, or run `crt <port>`
-```
-
-CRT had an explicit target — positional, `--target`, or from a config file (`(remembered)` for `.crt/config.local.json`, `(.crt/config.json)` for the project file) — but the connection was refused or timed out after 1.5s. Check the dev server really is up on that host and port (any HTTP status counts as up, so a 404 is fine) and that the port is not a typo. The first line is embedded mode, on or off a terminal: not an error, no wait, no question — CRT is up and the button appears once you start the app and its page loads the loader (the browser is not opened for you). The second is proxy mode off a terminal; on a terminal `crt proxy` waits for it instead (`<origin> is not responding yet — start it, then press Enter to retry (type another URL to change, Ctrl+C to quit)`), re-probing every 2 s, and offers another dev server it found (`Use 3000? [Y/n]`).
-
-### Target not a valid URL
-
-```
-crt: target "<value>" is not a valid URL — use e.g. --target http://localhost:3000
-crt: target "<value>" must be http:// or https://
-```
-
-The `--target` value (or `target` in `.crt/config.json`) could not be parsed as a URL; the second line means it parsed but used some other scheme. Pass a bare port (`3000`), a host and port (`localhost:3000`) or a full `http://`/`https://` URL.
-
-### Port in use
-
-```
-crt: port 4400 is held by another CRT (→ <target>, project <root>); using 4401
-crt: port 4400 is in use by a process that is not CRT; using 4401
-crt: port <port> is already in use by CRT <version> (→ <target>, project <root>) — stop the other process, run `crt --replace`, or pass --port <n>
-crt: port <port> is already in use by a process that is not CRT — stop the other process or pass --port <n>
-crt: could not stop the CRT on port 4400 (<reason>) — stop it yourself, or run `crt --port 4401`
-crt: ports <port>–<port+9> are all in use — run `crt --port <n>`
-crt: your app's CRT loader expects :4400 — run `crt --replace`, or set port in .crt/config.json and in the snippet
-```
-
-The first two are not errors: without `--port`, `crt` reuses a CRT that serves the same project in the same mode (and, in proxy mode, the same target) — `CRT <version> is already serving this project (embedded) at http://localhost:4400 (since 09:12) — opened http://localhost:3000.` / `CRT <version> is already serving … for this project at … — opened it.` — and otherwise steps to the next free port, saying which it found on 4400. In embedded mode the last line follows, because the snippet in your app still names 4400: either replace the other CRT, or put the new `port` in `.crt/config.json` and in the snippet (`{ port }`, `data-crt-port`; the Vite plugin reads the config). On a terminal it asks instead — `1) Start this one on 4401  2) Replace it  3) Quit` for another CRT, `Start on 4401 instead? [Y/n]` for anything else. The next two appear only with an explicit `--port`, which is never stepped around. `--replace` asks the other CRT to stop through its shutdown route; the fifth line means it did not. Any other bind failure prints `crt: cannot listen on 127.0.0.1:<port> (<code>)` instead. `crt doctor` shows who holds the port.
-
-### No Claude login
-
-```
-crt: not logged in to Claude Code — run `claude` in a terminal and complete /login (or set CLAUDE_CODE_OAUTH_TOKEN), then send again
-crt: not logged in to Claude Code — run `claude` in a terminal and complete /login (or set CLAUDE_CODE_OAUTH_TOKEN), then send again (install Claude Code first: npm i -g @anthropic-ai/claude-code)
-```
-
-CRT asks the bundled Claude Code binary `auth status --json` at start (reading only its `loggedIn` flag) and prints this right after the ready line, whose `login:` field says `missing`; the second form appears when `claude` is not on your PATH. `crt providers` and `crt doctor` show the same state. Run `claude` in a terminal and complete `/login` (or set `CLAUDE_CODE_OAUTH_TOKEN`), then send your note — no need to restart `crt`; the page re-checks. When Codex is installed and logged in, a logged-out Claude is stepped over: the ready line reads `provider: codex — claude not logged in`.
-
-### Plugin not installed, or `crt setup` fails
-
-```
-crt: claude not found on PATH — install Claude Code (npm i -g @anthropic-ai/claude-code), or run: claude plugin marketplace add simv/crt && claude plugin install crt@crt
-crt: `claude plugin install crt@crt` failed: <first line of what claude printed> — fix that, or run: claude plugin marketplace add simv/crt && claude plugin install crt@crt
-```
-
-`crt setup` needs the `claude` CLI (it runs `claude plugin list --json`, `claude plugin marketplace add <dir>` and `claude plugin install crt@crt` — or `update` when an older `crt@crt` is there — and writes nothing itself). Install Claude Code, or pass the executable with `crt setup --claude <path>`; the second line quotes Claude Code's own error and the same two commands work by hand from GitHub. On success it prints `crt setup: registered marketplace crt from <path>` and `crt setup: installed crt@crt 0.5.0 — restart Claude Code to load /crt:serve, /crt:next, /crt:tasks, /crt:task, /crt:done, /crt:intake, /crt:init`; `crt setup: crt@crt 0.5.0 is already installed` means there was nothing to do. When the plugin and the project's `claude-review-tool` disagree on major.minor, the SessionStart hook says `CRT: plugin 0.5.0 but the project's claude-review-tool is 0.4.0 — npm update claude-review-tool (or crt setup after updating)`.
-
-### No `.git` in the project
-
-Not an error. CRT uses the nearest ancestor of the launch directory that contains `.git` as the project root and falls back to the launch directory itself, so `.crt/` is created wherever you ran `crt`. If the `project:` path in the ready line (or in `/__crt/health`) is not where you want `.crt/tasks/` to live, run `crt` from your project root — or `git init` it. `crt doctor` warns about it.
-
-### The CRT button does not appear (embedded)
-
-```
-crt: opened http://localhost:3000 but the page never loaded the CRT loader — add the integration (`crt init` prints the snippet, /crt:init applies it), or run `crt proxy`
-```
-
-CRT opened your app, but fifteen seconds later the page had asked for neither `/__crt/loader.js` nor `/__crt/overlay.js`: the integration is not in the page. `/__crt/health` shows it as `overlay.loader: 0` and `overlay.fetched: 0`, and `/crt:serve` says so in its reply. In order:
-
-- **Is the snippet there?** `crt doctor`'s `integration` row reads the candidate file for your framework: `ok    integration next — app/layout.tsx imports claude-review-tool/react` means it is; `warn  integration not found (next) — run crt init for the snippet, or crt proxy` means it is not (`crt init` prints it, `/crt:init` applies it; `--    integration static page — add the <script> tag (crt init --snippet)` for a page without a bundler). `<CrtDevTools />` must be inside the tree that renders on the client (the root layout's `<body>` in Next.js); `crt()` must be in the `plugins` array of the config Vite actually loads; the script tag must be in the page that is served in development.
-- **Is the page on a loopback hostname?** The loader does nothing at all on any other host — `localhost`, `*.localhost`, `127.0.0.1` and `[::1]` are the whole list. A dev server reached through a LAN IP or a tunnel has no CRT button, by design.
-- **Is it the pill?** `CRT server not running on :4400 — run \`crt\` in the project, then click here` bottom-right means the loader ran but the overlay script failed to load: `crt` is not running, or it is running on another port (`crt: port 4400 is held by another CRT …; using 4401` earlier in the terminal, and the `crt: your app's CRT loader expects :4400` line after it — see [Port in use](#port-in-use)). Start `crt`, then click the pill or refocus the tab; no reload needed. With the script-tag form there is no pill: the script itself is missing while the server is down and the browser's network panel shows the failed request for `/__crt/loader.js` — start `crt` and reload.
-- **A Content-Security-Policy?** The app's own CSP must allow `http://localhost:4400` in `script-src` (the loader and the overlay script) and in `connect-src` (the API and the SSE stream); the browser console names the blocked directive. In development only — production builds carry nothing from CRT. If the policy cannot be changed, `crt proxy` relaxes the CSP of the proxied pages for its own origin.
-- **Did the page log an error before the loader ran?** It is not captured — the hooks start where the snippet runs ([Add CRT to your app](#add-crt-to-your-app) says where that is for each form). Move the snippet earlier, or use `crt()` / the script tag first in `<head>`.
-
-If the button is there but **Send** fails with `CRT server answered 0` or a CORS error in the console, the page is on a non-local origin, which the server does not allow.
-
-### Overlay does not appear (proxy mode)
-
-```
-crt: injected the overlay into GET / but the browser never fetched /__crt/overlay.js — a Content-Security-Policy or a JS-rendered shell is blocking it; see README › Overlay does not appear
-```
-
-Proxy mode only (`crt proxy`). The proxy is up, it put the overlay tag into the page, but ten seconds later the browser had still not asked for the script, so there is no CRT button (and no dot, no welcome card). The same finding shows in `/__crt/health` as `overlay.fetched: 0`, and `/crt:serve` repeats it in its reply. Two more lines name the cause when CRT can see it: `crt: GET / answered application/json, not text/html — CRT injects only into HTML; use the script-tag fallback (README)` and `crt: GET / sends a CSP with 'strict-dynamic' that CRT cannot relax — the overlay may be blocked; use the script-tag fallback` (also for a nonce, a `require-trusted-types-for` directive or a policy in a `<meta http-equiv>` tag). Check `view-source:` for `<script src="/__crt/overlay.js" defer>` — it is only injected into responses whose `Content-Type` is `text/html`. If your app renders the shell from JavaScript, redirects to its own absolute origin, or sends a `Content-Security-Policy` the relaxer cannot fix, use embedded mode instead: the "script-tag fallback" those lines name is the fourth form in [Add CRT to your app](#add-crt-to-your-app), and `crt` (without `proxy`) is what runs it.
+| Page | What |
+|---|---|
+| [docs/install.md](docs/install.md) | what `crt setup` installs, the other ways to install, the Windows note, older task files |
+| [docs/integration.md](docs/integration.md) | the four forms and where each starts capturing, the loader and its options, Production in full, proxy mode |
+| [docs/cli.md](docs/cli.md) | every command and flag, what `crt` prints, what Claude gets at Send time |
+| [docs/providers.md](docs/providers.md) | Claude Code, Codex, Gemini CLI, Antigravity CLI and any ACP agent — sessions, login, telemetry, skills, every problem line |
+| [docs/task-format.md](docs/task-format.md) | the task file: frontmatter, the seven sections, the bar it holds itself to |
+| [docs/how-it-works.md](docs/how-it-works.md) | the pieces, embedded and proxy mode, the overlay, the intake session, permissions, privacy |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | every `crt doctor` row and every `crt:` line, what it means and the fix |
+| [docs/develop.md](docs/develop.md) | build, test, release, the repository layout, the PRDs |
 
 ## Repository
 
@@ -604,19 +188,11 @@ Proxy mode only (`crt proxy`). The proxy is up, it put the overlay tag into the 
 | `packages/server` | npm package `claude-review-tool` — the `crt` CLI, the CRT server (embedded and proxy modes), capture store, session manager, the `claude-review-tool/{react,vite,loader}` entries; its `dist/plugin-marketplace/` is the plugin as `crt setup` installs it |
 | `packages/overlay` | in-page UI and the loader, bundled into the server |
 | `plugin/` | the Claude Code plugin (skills + hooks); marketplace manifest at `.claude-plugin/marketplace.json` |
-| `docs/PRD.md`, `docs/PRD-providers.md`, `docs/PRD-setup.md`, `docs/PRD-embedded.md` | the product requirements documents (v1.0, v0.2 providers, v0.3 setup, v0.4 embedded mode) |
+| `docs/` | the reference pages above, the product requirements documents (`PRD.md`, `PRD-providers.md`, `PRD-setup.md`, `PRD-embedded.md`, `PRD-polish.md`), the design review, the spikes, the brand files and the images |
 | `.crt/tasks` | this repo's own work items, in CRT's task format |
 
 ## Develop
 
-```bash
-npm ci
-npm run check   # typecheck, lint, unit tests, build
-npm run e2e     # Playwright smoke: fixture app carrying the loader tag, a real embedded `crt serve` (and a `crt proxy` for the proxy spec); needs `npx playwright install chromium` once
-```
-
-Plugin changes: `claude plugin validate ./plugin` (and `.` for the marketplace, and `packages/server/dist/plugin-marketplace` after a build) must pass — CI runs all of them. To try a local skill edit before it is on `main`, run `claude --plugin-dir ./plugin` in the project you are testing against, or `crt setup` from a fresh profile (`CLAUDE_CONFIG_DIR=<empty dir>`) with `crt` npm-linked to this repo.
-
-Release: bump `version` in `packages/server/package.json`, both plugin manifests and the pinned `claude-review-tool@<major.minor>` in the seven skills (a unit test fails when they disagree), merge, then `git tag v<version> && git push origin v<version>`. The `release` workflow checks the tag matches the package version, runs `npm run check`, **stages** `claude-review-tool` on npm through trusted publishing (OIDC from this repository's `release.yml`; no token, provenance attested) and creates a GitHub Release with generated notes. The version goes live only when the maintainer promotes the staged version on npmjs.com (package → Versions) with 2FA — CI can stage a release but never ship one.
+`npm ci`, then `npm run check` (typecheck, unit tests, build) and `npm run e2e` (Playwright smoke; `npx playwright install chromium` once). Plugin changes must pass `claude plugin validate ./plugin`; CI runs both. The release recipe, `npm run screenshots` and the PRDs: [docs/develop.md](docs/develop.md).
 
 License: MIT.
