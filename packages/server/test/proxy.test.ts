@@ -396,7 +396,7 @@ describe("overlay-fetch timer (PRD-setup F-80)", () => {
     };
   }
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-  const MISSING = /^crt: injected the overlay into GET \/\S* but the browser never fetched \/__crt\/overlay\.js — a Content-Security-Policy or a JS-rendered shell is blocking it; see README › Overlay does not appear$/;
+  const MISSING = /^crt: injected the overlay into GET \/\S* but the browser never fetched \/__crt\/overlay\.js — a Content-Security-Policy or a JS-rendered shell is blocking it; see docs\/troubleshooting\.md › Overlay does not appear$/;
 
   it("says once that the browser never fetched the overlay when no fetch follows an injected page (F-80)", async () => {
     const p = await ownProxy();
@@ -405,7 +405,7 @@ describe("overlay-fetch timer (PRD-setup F-80)", () => {
       await p.get("/gzip");
       expect((await p.health()).overlay).toMatchObject({ injected: 2, fetched: 0 });
       await sleep(150);
-      expect(p.lines.filter((l) => MISSING.test(l))).toEqual(["crt: injected the overlay into GET /gzip but the browser never fetched /__crt/overlay.js — a Content-Security-Policy or a JS-rendered shell is blocking it; see README › Overlay does not appear"]);
+      expect(p.lines.filter((l) => MISSING.test(l))).toEqual(["crt: injected the overlay into GET /gzip but the browser never fetched /__crt/overlay.js — a Content-Security-Policy or a JS-rendered shell is blocking it; see docs/troubleshooting.md › Overlay does not appear"]);
       await p.get("/");
       await sleep(150);
       expect(p.lines.filter((l) => MISSING.test(l))).toHaveLength(1);

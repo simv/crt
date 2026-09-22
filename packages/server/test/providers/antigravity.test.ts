@@ -212,7 +212,7 @@ describe("antigravity profile (F-42, F-111)", () => {
   });
 
   it("the README quotes every Antigravity N-7 line verbatim and states the sandbox, the telemetry setting and the skills command (N-7, N-12, F-58)", () => {
-    const readme = readFileSync(join(import.meta.dirname, "..", "..", "..", "..", "README.md"), "utf8");
+    const readme = readFileSync(join(import.meta.dirname, "..", "..", "..", "..", "docs", "providers.md"), "utf8"); // docs/providers.md since M23 (PRD-polish §9, N-26)
     for (const line of [ANTIGRAVITY_NOT_FOUND, ANTIGRAVITY_NOT_LOGGED_IN, antigravityTooOld("<version>"), antigravityCouldNotResume("<id>"), antigravityHooksNotLoaded("<sessionDir>"), ANTIGRAVITY_MCP_NEVER_CALLED]) {
       expect(readme, line).toContain(`
 ${line}

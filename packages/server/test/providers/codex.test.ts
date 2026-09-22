@@ -137,7 +137,7 @@ describe("codex profile (F-42, F-53)", () => {
   });
 
   it("the README quotes every Codex N-7 line verbatim and states the resume cost and telemetry opt-out (N-7, N-12, N-13)", () => {
-    const readme = readFileSync(join(import.meta.dirname, "..", "..", "..", "..", "README.md"), "utf8");
+    const readme = readFileSync(join(import.meta.dirname, "..", "..", "..", "..", "docs", "providers.md"), "utf8"); // docs/providers.md since M23 (PRD-polish §9, N-26)
     for (const line of [CODEX_NOT_FOUND, CODEX_NOT_LOGGED_IN, codexTooOld("<version>"), codexCouldNotResume("<id>"), CODEX_MCP_NEVER_CALLED]) {
       expect(readme, line).toContain(`
 ${line}

@@ -165,7 +165,7 @@ test("a page whose CSP blocks the overlay script produces the F-80 line and leav
   // Should: the unrelaxable policy is named at once.
   expect(crt.lines).toContain("crt: GET /csp-strict sends a CSP with 'strict-dynamic' that CRT cannot relax — the overlay may be blocked; use the script-tag fallback");
   const missing = await crt.waitFor(/^crt: injected the overlay into GET /, 20_000);
-  expect(missing).toBe("crt: injected the overlay into GET /csp-strict but the browser never fetched /__crt/overlay.js — a Content-Security-Policy or a JS-rendered shell is blocking it; see README › Overlay does not appear");
+  expect(missing).toBe("crt: injected the overlay into GET /csp-strict but the browser never fetched /__crt/overlay.js — a Content-Security-Policy or a JS-rendered shell is blocking it; see docs/troubleshooting.md › Overlay does not appear");
   expect(crt.lines.filter((l) => l.startsWith("crt: injected the overlay"))).toHaveLength(1);
   const h = (await health(4473))!;
   expect(h.overlay).toMatchObject({ fetched: 0, cspWarning: "script-src 'nonce-abc' 'strict-dynamic'" });

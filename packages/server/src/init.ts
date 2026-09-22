@@ -341,7 +341,7 @@ export function renderSnippet(i: Integration): string[] {
     "Add CRT to your app (development only):",
     `  ${i.file ?? INTEGRATION_PLACEHOLDER[i.framework]}`,
     ...i.snippet.split("\n").map((l) => `    ${l}`),
-    "Production builds contain nothing from CRT (README › Production). /crt:init in Claude Code applies this for you.",
+    "Production builds contain nothing from CRT (docs/integration.md › Production). /crt:init in Claude Code applies this for you.",
   ];
 }
 
