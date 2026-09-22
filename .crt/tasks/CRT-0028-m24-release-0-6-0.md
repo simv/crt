@@ -1,10 +1,10 @@
 ---
 id: CRT-0028
 title: M24 — Release 0.6.0: version bump and skill pins, PRD-polish §9/§10 evidence, tag, publish, promote
-status: backlog
+status: in_progress
 priority: normal
 created: 2026-09-21T19:55:00+08:00
-updated: 2026-09-21T19:55:00+08:00
+updated: 2026-09-22T14:21:00+08:00
 url: null
 route: null
 session: null
@@ -41,3 +41,4 @@ Depends on CRT-0024, CRT-0025, CRT-0026 and CRT-0027 being `done` (merged). Do n
 
 ## Log
 - 2026-09-21T19:55+08:00 — created from docs/PRD-polish.md milestone M24 by the planning session that wrote it (session 78b6555f-fedb-4424-b1ab-1d8477f99af8).
+- 2026-09-22T14:21+08:00 — claimed by /crt:next, session 8bfe6979-6e2d-4bd5-9690-de7e6b25ab14, branch crt/CRT-0028-m24-release-0-6-0
