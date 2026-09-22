@@ -1490,13 +1490,26 @@ export class OverlayUI {
       if (pop && !pop.hidden && !pop.classList.contains("page") && pop.dataset.id && this.threadOrOwnId(pop) === a.id) {
         const size = { width: pop.offsetWidth, height: pop.offsetHeight };
         const anchor = a.kind === "pin" ? { x: rect.x, y: rect.y, width: 1, height: 1 } : rect;
-        const p = placePopover(anchor, size, { width: window.innerWidth, height: window.innerHeight });
+        const p = placePopover(anchor, size, this.popoverViewport());
         pop.style.left = `${p.x}px`;
         pop.style.top = `${p.y}px`;
         pop.dataset.side = p.side;
       }
     });
     this.positionDocked();
+  }
+
+  /**
+   * F-65's "inside the viewport", minus the dock: when the toolbar is open in the lower half of the
+   * window, a popover is clamped above it rather than under it (at 600 px a chat popover would
+   * otherwise end over the toolbar, reply box first — CRT-0029). A dock dragged into the upper half
+   * leaves the whole viewport to the popover.
+   */
+  private popoverViewport(): { width: number; height: number } {
+    const width = window.innerWidth;
+    if (this.dock.hidden) return { width, height: window.innerHeight };
+    const top = this.dock.getBoundingClientRect().top;
+    return { width, height: top > window.innerHeight / 2 ? top : window.innerHeight };
   }
 
   /** The annotation a popover is anchored to (the host of a grouped thread, or its own). */

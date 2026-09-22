@@ -4,11 +4,11 @@ import { defineConfig } from "@playwright/test";
 // screenshots. Not part of `npm run e2e` (playwright.config.ts ignores screenshots.spec.ts) and
 // never run in CI (pixel diffs flake, §12 rule 3): a developer runs it by hand after `npm run build`
 // and commits docs/images/*.png. Same infrastructure as the e2e: the fixture app is the app under
-// test on its own origin, with the loader tag pointing at one embedded `crt serve` on
+// test on its own origin (its /shop page, the trial shop — CRT-0029), with the loader tag pointing at one embedded `crt serve` on
 // CRT_SESSION_STUB=1 from its own scratch project (e2e/.project/screenshots) — spare ports, so a
 // running e2e or a real `crt serve` on :4400 is never in the way.
 //
-// Everything a screenshot can depend on is pinned here or in the spec: viewport 1280 × 800 CSS px
+// Everything a screenshot can depend on is pinned here or in the spec: viewport 800 × 600 CSS px
 // at DPR 2, light colour scheme, one worker in file order, a fresh browser context (cleared storage)
 // per image, and in the spec a fixed clock, `animations: "disabled"` on every capture and waits on
 // the overlay's own signals.
@@ -28,7 +28,7 @@ export default defineConfig({
   timeout: 60_000,
   use: {
     baseURL: SCREENSHOTS_FIXTURE_ORIGIN,
-    viewport: { width: 1280, height: 800 },
+    viewport: { width: 800, height: 600 },
     deviceScaleFactor: 2,
     colorScheme: "light",
     locale: "en-US",

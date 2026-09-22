@@ -7,12 +7,13 @@ import { SCREENSHOTS_CRT_ORIGIN } from "../playwright.screenshots.config.js";
 
 // PRD-polish F-116 / N-27 (M22, task CRT-0026): the five README screenshots, written to
 // docs/images/ by `npm run screenshots` (playwright.screenshots.config.ts — not part of `npm run
-// e2e`, never in CI). The pages are the e2e fixture's shop page (/app) on its own origin with the
+// e2e`, never in CI). The page is the e2e fixture's /shop — the trial app's shop (tool-validation), ported
+// into the fixture so the images are reproducible from this repo alone (CRT-0029) — on its own origin with the
 // loader tag pointing at one embedded `crt serve` on the stub (CRT_SESSION_STUB=1), so every state
 // the overlay is driven to here is the real overlay talking to the real server over the real
 // routes; only the agent is scripted (src/providers/stub.ts).
 //
-// Determinism (N-27): the config pins the viewport (1280 × 800 CSS px), DPR 2, the light scheme,
+// Determinism (N-27): the config pins the viewport (800 × 600 CSS px), DPR 2, the light scheme,
 // the locale and time zone and one worker in file order; every test gets a fresh browser context
 // (no storage carried over) and a fixed clock; the scratch project's tasks and captures are reset
 // before the first image (six placeholder tasks, so the one the stub writes is CRT-0007); every
@@ -60,7 +61,8 @@ async function shoot(page: Page, name: string): Promise<void> {
 /** Open the fixture's shop page with the fixed clock and wait for the overlay to report its server. */
 async function openApp(page: Page): Promise<void> {
   await page.clock.install({ time: FIXED_TIME });
-  await page.goto("/app");
+  await page.goto("/shop");
+  await expect(page.locator("[data-testid=cart-total]")).toHaveText("$9.00"); // React has rendered the shop
   await expect(shadow(page, ".launcher")).toHaveAttribute("data-health", "connected");
 }
 
@@ -71,9 +73,14 @@ async function settle(page: Page): Promise<void> {
   await expect(shadow(page, ".launcher")).toHaveAttribute("data-health", "connected");
 }
 
-/** The transcript scrolls to its end smoothly (chat.ts); wait until it has arrived, so every run shows the same lines. */
+/**
+ * The transcript scrolls to its end smoothly on every append (chat.ts); at 600 px the log overflows enough that the
+ * animation lands short under the fake clock, so land it at its end outright, then wait until it is there — every
+ * run shows the same lines.
+ */
 async function scrolledToEnd(page: Page, pop: ReturnType<typeof shadow>): Promise<void> {
   const log = pop.locator(".chat-log");
+  await log.evaluate((el) => el.scrollTo({ top: el.scrollHeight, behavior: "instant" }));
   await expect.poll(() => log.evaluate((el) => el.scrollTop + el.clientHeight >= el.scrollHeight - 1)).toBe(true);
 }
 
@@ -119,40 +126,43 @@ test("arrival.png — the shop page, the CRT pill bottom-right, the welcome card
 
 test("select.png — Select armed, the hover outline and label on a price, one pinned marker with its popover and a typed note (F-8, F-65, F-116)", async ({ page }) => {
   await openApp(page);
-  // The marker: pin the Gadget price and type its note into the popover (which opens beside it).
-  await page.evaluate(() => window.__crt.addSelect("[data-testid=card-2] .price"));
+  // The marker: pin the notebook's sale price and type its note into the popover (which opens beside it).
+  await page.evaluate(() => window.__crt.addSelect("[data-testid=card-notebook] .price"));
   await page.evaluate(() => window.__crt.togglePop(1, true));
   const pop = shadow(page, '.pop[data-n="1"]');
   await expect(pop).toBeVisible();
   await expect(pop.locator("textarea")).toBeFocused();
-  await page.keyboard.type("Gadget total ignores the SAVE10 promo the page says is applied");
-  await expect(pop.locator("textarea")).toHaveValue("Gadget total ignores the SAVE10 promo the page says is applied");
+  await page.keyboard.type("Sale price shows here but the cart total ignores it");
+  await expect(pop.locator("textarea")).toHaveValue("Sale price shows here but the cart total ignores it");
   // Select armed (which closes the popover, F-65), the popover back beside its marker, then the
-  // hover on the Widget price above it: outline and label, clear of the popover.
+  // hover on the mug's price to its left: outline and label (the component name first, F-18), clear of the popover.
   await page.evaluate(() => window.__crt.setTool("select"));
   await expect(shadow(page, ".layer")).toBeVisible();
   await expect(shadow(page, "[data-tool=select]")).toHaveClass(/active/);
   await page.evaluate(() => window.__crt.togglePop(1, true));
   await expect(pop).toBeVisible();
-  const at = await centre(page, "[data-testid=card-1] .price");
+  const at = await centre(page, "[data-testid=card-mug] .price");
   await page.mouse.move(at.x, at.y, { steps: 2 });
   await expect(shadow(page, ".hover")).toBeVisible();
-  await expect(shadow(page, ".hover-label")).toHaveText("span.price");
+  await expect(shadow(page, ".hover-label")).toHaveText("ProductCard div.price");
+  await expect(shadow(page, ".hover-label b")).toHaveText("ProductCard");
   await expect(shadow(page, ".num-badge")).toHaveText("1");
   await shoot(page, "select.png");
 });
 
 test("chat.png — the popover as the chat: streamed text, a collapsed tool line, the Allow / Deny card (F-25, F-26, F-66, F-116)", async ({ page }) => {
   await openApp(page);
+  // The mug's price: the stub names the component and the source file the page reports (ProductCard).
   await page.evaluate(() => {
-    window.__crt.addSelect("[data-testid=card-1] .price");
-    window.__crt.setNote(1, "Total ignores the SAVE10 promo the page says is applied");
+    window.__crt.addSelect("[data-testid=card-mug] .price");
+    window.__crt.setNote(1, "Price ignores the SAVE10 promo the cart says is applied");
   });
   await page.evaluate(() => window.__crt.send({ n: 1 }));
   const pop = shadow(page, '.pop[data-n="1"]');
   await expect(pop.locator(".chat")).toBeVisible();
   await expect(pop.locator(".msg.assistant").first()).toContainText("let me look at the source");
-  await expect(pop.locator(".tool summary").first()).toHaveText("Read src/components/Cart.tsx");
+  await expect(pop.locator(".msg.assistant strong").first()).toHaveText("ProductCard");
+  await expect(pop.locator(".tool summary").first()).toHaveText("Read components/ProductCard.tsx");
   await expect(pop.locator(".tool").first()).toHaveClass(/done/);
   await expect(pop.locator(".perm .t")).toHaveText("Bash npm test");
   await expect(pop.locator(".perm button.allow")).toBeVisible();
@@ -160,6 +170,9 @@ test("chat.png — the popover as the chat: streamed text, a collapsed tool line
   await expect(shadow(page, '.mark-state[data-n="1"]')).toHaveText("needs permission");
   await settle(page);
   await scrolledToEnd(page, pop);
+  // F-65 (CRT-0029): at 600 px the chat popover sits above the dock, never under it.
+  const [popBox, dockBox] = await Promise.all([pop.boundingBox(), shadow(page, ".dock").boundingBox()]);
+  expect(popBox!.y + popBox!.height).toBeLessThanOrEqual(dockBox!.y);
   await shoot(page, "chat.png");
 });
 
@@ -173,19 +186,19 @@ test(`marker-states.png — three markers on one page: thinking…, your turn, $
   await page.evaluate(() => window.__crt.send({ n: 1 }));
   await expect(shadow(page, '.pop[data-n="1"] .msg.assistant').first()).toContainText("let me look at the source");
   await expect(shadow(page, '.mark-state[data-n="1"]')).toHaveText("thinking…");
-  // #2 the Widget price: Deny the test run, the stub proposes a definition of done and waits (idle).
+  // #2 the mug's price: Deny the test run, the stub proposes a definition of done and waits (idle).
   await page.evaluate(() => {
-    window.__crt.addSelect("[data-testid=card-1] .price");
-    window.__crt.setNote(2, "Total ignores the SAVE10 promo the page says is applied");
+    window.__crt.addSelect("[data-testid=card-mug] .price");
+    window.__crt.setNote(2, "Cart total ignores the SAVE10 promo the page says is applied");
   });
   await page.evaluate(() => window.__crt.send({ n: 2 }));
   await expect(shadow(page, '.pop[data-n="2"] .perm button.deny')).toBeVisible();
   await shadow(page, '.pop[data-n="2"] .perm button.deny').click();
   await expect(shadow(page, '.mark-state[data-n="2"]')).toHaveText("your turn");
-  // #3 the Gadget price: Allow, Accept the proposal, the task is written — its id on the marker.
+  // #3 the notebook's name (clear of the dock, unlike its price): Allow, Accept the proposal, the task is written — its id on the marker.
   await page.evaluate(() => {
-    window.__crt.addSelect("[data-testid=card-2] .price");
-    window.__crt.setNote(3, "Gadget price should show the discounted amount");
+    window.__crt.addSelect("[data-testid=card-notebook] h3");
+    window.__crt.setNote(3, "Product name should link to the product page");
   });
   await page.evaluate(() => window.__crt.send({ n: 3 }));
   await expect(shadow(page, '.pop[data-n="3"] .perm button.allow')).toBeVisible();

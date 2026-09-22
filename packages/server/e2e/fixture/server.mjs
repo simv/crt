@@ -33,6 +33,8 @@
 //                       URL), so the pill exists without a server (F-96 step 6)
 //   GET  /react         React 18 dev build (UMD from node_modules) rendering a small component tree
 //                       with __source set, for the fiber-walk spec (F-18)
+//   GET  /shop          the trial app's shop page (tool-validation) on the same React dev build: the
+//                       page npm run screenshots pictures (PRD-polish F-116, N-27; CRT-0029)
 //   GET  /vendor/*.js   react.development.js / react-dom.development.js
 //   GET  /api/json      application/json
 //   GET  /echo-headers  JSON of the request headers as received
@@ -159,6 +161,186 @@ const REACT_PAGE = `<!doctype html>
 </html>
 `;
 
+// PRD-polish F-116 (CRT-0029): the page `npm run screenshots` pictures — the trial app's shop
+// (C:\Projects\Claude\tool-validation, a Next.js page) ported here so the screenshots are
+// reproducible from this repo alone (N-27): its markup and CSS as they are there, rendered with the
+// React 18 dev build as the same four components (Header, Shop, ProductCard, CartSummary, with
+// __source) so the overlay's hover label reads the component name, as it does on the real app.
+// The cart holds one notebook with SAVE10 applied and a total that ignores the discount — the trial
+// app's deliberate bug, the thing the screenshots' notes point at.
+const SHOP_PAGE = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tool Validation Shop</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --card: #ffffff;
+      --ink: #1b1f24;
+      --muted: #6b7280;
+      --accent: #2563eb;
+      --danger: #dc2626;
+      --ok: #16a34a;
+      --border: #e5e7eb;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+                 font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 16px; line-height: 1.5; }
+    a { color: var(--accent); }
+    main { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }
+    h1, h2, h3 { margin: 0 0 8px; }
+    button { font: inherit; cursor: pointer; border-radius: 6px; border: 1px solid var(--border); background: var(--card); padding: 8px 14px; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.danger { border-color: var(--danger); color: var(--danger); }
+    .site-header { background: var(--card); border-bottom: 1px solid var(--border); padding: 12px 16px; }
+    .site-header .inner { max-width: 960px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .site-header nav a { margin-left: 16px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+    .card .thumb { height: 96px; border-radius: 8px; background: linear-gradient(135deg, #dbeafe, #e0e7ff); }
+    .card .price { font-weight: 600; }
+    .card .price.sale { color: var(--ok); }
+    .card .was { color: var(--muted); text-decoration: line-through; margin-left: 6px; font-weight: 400; }
+    .summary { margin-top: 32px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; max-width: 420px; }
+    .summary dl { display: grid; grid-template-columns: 1fr auto; gap: 6px 16px; margin: 0 0 12px; }
+    .summary dd { margin: 0; text-align: right; }
+    .summary .total { font-weight: 700; font-size: 18px; }
+    .summary .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #dcfce7; color: var(--ok); font-size: 13px; margin-left: 8px; }
+    .actions { margin-top: 32px; display: flex; flex-wrap: wrap; gap: 12px; }
+    .status { margin-top: 12px; color: var(--muted); min-height: 24px; }
+    .muted { color: var(--muted); }
+    footer.site-footer { border-top: 1px solid var(--border); padding: 16px; text-align: center; color: var(--muted); font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="/vendor/react.development.js"></script>
+  <script src="/vendor/react-dom.development.js"></script>
+  <script>
+    // The trial app's components, as the JSX dev transform would emit them (__source per element).
+    const h = React.createElement;
+    const at = (fileName, lineNumber) => ({ fileName, lineNumber, columnNumber: 5 });
+    const PRODUCTS = [
+      { id: "mug", name: "Enamel mug", description: "Holds 350 ml. Dishwasher safe, campfire approved.", price: 14 },
+      { id: "notebook", name: "Dot-grid notebook", description: "A5, 160 pages, lay-flat binding.", price: 12, salePrice: 9 },
+      { id: "pen", name: "Brass pen", description: "Refillable, takes standard cartridges.", price: 28 },
+    ];
+    const PROMOS = { SAVE10: 10 };
+    const effectivePrice = (p) => p.salePrice ?? p.price;
+    const money = (n) => "$" + n.toFixed(2);
+
+    function Header() {
+      const f = "components/Header.tsx";
+      return h("header", { className: "site-header", __source: at(f, 5) },
+        h("div", { className: "inner", __source: at(f, 6) },
+          h("strong", { id: "brand", __source: at(f, 7) }, "Tool Validation Shop"),
+          h("nav", { "aria-label": "Main", __source: at(f, 8) },
+            h("a", { href: "/shop", __source: at(f, 9) }, "Shop"),
+            h("a", { href: "#about", __source: at(f, 10) }, "About"))));
+    }
+
+    function ProductCard({ product, onAdd }) {
+      const f = "components/ProductCard.tsx";
+      const onSale = product.salePrice !== undefined;
+      return h("article", { className: "card", "data-testid": "card-" + product.id, __source: at(f, 6) },
+        h("div", { className: "thumb", "aria-hidden": "true", __source: at(f, 7) }),
+        h("h3", { __source: at(f, 8) }, product.name),
+        h("p", { className: "muted", __source: at(f, 9) }, product.description),
+        h("div", { className: onSale ? "price sale" : "price", __source: at(f, 10) },
+          money(effectivePrice(product)),
+          onSale ? h("span", { className: "was", __source: at(f, 12) }, money(product.price)) : null),
+        h("button", { type: "button", onClick: () => onAdd(product.id), __source: at(f, 14) }, "Add to cart"));
+    }
+
+    function CartSummary({ items, promo }) {
+      const f = "components/CartSummary.tsx";
+      const lines = PRODUCTS.filter((p) => items[p.id]).map((p) => ({ product: p, qty: items[p.id], amount: effectivePrice(p) * items[p.id] }));
+      const subtotal = lines.reduce((sum, l) => sum + l.amount, 0);
+      const discountPct = promo ? (PROMOS[promo] ?? 0) : 0;
+      const discount = (subtotal * discountPct) / 100;
+      // BUG (deliberate, as in the trial app): the total ignores the discount that is shown as applied.
+      const total = subtotal;
+      return h("section", { className: "summary", "aria-label": "Cart summary", __source: at(f, 12) },
+        h("h2", { __source: at(f, 13) }, "Cart", promo && discountPct > 0 ? h("span", { className: "badge", __source: at(f, 15) }, promo + " applied") : null),
+        lines.length === 0
+          ? h("p", { className: "muted", __source: at(f, 18) }, "Nothing in the cart yet.")
+          : h("dl", { __source: at(f, 20) },
+              ...lines.map((l) => h("div", { key: l.product.id, style: { display: "contents" }, __source: at(f, 22) },
+                h("dt", { __source: at(f, 23) }, l.product.name + " × " + l.qty),
+                h("dd", { __source: at(f, 26) }, money(l.amount)))),
+              h("dt", { __source: at(f, 29) }, "Subtotal"),
+              h("dd", { className: "subtotal", __source: at(f, 30) }, money(subtotal)),
+              h("dt", { __source: at(f, 31) }, "Discount"),
+              h("dd", { className: "discount", __source: at(f, 32) }, "−" + money(discount)),
+              h("dt", { className: "total", __source: at(f, 33) }, "Total"),
+              h("dd", { className: "total", "data-testid": "cart-total", __source: at(f, 34) }, money(total))));
+    }
+
+    function Shop() {
+      const f = "components/Shop.tsx";
+      const [items, setItems] = React.useState({ notebook: 1 });
+      const [promoInput, setPromoInput] = React.useState("SAVE10");
+      const [promo, setPromo] = React.useState("SAVE10");
+      const [status, setStatus] = React.useState("");
+      const add = (id) => setItems((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }));
+      const applyPromo = () => {
+        const code = promoInput.trim().toUpperCase();
+        if (PROMOS[code]) { setPromo(code); setStatus("Promo " + code + " applied."); }
+        else { setPromo(null); setStatus('Unknown promo code "' + code + '".'); console.warn("promo rejected", code); }
+      };
+      const checkout = async () => {
+        setStatus("Checking out…");
+        try {
+          const res = await fetch("/api/checkout", { method: "POST", body: JSON.stringify({ items, promo }) });
+          if (!res.ok) throw new Error("checkout failed with " + res.status);
+          setStatus("Order placed.");
+        } catch (err) {
+          console.error("checkout error", err);
+          setStatus("Checkout failed: " + err.message);
+        }
+      };
+      const explode = () => { setTimeout(() => { throw new Error("Deliberate uncaught error from the Explode button"); }, 0); };
+      return h(React.Fragment, null,
+        h("section", { "aria-label": "Products", __source: at(f, 46) },
+          h("h2", { __source: at(f, 47) }, "Products"),
+          h("div", { className: "grid", __source: at(f, 48) },
+            ...PRODUCTS.map((p) => h(ProductCard, { key: p.id, product: p, onAdd: add, __source: at(f, 50) })))),
+        h(CartSummary, { items, promo, __source: at(f, 55) }),
+        h("div", { className: "actions", __source: at(f, 57) },
+          h("label", { __source: at(f, 58) }, "Promo code ",
+            h("input", { value: promoInput, onChange: (e) => setPromoInput(e.target.value), "aria-label": "Promo code", __source: at(f, 60) })),
+          h("button", { type: "button", onClick: applyPromo, __source: at(f, 62) }, "Apply"),
+          h("button", { type: "button", className: "primary", onClick: checkout, "data-testid": "checkout", __source: at(f, 65) }, "Checkout"),
+          h("button", { type: "button", className: "danger", onClick: explode, "data-testid": "explode", __source: at(f, 68) }, "Explode"),
+          h("button", { type: "button", onClick: () => setItems({}), __source: at(f, 71) }, "Empty cart")),
+        h("p", { className: "status", role: "status", __source: at(f, 75) }, status));
+    }
+
+    function HomePage() {
+      const f = "app/page.tsx";
+      return h("main", { __source: at(f, 5) },
+        h("h1", { id: "heading", __source: at(f, 6) }, "A small shop, for pointing at things"),
+        h("p", { className: "muted", __source: at(f, 7) },
+          "Every element here exists to be annotated with CRT. The cart has a deliberate bug (the total ignores the applied discount),",
+          h("strong", { __source: at(f, 9) }, " Checkout"), " hits an API route that always fails, and ",
+          h("strong", { __source: at(f, 9) }, "Explode"), " throws an uncaught error."),
+        h(Shop, { __source: at(f, 11) }),
+        h("footer", { className: "site-footer", __source: at(f, 12) }, "tool-validation · not a real shop"));
+    }
+
+    function RootLayout() {
+      const f = "app/layout.tsx";
+      return h(React.Fragment, null, h(Header, { __source: at(f, 15) }), h(HomePage, { __source: at(f, 16) }));
+    }
+    ReactDOM.createRoot(document.getElementById("root")).render(h(RootLayout, { __source: at("app/layout.tsx", 12) }));
+    window.__fixture = "shop";
+  </script>
+</body>
+</html>
+`;
+
 // The UMD builds are not in React's `exports` map, so locate the package dir via package.json.
 const require = createRequire(import.meta.url);
 const pkgDir = (name) => dirname(require.resolve(`${name}/package.json`));
@@ -219,6 +401,8 @@ export function startFixture(opts = {}) {
         return html(withLoader(APP_PAGE));
       case "/react":
         return html(withLoader(REACT_PAGE));
+      case "/shop":
+        return html(withLoader(SHOP_PAGE));
       case "/gzip": {
         if (!/\bgzip\b/.test(accepts)) return html(PAGE);
         const gz = gzipSync(PAGE);
