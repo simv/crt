@@ -14,7 +14,7 @@ Plugin changes: `claude plugin validate ./plugin` (and `.` for the marketplace, 
 
 ## Release
 
-Release: bump `version` in `packages/server/package.json`, both plugin manifests and the pinned `claude-review-tool@<major.minor>` in the seven skills (a unit test fails when they disagree), merge, then `git tag v<version> && git push origin v<version>`. The `release` workflow checks the tag matches the package version, runs `npm run check`, **stages** `claude-review-tool` on npm through trusted publishing (OIDC from this repository's `release.yml`; no token, provenance attested) and creates a GitHub Release with generated notes. The version goes live only when the maintainer promotes the staged version on npmjs.com (package → Versions) with 2FA — CI can stage a release but never ship one.
+Release: re-run `npm run screenshots` when the overlay's UI changed since the last release (the PNGs in `docs/images/` are committed — [docs/images/README.md](images/README.md)), bump `version` in `packages/server/package.json`, both plugin manifests and the pinned `claude-review-tool@<major.minor>` in the seven skills (a unit test fails when they disagree), merge, then `git tag v<version> && git push origin v<version>`. The `release` workflow checks the tag matches the package version, runs `npm run check`, **stages** `claude-review-tool` on npm through trusted publishing (OIDC from this repository's `release.yml`; no token, provenance attested) and creates a GitHub Release with generated notes. The version goes live only when the maintainer promotes the staged version on npmjs.com (package → Versions) with 2FA — CI can stage a release but never ship one.
 
 ## Repository
 

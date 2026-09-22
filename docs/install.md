@@ -9,7 +9,7 @@ What `crt setup` puts in Claude Code, the other ways to install `crt`, the Windo
 ## Other ways to install
 
 - **Teams that want the version in the lockfile:** `npm i -D claude-review-tool` in the project, then `npx crt` (or `crt` from an npm script). The skills always prefer a project install (`npx --no crt`) over anything global.
-- **Zero-install:** `npx claude-review-tool` in the project folder does what `crt` does, and `npx claude-review-tool tasks` / `task <ID>` list what `/crt:tasks` / `/crt:task` show. The first run downloads the package and the Claude Code binary it bundles (~220 MB); npm caches it after that. The skills fall back to `npx -y claude-review-tool@0.5` the same way when no local install exists — the one lookup outside CRT's control.
+- **Zero-install:** `npx claude-review-tool` in the project folder does what `crt` does, and `npx claude-review-tool tasks` / `task <ID>` list what `/crt:tasks` / `/crt:task` show. The first run downloads the package and the Claude Code binary it bundles (~220 MB); npm caches it after that. The skills fall back to `npx -y claude-review-tool@0.6` the same way when no local install exists — the one lookup outside CRT's control.
 - **From GitHub, without the npm package:** `claude plugin marketplace add simv/crt && claude plugin install crt@crt`. The repository is public, so this works for anyone; the plugin then tracks `main` (`claude plugin update crt@crt` picks up new skills) and the skills run `crt` through `npx` as above.
 
 ## Notes

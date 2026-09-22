@@ -5,7 +5,7 @@ argument-hint: "<CRT-ID> [pr-url]"
 disable-model-invocation: true
 ---
 
-Close task `$0` (PRD F-40), from the project root `${CLAUDE_PROJECT_DIR}`. `crt` means `npx --no crt` if the project has it installed, else `npx -y claude-review-tool@0.5`.
+Close task `$0` (PRD F-40), from the project root `${CLAUDE_PROJECT_DIR}`. `crt` means `npx --no crt` if the project has it installed, else `npx -y claude-review-tool@0.6`.
 
 1. `crt task $0` (or read `.crt/tasks/$0-*.md`). The status must be `review`; otherwise say what it is and stop. Note the file name; `<slug>` is the file name without `CRT-NNNN-` and `.md`.
 2. Find the merged PR: `$1` if given, else `gh pr list --state merged --head crt/$0-<slug> --json url,mergedAt -q '.[0]'`, else `gh pr list --state merged --search "$0" --json url,mergedAt -q '.[0]'`. None found → say the PR has not merged yet (or `gh` is unavailable) and stop; do not close the task.

@@ -70,7 +70,7 @@ describe("init skill (F-104)", () => {
 
   it("resolves crt per F-87 and survives the F-58 rewrite for other agents (F-87, F-58)", () => {
     expect(skill).toContain("`npx --no crt`");
-    expect(skill).toContain("`npx -y claude-review-tool@0.5`");
+    expect(skill).toContain("`npx -y claude-review-tool@0.6`");
     const out = rewriteSkill(skill);
     expect(out).not.toContain("AskUserQuestion");
     expect(out).not.toContain("${CLAUDE_PROJECT_DIR}");
