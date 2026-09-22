@@ -5,7 +5,8 @@
 // dist/plugin-marketplace/ for `crt setup`. The repo LICENSE is copied into the package dir too
 // (gitignored there) so npm bundles it. Last, the package entries' no-op modules and .d.ts files
 // (PRD-embedded F-97, F-98) go into dist/integrations/ (integrations.mjs). The favicon and its PNG
-// fallbacks (PRD-polish F-112) come from docs/brand/ and land next to overlay.js.
+// fallbacks (PRD-polish F-112) come from docs/brand/ and land next to overlay.js (the marks the
+// landing page inlines are constants in src/marks.ts, F-114).
 import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

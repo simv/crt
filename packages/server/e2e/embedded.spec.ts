@@ -231,15 +231,18 @@ test.describe("an embedded server of its own (F-91, F-93, F-94, F-96)", () => {
     const h = (await health(4461))!;
     expect(h).toMatchObject({ ok: true, mode: "embedded", app: FIXTURE, target: FIXTURE, provider: "stub", overlay: { injected: 0, fetched: 0, loader: 0 } });
 
-    // F-91: the landing page, no scripts, the app link.
+    // F-91 (as PRD-polish F-114 amends it): the landing page, the kicker, the app link, exactly one inline script.
     const res = await fetch("http://localhost:4461/");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
     const html = await res.text();
-    expect(html).toContain(`CRT ${h.version as string} is running for ${h.projectRoot as string}. This is the CRT server, not your app.`);
+    expect(html).toContain(`<title>CRT ${h.version as string}</title>`);
+    expect(html).toContain("This is the CRT server — not your app.");
+    expect(html).toContain(`<span class="path">${h.projectRoot as string}</span>`);
     expect(html).toContain(`Open ${FIXTURE}`);
     expect(html).toContain("Run <code>crt init</code> for the one-line snippet for your framework, or <code>crt proxy</code> to proxy your app instead.");
-    expect(html).not.toMatch(/<script/i);
+    expect(html.match(/<script/gi)).toHaveLength(1);
+    expect(html).not.toMatch(/<script[^>]*\ssrc=/i);
     expect((await fetch("http://localhost:4461/any/route?x=1")).status).toBe(200);
     // PRD-polish F-112: the favicon the landing page links (M21), served from dist/ in embedded mode.
     const favicon = await fetch("http://localhost:4461/__crt/favicon.svg");
@@ -250,6 +253,9 @@ test.describe("an embedded server of its own (F-91, F-93, F-94, F-96)", () => {
     await page.goto("http://localhost:4461/");
     await expect(page).toHaveTitle(`CRT ${h.version as string}`);
     await expect(page.locator("#crt-host")).toHaveCount(0);
+    // F-114: the script fills the Checkup from /__crt/doctor; the page never waited on it.
+    await expect(page.locator("#rows tr.row td.nm", { hasText: /^port$/ })).toHaveCount(1);
+    await expect(page.locator("#rows tr.row", { hasText: /^oks*ports*4461 — this server/ })).toHaveCount(1);
 
     // F-93: a second start reuses it, naming the app to open.
     const second = startCrt(root, ["--target", FIXTURE, "--yes"]);

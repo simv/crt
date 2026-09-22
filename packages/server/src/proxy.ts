@@ -3,8 +3,13 @@
  * both modes, plus what happens to every other request.
  *
  * Embedded mode (`mode: "embedded"`, the v0.4 default, F-91): the server proxies nothing.
- *   • Every request outside /__crt/ is answered 200 text/html with the landing page (`landingPage`):
- *     the version and project, the app link when known, the `crt init` / `crt proxy` sentence, no scripts.
+ *   • Every request outside /__crt/ is answered 200 text/html with the landing page (landing.ts,
+ *     PRD-polish F-114): the kicker, the app link when known, Attention, the loop, the Checkup, this
+ *     server's facts and the `crt init` / `crt proxy` sentence, with one inline script that reads
+ *     only /__crt/*. `GET /__crt/` serves the same page in both modes (proxy mode's `/` stays the app).
+ *   • GET /__crt/doctor (PRD-polish F-113, doctor-route.ts) serves the `crt doctor` rows computed in
+ *     this process — 403 on any Origin, cached 5 s, the plugin row behind `?plugin=1` cached 30 s;
+ *     nothing runs at start and the landing page never waits on it (N-24).
  *   • GET /__crt/loader.js serves dist/loader.js (F-94, F-96) with the F-6 CORS rules and no-store;
  *     health's `overlay.loader` counts it.
  *   • GET /__crt/favicon.svg (PRD-polish F-112) serves dist/favicon.svg — the mark the landing page links —
@@ -59,13 +64,16 @@ import { dirname, join } from "node:path";
 import type { Duplex } from "node:stream";
 import { connect as tlsConnect } from "node:tls";
 import { CaptureValidationError, writeCapture } from "./captures.js";
+import { DOCTOR_PATH, DoctorRoute } from "./doctor-route.js";
 import { applyCors, json, readJson } from "./http.js";
 import type { CrtMode } from "./init.js";
 import { decodeBody, EARLY_PATH, filterAcceptEncoding, injectOverlayTag, isHtml, OVERLAY_PATH, relaxCsp } from "./inject.js";
+import { renderLanding } from "./landing.js";
+import { MARK, MARK_DARK, MARK_SMALL } from "./marks.js";
 import { handleProviderRoute } from "./provider-routes.js";
 import { loginField, type ProviderRegistry } from "./session.js";
 import { handleInternalRoute, handleSessionRoute, INTERNAL_PREFIX, SESSIONS_PATH, type SessionRegistry } from "./sessions.js";
-import { countTaskFiles } from "./tasks.js";
+import { countTaskFiles, listTasks } from "./tasks.js";
 
 export interface ProxyOptions {
   /**
@@ -86,6 +94,12 @@ export interface ProxyOptions {
   /** F-78 health fields: the package version and when this server started (ISO-8601). */
   version?: string;
   startedAt?: string;
+  /** PRD-polish F-114: the Agent SDK version on the landing page (null when unreadable). */
+  sdkVersion?: string | null;
+  /** PRD-polish F-114: `process.platform` — `darwin` renders `Cmd` in the shortcut hints. */
+  platform?: string;
+  /** F-113: the environment the plugin check spawns `claude` in (tests). */
+  env?: NodeJS.ProcessEnv;
   /** Absolute tasks directory; health counts its files. */
   tasksDir?: string;
   /** F-79: closes the server the way Ctrl+C does; absent → the shutdown route answers 503. */
@@ -139,32 +153,34 @@ export interface CrtServer extends Server {
 }
 
 /**
- * F-91: the page every non-/__crt/ request gets in embedded mode. Plain words, no scripts:
- * what this is, the app link when known, and the two ways forward.
+ * F-91/F-114: the landing page, rendered per request from the server's state (health's facts, the
+ * registry, the doctor route's last report — never a fresh one) and the marks from marks.ts.
  */
-export function landingPage(o: { version: string | null; projectRoot: string; app: string | null }): string {
-  const title = `CRT${o.version ? ` ${o.version}` : ""}`;
-  const lines = [
-    "<!doctype html>",
-    '<html lang="en">',
-    "<head>",
-    '  <meta charset="utf-8">',
-    `  <title>${escapeHtml(title)}</title>`,
-    "  <style>body { margin: 40px auto; max-width: 640px; font: 15px/1.5 system-ui, sans-serif; color: #222; } code { background: #f3f3f3; padding: 1px 4px; border-radius: 3px; }</style>",
-    "</head>",
-    "<body>",
-    `  <h1>${escapeHtml(title)} is running for ${escapeHtml(o.projectRoot)}. This is the CRT server, not your app.</h1>`,
-    ...(o.app ? [`  <p><a href="${escapeHtml(o.app)}">Open ${escapeHtml(o.app)}</a> — the CRT button appears there once your app includes the CRT integration</p>`] : []),
-    "  <p>Run <code>crt init</code> for the one-line snippet for your framework, or <code>crt proxy</code> to proxy your app instead.</p>",
-    "</body>",
-    "</html>",
-    "",
-  ];
-  return lines.join("\n");
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+function landingPage(req: IncomingMessage, opts: ProxyOptions, state: RouteState): string {
+  // Health's count (every task file) and, from the well-formed ones, how many are still backlog.
+  const tasks = opts.tasksDir ? countTaskFiles(opts.tasksDir) : 0;
+  const backlog = opts.tasksDir ? listTasks(opts.tasksDir).filter((t) => t.status === "backlog").length : 0;
+  const resolution = opts.providers?.resolve(null) ?? null;
+  return renderLanding({
+    version: opts.version ?? null,
+    sdkVersion: opts.sdkVersion ?? null,
+    mode: state.mode,
+    projectRoot: opts.projectRoot,
+    app: opts.target,
+    crtOrigin: `http://${req.headers.host ?? "localhost"}`,
+    tasks,
+    backlog,
+    startedAt: opts.startedAt ?? null,
+    platform: opts.platform ?? process.platform,
+    mark: MARK,
+    markDark: MARK_DARK,
+    markSmall: MARK_SMALL,
+    // F-94: the timer fired with neither the loader nor the overlay requested — the third hero state.
+    loaderMissing: state.warned.loader && state.overlay.loader === 0 && state.overlay.fetched === 0,
+    sessions: opts.sessions ? opts.sessions.list().filter((s) => s.state !== "ended" && s.state !== "error").length : 0,
+    providers: opts.providers && resolution ? { active: resolution.provider, rows: opts.providers.status() } : null,
+    doctor: state.doctor.cached(),
+  });
 }
 /** A capture is a JSON document with a few base64 PNGs; 64 MB is far beyond any real page. */
 const MAX_CAPTURE_BODY = 64 * 1024 * 1024;
@@ -192,6 +208,8 @@ export function createProxyServer(opts: ProxyOptions): CrtServer {
     timer: null,
     loaderTimer: null,
     warned: { missing: false, nonHtml: false, csp: false, loader: false },
+    // F-113: built here, computes nothing until the first request (N-24).
+    doctor: new DoctorRoute({ projectRoot: opts.projectRoot, mode, target: opts.target, version: opts.version ?? "0.0.0", providers: opts.providers, env: opts.env }),
   };
   const log = opts.log ?? (() => undefined);
   const overlayTimeout = opts.overlayTimeoutMs ?? OVERLAY_TIMEOUT_MS;
@@ -232,9 +250,7 @@ export function createProxyServer(opts: ProxyOptions): CrtServer {
     }
     if (!proxy) {
       // F-91: embedded mode proxies nothing; every other request gets the landing page.
-      const page = landingPage({ version: opts.version ?? null, projectRoot: opts.projectRoot, app: opts.target });
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-length": String(Buffer.byteLength(page)), "cache-control": "no-store" });
-      res.end(req.method === "HEAD" ? undefined : page);
+      serveLanding(req, res, opts, state);
       return;
     }
     proxy.request(req, res);
@@ -255,6 +271,20 @@ export function createProxyServer(opts: ProxyOptions): CrtServer {
   });
 
   return Object.assign(server, { browserOpened });
+}
+
+/** F-91/F-114: the landing page, 200 text/html, no-store; HEAD gets the headers only. */
+function serveLanding(req: IncomingMessage, res: ServerResponse, opts: ProxyOptions, state: RouteState): void {
+  let page: string;
+  try {
+    page = landingPage(req, opts, state);
+  } catch (err) {
+    res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+    res.end(`CRT: could not render the landing page (${(err as Error).message})`);
+    return;
+  }
+  res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-length": String(Buffer.byteLength(page)), "cache-control": "no-store" });
+  res.end(req.method === "HEAD" ? undefined : page);
 }
 
 /** Proxy mode (F-2, F-3, F-4, F-80), verbatim from v0.3 (N-21): the request and upgrade handlers for one target. */
@@ -461,6 +491,8 @@ interface RouteState {
   loaderTimer: NodeJS.Timeout | null;
   /** F-80/F-94: each line prints once per server. */
   warned: { missing: boolean; nonHtml: boolean; csp: boolean; loader: boolean };
+  /** F-113: the doctor route's caches, one set per server. */
+  doctor: DoctorRoute;
 }
 
 async function handleCrtRoute(
@@ -500,6 +532,21 @@ async function handleCrtRoute(
       return;
     }
     await handleInternalRoute(path, req, res, opts.sessions);
+    return;
+  }
+  if (path === DOCTOR_PATH) {
+    // F-113: before CORS on purpose — a request with an Origin is refused, never answered with headers.
+    await state.doctor.handle(req, res, query);
+    return;
+  }
+  if (path === CRT_PREFIX + "/" || path === CRT_PREFIX) {
+    // F-114: the landing page in both modes (proxy mode's `/` stays the app).
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      res.setHeader("allow", "GET, HEAD");
+      json(res, 405, { ok: false, error: `GET ${CRT_PREFIX}/` });
+      return;
+    }
+    serveLanding(req, res, opts, state);
     return;
   }
   const cors = applyCors(req, res);
