@@ -1,10 +1,10 @@
 ---
 id: CRT-0024
 title: M20 — The mark and the tokens: brand files from the chosen tube direction, tokens.ts, favicon route, SVG test
-status: review
+status: done
 priority: high
 created: 2026-09-21T19:25:00+08:00
-updated: 2026-09-22T00:26:00+08:00
+updated: 2026-09-22T08:49:00+08:00
 url: null
 route: null
 session: null
@@ -54,3 +54,4 @@ Read `docs/design/design-review-2026-09-21.md` §A before drawing: the ranking, 
 - 2026-09-22T00:10+08:00 — verified (Manual, run by this session): the favicon in Chromium's tab strip — this branch's build served from a scratch project on :4409 (`:4400` is Simon's running 0.5.0 review server for the trial app, left alone), a test page whose `<link rel=icon>` is `http://localhost:4409/__crt/favicon.svg` (what M21's landing page will link), a headed Playwright Chromium window captured with `PrintWindow` (that window only): `assets/CRT-0024/tab-strip-dark.png` — the OS is in dark mode (`AppsUseLightTheme` = 0), Chromium also given `--force-dark-mode` — shows the light tube with the pink dot in the tab; `assets/CRT-0024/tab-strip-light.png` — Chromium's own `browser.theme.color_scheme` = light in a throwaway profile, the OS theme untouched — shows the ink tube with the dot. The built-in browser pane showed the same switch in-page (dark app theme → light bezel; `colorScheme: light` → ink). Pixel sample of the served file through `<img>` at 16 px: bezel `#111` under light and `#f2f2f4` under dark, the dot `#ff3d71` in both, the ring gap alpha 85/255.
 - 2026-09-22T00:12+08:00 — ready for review: changed docs/brand/{README.md, crt-mark.svg, crt-mark-dark.svg, crt-mark-small.svg, crt-lockup.svg, crt-lockup-dark.svg, favicon.svg, favicon-32.png, favicon-16.png, gen-logo.mjs, options/contact-sheet.html, renders/contact-sheet@1x.png, renders/contact-sheet@2x.png}, packages/overlay/src/{tokens.ts, ui.ts, chat.ts, screenshot.ts}, packages/server/src/proxy.ts, packages/server/scripts/copy-intake.mjs, packages/server/test/{brand.test.ts, proxy.test.ts}, packages/server/e2e/embedded.spec.ts, CLAUDE.md, .crt/tasks/assets/CRT-0024/. Reviewer: `ui.ts`'s stylesheet is now the exported `OVERLAY_CSS` (was the module-private `STYLE`); the only behaviour change in the server is the three static routes; the lockup's wordmark is drawn geometry (C as an annulus sector with radial terminals, R with a semicircular bowl and a diagonal leg, T), cap height 64 on the 128 grid; open `docs/brand/options/contact-sheet.html` for the Final row.
 - 2026-09-22T00:26+08:00 — prd-reviewer (subagent) on the branch: PR-ready with notes — traceability, the CLAUDE.md invariants, the CSS SHA-256 (re-computed independently) and the N-3 overlay budget (overlay.js 36.6 KB gzipped) all pass; its one nit, two `brand.test.ts` row titles without a requirement id, fixed (both now end in `(F-112, §5.1)`); its other note (Log and DoD not yet written) predates the entries above. PR https://github.com/simv/crt/pull/68.
+- 2026-09-22T08:49+08:00 — done; merged in https://github.com/simv/crt/pull/68
