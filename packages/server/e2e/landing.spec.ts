@@ -94,7 +94,7 @@ test.describe("the landing page on the stub server (F-114, N-23)", () => {
     for (const u of urls) expect(new URL(u).origin, u).toBe(CRT_ORIGIN);
     // The docs link is a navigation only: present, never fetched.
     await expect(page.locator("#docs")).toHaveAttribute("href", "https://github.com/simv/crt#readme");
-    expect(urls.some((u) => u.includes("github.com"))).toBe(false);
+    expect(urls.map((u) => new URL(u).hostname)).not.toContain("github.com");
   });
 
   test("Tab reaches Open → Re-check → Docs, each with the 2 px accent ring (N-25)", async ({ page }) => {

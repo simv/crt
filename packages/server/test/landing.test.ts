@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ACCENT, DANGER, EXPERIMENTAL, GLASS, INK, OK, PILL, WARN } from "../../overlay/src/tokens.js";
 import type { DoctorPayload } from "../src/doctor-route.js";
 import { commandOf, DOCS_URL, LANDING_TOKENS, type LandingOptions, renderLanding, renderRows } from "../src/landing.js";
+import { MARK, MARK_DARK, MARK_SMALL } from "../src/marks.js";
 import type { ProviderStatus } from "../src/session.js";
 
 // PRD-polish F-114 / N-23 / N-25: the landing page as rendered — the strings, the three hero states,
@@ -15,6 +16,11 @@ const brand = join(__dirname, "..", "..", "..", "docs", "brand");
 const mark = readFileSync(join(brand, "crt-mark.svg"), "utf8").trim();
 const markDark = readFileSync(join(brand, "crt-mark-dark.svg"), "utf8").trim();
 const markSmall = readFileSync(join(brand, "crt-mark-small.svg"), "utf8").trim();
+/** The page prints local wall-clock times; the expectations follow the machine's zone (CI runs in UTC). */
+const hhmm = (iso: string) => {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
 
 function provider(id: string, over: Partial<ProviderStatus> = {}): ProviderStatus {
   return {
@@ -114,7 +120,7 @@ describe("the landing page (PRD-polish F-114)", () => {
     expect(html).toContain('<button type="button" id="recheck">Re-check</button>');
     expect(html).toContain("<h2>This server</h2>");
     expect(html).toContain('<dt>Version</dt><dd>0.6.0 <span class="mono muted">agent sdk 0.3.270</span></dd>');
-    expect(html).toContain('<dt>Up since</dt><dd id="since">01:12 · 41 min</dd>');
+    expect(html).toContain(`<dt>Up since</dt><dd id="since">${hhmm("2026-09-22T01:12:00+08:00")} · 41 min</dd>`);
     expect(html).toContain('<dt>Project</dt><dd class="mono">C:\\Projects\\Claude\\tool-validation</dd>');
     expect(html).toContain('<dt>Tasks</dt><dd id="tasks">14 in <span class="mono">.crt/tasks</span> · 3 in backlog</dd>');
     expect(html).toContain('<dt>Sessions</dt><dd id="sessions">1 running</dd>');
@@ -158,7 +164,7 @@ describe("the landing page (PRD-polish F-114)", () => {
     const scripts = [...html.matchAll(/<script\b[^>]*>/gi)];
     expect(scripts).toHaveLength(1);
     expect(scripts[0]![0]).toBe("<script>");
-    const script = /<script>([\s\S]*?)<\/script>/.exec(html)![1]!;
+    const script = /<script>([\s\S]*?)<\/script>/i.exec(html)![1]!;
     const urls = [...script.matchAll(/"(\/__crt\/[^"]*)"/g)].map((m) => m[1]).sort();
     // Re-check asks for a fresh preflight (F-56, the same route) so a new `codex login` is noticed.
     expect(urls).toEqual(["/__crt/doctor", "/__crt/doctor?plugin=1", "/__crt/health", "/__crt/providers", "/__crt/providers?refresh=1"]);
@@ -188,6 +194,10 @@ describe("the landing page (PRD-polish F-114)", () => {
   });
 
   it("inlines the mark in both variants, switched by prefers-color-scheme, and the small mark for the mobile header (F-114)", () => {
+    // marks.ts is docs/brand/ verbatim — the server reads no file at request time.
+    expect(MARK).toBe(mark);
+    expect(MARK_DARK).toBe(markDark);
+    expect(MARK_SMALL).toBe(markSmall);
     const html = page();
     // The ids are prefixed per copy so the three clip paths do not collide in one document.
     const prefixed = (svg: string, prefix: string) => svg.replace(/\bid="([^"]+)"/g, `id="${prefix}-$1"`).replace(/url\(#([^)]+)\)/g, `url(#${prefix}-$1)`);
@@ -206,7 +216,7 @@ describe("the landing page (PRD-polish F-114)", () => {
     const calm = page({ doctor: HEALTHY });
     expect(calm).toContain('<section class="attention card" id="attention" hidden>');
     expect(calm).toContain('<div id="attention-rows"></div>');
-    expect(calm).toContain("checked at 09:12");
+    expect(calm).toContain(`checked at ${hhmm(HEALTHY.checkedAt)}`);
     expect(calm).toContain("<summary>8 checks pass — same rows as <code>crt doctor</code></summary>");
     expect(calm).toContain('<p class="decision">→ claude (default)</p>');
     // No problems: the Checkup body is the <details> and the decision line only.

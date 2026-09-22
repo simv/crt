@@ -4,9 +4,9 @@
 // and (PRD-setup F-85) the whole plugin plus a generated marketplace manifest to
 // dist/plugin-marketplace/ for `crt setup`. The repo LICENSE is copied into the package dir too
 // (gitignored there) so npm bundles it. Last, the package entries' no-op modules and .d.ts files
-// (PRD-embedded F-97, F-98) go into dist/integrations/ (integrations.mjs). The favicon, its PNG
-// fallbacks (PRD-polish F-112) and the three marks the landing page inlines (F-114) come from
-// docs/brand/ and land next to overlay.js.
+// (PRD-embedded F-97, F-98) go into dist/integrations/ (integrations.mjs). The favicon and its PNG
+// fallbacks (PRD-polish F-112) come from docs/brand/ and land next to overlay.js (the marks the
+// landing page inlines are constants in src/marks.ts, F-114).
 import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,9 +19,8 @@ const skills = join(repo, "plugin", "skills");
 const copies = [
   [join(skills, "intake", "SKILL.md"), join(here, "..", "dist", "intake.md")],
   [join(repo, "LICENSE"), join(here, "..", "LICENSE")],
-  // PRD-polish F-112: the favicon the landing page links and its PNG fallbacks, served from dist/ like early.js;
-  // F-114: the three marks the landing page inlines (proxy.ts reads them beside overlay.js).
-  ...["favicon.svg", "favicon-32.png", "favicon-16.png", "crt-mark.svg", "crt-mark-dark.svg", "crt-mark-small.svg"].map((name) => [join(repo, "docs", "brand", name), join(here, "..", "dist", name)]),
+  // PRD-polish F-112: the favicon the landing page links and its PNG fallbacks, served from dist/ like early.js.
+  ...["favicon.svg", "favicon-32.png", "favicon-16.png"].map((name) => [join(repo, "docs", "brand", name), join(here, "..", "dist", name)]),
   ...readdirSync(skills).map((name) => [join(skills, name, "SKILL.md"), join(here, "..", "dist", "skills", name, "SKILL.md")]),
 ];
 for (const [from, to] of copies) {

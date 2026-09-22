@@ -69,6 +69,7 @@ import { applyCors, json, readJson } from "./http.js";
 import type { CrtMode } from "./init.js";
 import { decodeBody, EARLY_PATH, filterAcceptEncoding, injectOverlayTag, isHtml, OVERLAY_PATH, relaxCsp } from "./inject.js";
 import { renderLanding } from "./landing.js";
+import { MARK, MARK_DARK, MARK_SMALL } from "./marks.js";
 import { handleProviderRoute } from "./provider-routes.js";
 import { loginField, type ProviderRegistry } from "./session.js";
 import { handleInternalRoute, handleSessionRoute, INTERNAL_PREFIX, SESSIONS_PATH, type SessionRegistry } from "./sessions.js";
@@ -151,19 +152,11 @@ export interface CrtServer extends Server {
   browserOpened(url: string): void;
 }
 
-/** F-114: the marks the landing page inlines, copied into dist/ beside overlay.js at build time (copy-intake.mjs). */
-const MARK_FILES = ["crt-mark.svg", "crt-mark-dark.svg", "crt-mark-small.svg"] as const;
-
 /**
  * F-91/F-114: the landing page, rendered per request from the server's state (health's facts, the
- * registry, the doctor route's last report — never a fresh one) with the marks read once per server
- * (an empty string each when dist/ lacks them, as in the unit tests: the page renders without a mark).
+ * registry, the doctor route's last report — never a fresh one) and the marks from marks.ts.
  */
-async function landingPage(req: IncomingMessage, opts: ProxyOptions, state: RouteState): Promise<string> {
-  if (!state.marks) {
-    state.marks = Promise.all(MARK_FILES.map((name) => readFile(siblingOf(opts.overlayPath, name), "utf8").then((svg) => svg.trim(), () => ""))) as Promise<[string, string, string]>;
-  }
-  const [mark, markDark, markSmall] = await state.marks;
+function landingPage(req: IncomingMessage, opts: ProxyOptions, state: RouteState): string {
   // Health's count (every task file) and, from the well-formed ones, how many are still backlog.
   const tasks = opts.tasksDir ? countTaskFiles(opts.tasksDir) : 0;
   const backlog = opts.tasksDir ? listTasks(opts.tasksDir).filter((t) => t.status === "backlog").length : 0;
@@ -179,9 +172,9 @@ async function landingPage(req: IncomingMessage, opts: ProxyOptions, state: Rout
     backlog,
     startedAt: opts.startedAt ?? null,
     platform: opts.platform ?? process.platform,
-    mark,
-    markDark,
-    markSmall,
+    mark: MARK,
+    markDark: MARK_DARK,
+    markSmall: MARK_SMALL,
     // F-94: the timer fired with neither the loader nor the overlay requested — the third hero state.
     loaderMissing: state.warned.loader && state.overlay.loader === 0 && state.overlay.fetched === 0,
     sessions: opts.sessions ? opts.sessions.list().filter((s) => s.state !== "ended" && s.state !== "error").length : 0,
@@ -217,7 +210,6 @@ export function createProxyServer(opts: ProxyOptions): CrtServer {
     warned: { missing: false, nonHtml: false, csp: false, loader: false },
     // F-113: built here, computes nothing until the first request (N-24).
     doctor: new DoctorRoute({ projectRoot: opts.projectRoot, mode, target: opts.target, version: opts.version ?? "0.0.0", providers: opts.providers, env: opts.env }),
-    marks: null,
   };
   const log = opts.log ?? (() => undefined);
   const overlayTimeout = opts.overlayTimeoutMs ?? OVERLAY_TIMEOUT_MS;
@@ -258,7 +250,7 @@ export function createProxyServer(opts: ProxyOptions): CrtServer {
     }
     if (!proxy) {
       // F-91: embedded mode proxies nothing; every other request gets the landing page.
-      void serveLanding(req, res, opts, state);
+      serveLanding(req, res, opts, state);
       return;
     }
     proxy.request(req, res);
@@ -282,10 +274,10 @@ export function createProxyServer(opts: ProxyOptions): CrtServer {
 }
 
 /** F-91/F-114: the landing page, 200 text/html, no-store; HEAD gets the headers only. */
-async function serveLanding(req: IncomingMessage, res: ServerResponse, opts: ProxyOptions, state: RouteState): Promise<void> {
+function serveLanding(req: IncomingMessage, res: ServerResponse, opts: ProxyOptions, state: RouteState): void {
   let page: string;
   try {
-    page = await landingPage(req, opts, state);
+    page = landingPage(req, opts, state);
   } catch (err) {
     res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
     res.end(`CRT: could not render the landing page (${(err as Error).message})`);
@@ -501,8 +493,6 @@ interface RouteState {
   warned: { missing: boolean; nonHtml: boolean; csp: boolean; loader: boolean };
   /** F-113: the doctor route's caches, one set per server. */
   doctor: DoctorRoute;
-  /** F-114: the three marks from dist/, read once (null until the first landing request). */
-  marks: Promise<[string, string, string]> | null;
 }
 
 async function handleCrtRoute(
@@ -556,7 +546,7 @@ async function handleCrtRoute(
       json(res, 405, { ok: false, error: `GET ${CRT_PREFIX}/` });
       return;
     }
-    await serveLanding(req, res, opts, state);
+    serveLanding(req, res, opts, state);
     return;
   }
   const cors = applyCors(req, res);

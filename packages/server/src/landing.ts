@@ -77,7 +77,7 @@ export interface LandingOptions {
   startedAt: string | null;
   /** `process.platform`: `darwin` renders `Cmd`, everything else `Ctrl`. */
   platform: string;
-  /** The inline marks (docs/brand/crt-mark.svg, -dark, -small): light, dark, and the ≤ 24 px one for the mobile header. */
+  /** The inline marks (marks.ts: docs/brand/crt-mark.svg, -dark, -small): light, dark, and the ≤ 24 px one for the mobile header. */
   mark: string;
   markDark: string;
   markSmall: string;
@@ -104,16 +104,16 @@ export function renderLanding(o: LandingOptions): string {
 
   const hero = proxy
     ? [
-        `<h1>You are browsing your app through CRT at <code>${esc(host(o.crtOrigin ?? ""))}</code>.</h1>`,
+        `<h1>You are browsing your app through CRT at <code>${escapeHtml(host(o.crtOrigin ?? ""))}</code>.</h1>`,
         `<p class="lead">Look for the CRT button bottom-right on any page: that is where you annotate, chat and file tasks.</p>`,
-        ...(o.crtOrigin ? [`<a class="btn" id="open" href="${esc(o.crtOrigin)}/">Open ${esc(o.crtOrigin)} <span aria-hidden="true">↗</span></a>`] : []),
+        ...(o.crtOrigin ? [`<a class="btn" id="open" href="${escapeHtml(o.crtOrigin)}/">Open ${escapeHtml(o.crtOrigin)} <span aria-hidden="true">↗</span></a>`] : []),
         `<p class="hint" id="hint"><kbd>${mod}</kbd>+<kbd>Shift</kbd>+<kbd>.</kbd> toggles the toolbar on your page</p>`,
       ]
     : o.app
       ? [
-          `<h1>Your app is at <code>${esc(host(o.app))}</code></h1>`,
+          `<h1>Your app is at <code>${escapeHtml(host(o.app))}</code></h1>`,
           `<p class="lead">Open it and look for the CRT button bottom-right: that is where you annotate, chat and file tasks.</p>`,
-          `<a class="btn" id="open" href="${esc(o.app)}">Open ${esc(o.app)} <span aria-hidden="true">↗</span></a>`,
+          `<a class="btn" id="open" href="${escapeHtml(o.app)}">Open ${escapeHtml(o.app)} <span aria-hidden="true">↗</span></a>`,
           o.loaderMissing
             ? `<p class="hint" id="hint" data-state="missing">Your page has no CRT integration yet — <code>crt init</code> prints the snippet.</p>`
             : `<p class="hint" id="hint"><kbd>${mod}</kbd>+<kbd>Shift</kbd>+<kbd>.</kbd> toggles the toolbar on your page</p>`,
@@ -130,7 +130,7 @@ export function renderLanding(o: LandingOptions): string {
     "<head>",
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    `<title>${esc(title)}</title>`,
+    `<title>${escapeHtml(title)}</title>`,
     '<link rel="icon" href="/__crt/favicon.svg">',
     `<style>${css(T)}</style>`,
     "</head>",
@@ -138,9 +138,9 @@ export function renderLanding(o: LandingOptions): string {
     '<div class="wrap">',
     "<header>",
     `<span class="mark mark-l">${inlineSvg(o.mark, "ml")}</span><span class="mark mark-d">${inlineSvg(o.markDark, "md")}</span><span class="mark mark-s">${inlineSvg(o.markSmall, "ms")}</span>`,
-    `<span class="name">CRT${o.version ? ` <span class="ver">${esc(o.version)}</span>` : ""}</span>`,
+    `<span class="name">CRT${o.version ? ` <span class="ver">${escapeHtml(o.version)}</span>` : ""}</span>`,
     '<span class="spacer"></span>',
-    `<span class="chip" title="${esc(o.projectRoot)}"><i class="dot ok"></i>${o.mode} · <span class="path">${esc(o.projectRoot)}</span></span>`,
+    `<span class="chip" title="${escapeHtml(o.projectRoot)}"><i class="dot ok"></i>${o.mode} · <span class="path">${escapeHtml(o.projectRoot)}</span></span>`,
     "</header>",
     '<section class="hero">',
     "<div>",
@@ -155,12 +155,12 @@ export function renderLanding(o: LandingOptions): string {
     "</section>",
     '<section class="steps" aria-label="The loop">',
     '<div class="step"><span class="n" aria-hidden="true">1</span><div><b>Point at the problem</b><span>Select an element, box an area or pin a spot on your page, and write a note.</span></div></div>',
-    `<div class="step"><span class="n" aria-hidden="true">2</span><div><b>Talk it through in the page</b><span>Send opens a chat with <span id="agent">${esc(agent)}</span> right there; it reads the capture and your code.</span></div></div>`,
+    `<div class="step"><span class="n" aria-hidden="true">2</span><div><b>Talk it through in the page</b><span>Send opens a chat with <span id="agent">${escapeHtml(agent)}</span> right there; it reads the capture and your code.</span></div></div>`,
     '<div class="step"><span class="n" aria-hidden="true">3</span><div><b>Get a task file</b><span>It lands in <code>.crt/tasks</code>; any session picks it up with <code>/crt:next</code>.</span></div></div>',
     "</section>",
     '<section class="grid">',
     '<div class="card checkup">',
-    '<h2>Checkup <span class="right"><span id="checked">' + (o.doctor ? `checked at ${esc(hhmm(new Date(o.doctor.checkedAt)))}` : "") + '</span> <button type="button" id="recheck">Re-check</button></span></h2>',
+    '<h2>Checkup <span class="right"><span id="checked">' + (o.doctor ? `checked at ${escapeHtml(hhmm(new Date(o.doctor.checkedAt)))}` : "") + '</span> <button type="button" id="recheck">Re-check</button></span></h2>',
     "<noscript><p>Run <code>crt doctor</code> in a terminal for this checklist.</p></noscript>",
     `<div id="rows">${o.doctor ? renderRows(o.doctor) : ""}</div>`,
     "</div>",
@@ -168,9 +168,9 @@ export function renderLanding(o: LandingOptions): string {
     '<div class="card">',
     "<h2>This server</h2>",
     "<dl>",
-    `<dt>Version</dt><dd>${esc(o.version ?? "?")}${o.sdkVersion ? ` <span class="mono muted">agent sdk ${esc(o.sdkVersion)}</span>` : ""}</dd>`,
-    `<dt>Up since</dt><dd id="since">${o.startedAt ? esc(since(o.startedAt, now)) : "—"}</dd>`,
-    `<dt>Project</dt><dd class="mono">${esc(o.projectRoot)}</dd>`,
+    `<dt>Version</dt><dd>${escapeHtml(o.version ?? "?")}${o.sdkVersion ? ` <span class="mono muted">agent sdk ${escapeHtml(o.sdkVersion)}</span>` : ""}</dd>`,
+    `<dt>Up since</dt><dd id="since">${o.startedAt ? escapeHtml(since(o.startedAt, now)) : "—"}</dd>`,
+    `<dt>Project</dt><dd class="mono">${escapeHtml(o.projectRoot)}</dd>`,
     `<dt>Tasks</dt><dd id="tasks">${o.tasks} in <span class="mono">.crt/tasks</span> · ${o.backlog} in backlog</dd>`,
     `<dt>Sessions</dt><dd id="sessions">${o.sessions ?? 0} running</dd>`,
     "</dl>",
@@ -249,7 +249,7 @@ export function commandOf(detail: string): string | null {
 function providerLine(r: ProviderStatus, active: string): string {
   const tone = r.state === "ready" ? "ok" : r.state === "not on PATH" ? "skip" : "warn";
   const what = r.state === "ready" ? `ready · ${r.loggedIn === true ? "logged in" : r.loggedIn === false ? "not logged in" : "login unknown"}` : r.state;
-  return `<li><i class="dot ${tone}"></i><span class="who">${esc(r.displayName)}</span><span class="what">${esc(what)}${r.id === active ? " · default" : ""}</span></li>`;
+  return `<li><i class="dot ${tone}"></i><span class="who">${escapeHtml(r.displayName)}</span><span class="what">${escapeHtml(what)}${r.id === active ? " · default" : ""}</span></li>`;
 }
 
 /** The status chips: a class per status; the text is the doctor's word. */
@@ -259,7 +259,7 @@ function renderTable(rows: DoctorRow[], fixes: boolean): string {
   const body = rows
     .map((r) => {
       const cmd = fixes ? commandOf(r.detail) : null;
-      return `<tr class="row"><td class="st"><span class="chip-s ${CHIP[r.status]}">${r.status}</span></td><td class="nm">${esc(r.name)}</td><td class="dt">${esc(r.detail)}</td><td class="cp">${cmd ? `<button type="button" class="copy" data-cmd="${esc(cmd)}">Copy</button>` : ""}</td></tr>`;
+      return `<tr class="row"><td class="st"><span class="chip-s ${CHIP[r.status]}">${r.status}</span></td><td class="nm">${escapeHtml(r.name)}</td><td class="dt">${escapeHtml(r.detail)}</td><td class="cp">${cmd ? `<button type="button" class="copy" data-cmd="${escapeHtml(cmd)}">Copy</button>` : ""}</td></tr>`;
     })
     .join("");
   return `<table><thead class="sr"><tr><th>Status</th><th>Check</th><th>Detail</th><th>Fix</th></tr></thead><tbody>${body}</tbody></table>`;
@@ -273,7 +273,7 @@ export function renderRows(d: DoctorPayload): string {
   return [
     problems.length ? renderTable(problems, true) : "",
     `<details class="passes"><summary>${passes} check${passes === 1 ? "" : "s"} pass — same rows as <code>crt doctor</code></summary>${renderTable(rest, false)}</details>`,
-    `<p class="decision">${esc(d.decision)}</p>`,
+    `<p class="decision">${escapeHtml(d.decision)}</p>`,
   ].join("");
 }
 
@@ -335,17 +335,17 @@ function script(): string {
   return `(function(){
 var d=document,ORD={FAIL:0,warn:1,ok:2,"--":3},CHIP={ok:"ok",FAIL:"fail",warn:"warn","--":"skip"},last=null,busy=false;
 function $(id){return d.getElementById(id)}
-function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
+function escapeHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
 function hhmm(t){var x=new Date(t);return (x.getHours()<10?"0":"")+x.getHours()+":"+(x.getMinutes()<10?"0":"")+x.getMinutes()}
 function cmd(detail){var i=detail.lastIndexOf(" — ");if(i<0)return null;var t=detail.slice(i+3).trim(),m=/\`([^\`]+)\`/.exec(t),c=m?m[1]:t.replace(/^run /,"");return /^(crt|codex|claude|gemini|agy|git|npm)\\b/.test(c)?c:null}
-function table(rows,fixes){var h='<table><thead class="sr"><tr><th>Status</th><th>Check</th><th>Detail</th><th>Fix</th></tr></thead><tbody>';rows.forEach(function(r){var c=fixes?cmd(r.detail):null;h+='<tr class="row"><td class="st"><span class="chip-s '+CHIP[r.status]+'">'+r.status+'</span></td><td class="nm">'+esc(r.name)+'</td><td class="dt">'+esc(r.detail)+'</td><td class="cp">'+(c?'<button type="button" class="copy" data-cmd="'+esc(c)+'">Copy</button>':"")+"</td></tr>"});return h+"</tbody></table>"}
+function table(rows,fixes){var h='<table><thead class="sr"><tr><th>Status</th><th>Check</th><th>Detail</th><th>Fix</th></tr></thead><tbody>';rows.forEach(function(r){var c=fixes?cmd(r.detail):null;h+='<tr class="row"><td class="st"><span class="chip-s '+CHIP[r.status]+'">'+r.status+'</span></td><td class="nm">'+escapeHtml(r.name)+'</td><td class="dt">'+escapeHtml(r.detail)+'</td><td class="cp">'+(c?'<button type="button" class="copy" data-cmd="'+escapeHtml(c)+'">Copy</button>':"")+"</td></tr>"});return h+"</tbody></table>"}
 function rows(p){var bad=p.rows.filter(function(r){return r.status==="FAIL"||r.status==="warn"}).sort(function(a,b){return ORD[a.status]-ORD[b.status]}),rest=p.rows.filter(function(r){return r.status==="ok"||r.status==="--"}),n=rest.filter(function(r){return r.status==="ok"}).length,open=$("rows").querySelector("details[open]");
-$("rows").innerHTML=(bad.length?table(bad,true):"")+'<details class="passes"'+(open?" open":"")+'><summary>'+n+" check"+(n===1?"":"s")+' pass — same rows as <code>crt doctor</code></summary>'+table(rest,false)+'</details><p class="decision">'+esc(p.decision)+"</p>";
+$("rows").innerHTML=(bad.length?table(bad,true):"")+'<details class="passes"'+(open?" open":"")+'><summary>'+n+" check"+(n===1?"":"s")+' pass — same rows as <code>crt doctor</code></summary>'+table(rest,false)+'</details><p class="decision">'+escapeHtml(p.decision)+"</p>";
 $("attention-rows").innerHTML=bad.length?table(bad,true):"";$("attention").hidden=!bad.length}
 function diff(a,b){if(!a)return "";var out=[],m={};a.rows.forEach(function(r){m[r.name]=r.status});b.rows.forEach(function(r){if(m[r.name]!==undefined&&m[r.name]!==r.status)out.push(r.name+" "+m[r.name]+" → "+r.status)});return " · "+(out.length?out.join(", "):"no change")}
 function doctor(p,before,named){last=p;rows(p);$("checked").textContent="checked at "+hhmm(p.checkedAt)+(named?diff(before,p):"")}
 function health(h){$("sessions").textContent=h.sessions+" running";if(h.overlay&&(h.overlay.loader>0||h.overlay.fetched>0)){var hint=$("hint");if(hint&&hint.getAttribute("data-state")==="missing"){hint.removeAttribute("data-state");hint.innerHTML="<kbd>"+d.body.getAttribute("data-mod")+"</kbd>+<kbd>Shift</kbd>+<kbd>.</kbd> toggles the toolbar on your page"}}}
-function providers(p){var h="";p.providers.forEach(function(r){var st=!r.installed?"not on PATH":r.loggedIn===false?"not logged in":r.problem===null?"ready":/too old/i.test(r.problem)?"too old":"unknown",tone=st==="ready"?"ok":st==="not on PATH"?"skip":"warn",what=st==="ready"?"ready · "+(r.loggedIn===true?"logged in":r.loggedIn===false?"not logged in":"login unknown"):st;h+='<li><i class="dot '+tone+'"></i><span class="who">'+esc(r.displayName)+'</span><span class="what">'+esc(what)+(r.id===p.active?" · default":"")+"</span></li>";if(r.id===p.active)$("agent").textContent=r.displayName});$("agents").innerHTML=h}
+function providers(p){var h="";p.providers.forEach(function(r){var st=!r.installed?"not on PATH":r.loggedIn===false?"not logged in":r.problem===null?"ready":/too old/i.test(r.problem)?"too old":"unknown",tone=st==="ready"?"ok":st==="not on PATH"?"skip":"warn",what=st==="ready"?"ready · "+(r.loggedIn===true?"logged in":r.loggedIn===false?"not logged in":"login unknown"):st;h+='<li><i class="dot '+tone+'"></i><span class="who">'+escapeHtml(r.displayName)+'</span><span class="what">'+escapeHtml(what)+(r.id===p.active?" · default":"")+"</span></li>";if(r.id===p.active)$("agent").textContent=r.displayName});$("agents").innerHTML=h}
 function get(u){return fetch(u,{credentials:"same-origin"}).then(function(r){if(!r.ok)throw new Error(u+" "+r.status);return r.json()})}
 function check(named){if(busy)return;busy=true;$("recheck").disabled=true;var before=last;
 var prov=get(named?"/__crt/providers?refresh=1":"/__crt/providers");
@@ -359,6 +359,6 @@ check(false);
 })();`;
 }
 
-function esc(s: string): string {
+function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
