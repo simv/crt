@@ -1,10 +1,10 @@
 ---
 id: CRT-0025
 title: M21 — Landing page as a status page (live crt doctor rows, problems first, the app link, the loop) and GET /__crt/doctor
-status: backlog
+status: in_progress
 priority: high
 created: 2026-09-21T19:25:00+08:00
-updated: 2026-09-21T19:55:00+08:00
+updated: 2026-09-22T09:04:00+08:00
 url: http://localhost:4400/
 route: /
 session: null
@@ -40,3 +40,4 @@ Depends on CRT-0024 (the mark files, the favicon route, `tokens.ts`); start afte
 ## Log
 - 2026-09-21T19:25+08:00 — created from docs/PRD-polish.md milestone M21 by the planning session that wrote it (session 78b6555f-fedb-4424-b1ab-1d8477f99af8); the concept is docs/design/landing-mockup.html.
 - 2026-09-21T19:55+08:00 — design review folded in (docs/design/design-review-2026-09-21.md §B): Checkup grouped by status with passes collapsed and copyable commands; Attention block before the tutorial; three hero states; the agent's live name in card 2; `Cmd` on macOS; power-on by opacity once per load, no scanlines, no stagger; dark bezel `#3a3a42`; the overlay's tinted pills for the chips (white-on-amber was 3.0:1); `:focus-visible`; `<th>`; `<noscript>`; the doctor route refuses `Origin` and gets a 5 s cooldown plus the 30 s plugin cache; budget 32 KB.
+- 2026-09-22T09:04+08:00 — claimed by /crt:next, session 467e4e9e-bb1b-430a-89d3-1c9998810603, branch crt/CRT-0025-m21-landing-page-and-doctor-route
