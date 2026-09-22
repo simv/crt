@@ -1,10 +1,10 @@
 ---
 id: CRT-0029
 title: Screenshots of a better-looking page (the trial shop ported into the e2e fixture as /shop) at an 800 × 600 viewport
-status: review
+status: done
 priority: high
 created: 2026-09-22T13:30:00+08:00
-updated: 2026-09-22T13:40:00+08:00
+updated: 2026-09-22T13:51:00+08:00
 url: null
 route: null
 session: null
@@ -45,4 +45,4 @@ The trial app itself is not touched and not screenshotted: the fixture carries a
 - 2026-09-22T13:25+08:00 — verified (Manual): the five images looked at one by one — arrival: the shop with the welcome card over the middle/right cards and the pill bottom-right; select: the note popover above the notebook's price, the hover outline and `ProductCard div.price` label on the mug's, the Select hint bar at the top; chat: the popover over the middle of the page with the streamed bubble, the collapsed Read line, the Allow/Deny card, the reply box and the footer all visible above the toolbar; marker-states: thinking… on the heading, your turn on the mug's price, CRT-0007 on the notebook's name; landing: the hero, the app link and the three steps (the checkup is below the fold at 600 px). README on the branch on github.com (anonymous, 1280 px, DPR 2, light and dark; `.crt/captures/github-render-CRT-0029.mjs`): all five PNGs rendered at 1600 × 1200, the images now fill the README column — screenshots `.crt/tasks/assets/CRT-0029/github-readme-{hero,select}-{light,dark}.png` ✔.
 - 2026-09-22T13:38+08:00 — prd-reviewer ran on the branch: every hunk traceable, no invariant breach, the fixture's existing routes byte-for-byte unchanged, the stub's fallback intact, overlay 36.7 KB gz; two findings fixed — (1) the F-65 dock clamping was asserted only in screenshots.spec.ts, which CI never runs: `e2e/chat.spec.ts` gains "in a short window the chat popover is clamped above the dock, never under it; a dock dragged into the upper half gives the popover the whole viewport (F-65, PRD-polish §9, CRT-0029)" — 800 × 600 on /app, popover.bottom ≤ dock.top, then a real launcher drag into the upper half and the popover free to use the whole viewport; `npx playwright test --workers=2` 62/62; (2) PRD-polish's F-116 bullet (§6.3) still said 1280 × 800 — now 800 × 600 with the date and a pointer to §5.3. Nit: the stub test title gains F-116.
 - 2026-09-22T13:40+08:00 — ready for review: changed packages/server/e2e/fixture/server.mjs (+/shop), packages/server/{playwright.screenshots.config.ts,e2e/screenshots.spec.ts,e2e/chat.spec.ts}, packages/overlay/src/ui.ts (popoverViewport), packages/server/src/providers/stub.ts (subject), packages/server/test/{docs-images.test.ts,providers/stub.test.ts}, docs/images/{arrival,select,chat,marker-states,landing}.png + README.md, docs/PRD-polish.md (§5.3 amendment, §6.3 F-116, §9 row), CLAUDE.md, .crt/tasks/assets/CRT-0029/github-readme-*.png. Reviewer notes: the trial app is untouched — the fixture carries a copy of its page so N-27 holds; the two overlay/stub changes are small and each has a test in CI; `landing.png` at 600 px shows the hero and the three steps, the checkup is below the fold; the old README render screenshots under assets/CRT-0027 stay as that task's evidence.
-
+- 2026-09-22T13:51+08:00 — done; merged in https://github.com/simv/crt/pull/77
