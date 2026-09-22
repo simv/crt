@@ -28,6 +28,9 @@ export const CRT_PROXY_ORIGIN = `http://localhost:${CRT_PROXY_PORT}`;
 export default defineConfig({
   testDir: "./e2e",
   testMatch: "**/*.spec.ts",
+  // PRD-polish F-116: the README screenshots have their own config (playwright.screenshots.config.ts,
+  // `npm run screenshots`) and never run here or in CI.
+  testIgnore: "**/screenshots.spec.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
