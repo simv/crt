@@ -171,8 +171,8 @@ export function renderLanding(o: LandingOptions): string {
     `<dt>Version</dt><dd>${escapeHtml(o.version ?? "?")}${o.sdkVersion ? ` <span class="mono muted">agent sdk ${escapeHtml(o.sdkVersion)}</span>` : ""}</dd>`,
     `<dt>Up since</dt><dd id="since">${o.startedAt ? escapeHtml(since(o.startedAt, now)) : "—"}</dd>`,
     `<dt>Project</dt><dd class="mono">${escapeHtml(o.projectRoot)}</dd>`,
-    `<dt>Tasks</dt><dd id="tasks">${o.tasks} in <span class="mono">.crt/tasks</span> · ${o.backlog} in backlog</dd>`,
-    `<dt>Sessions</dt><dd id="sessions">${o.sessions ?? 0} running</dd>`,
+    `<dt>Tasks</dt><dd id="tasks">${count(o.tasks)} in <span class="mono">.crt/tasks</span> · ${count(o.backlog)} in backlog</dd>`,
+    `<dt>Sessions</dt><dd id="sessions">${count(o.sessions ?? 0)} running</dd>`,
     "</dl>",
     `<ul class="agents" id="agents">${o.providers ? o.providers.rows.map((r) => providerLine(r, o.providers!.active)).join("") : ""}</ul>`,
     "</div>",
@@ -208,6 +208,11 @@ function inlineSvg(svg: string, prefix: string): string {
 /** The FAIL rows, then the warn rows, each group in the doctor's order. */
 function problemRows(rows: DoctorRow[]): DoctorRow[] {
   return [...rows.filter((r) => r.status === "FAIL"), ...rows.filter((r) => r.status === "warn")];
+}
+
+/** A count for the page: a whole non-negative number, or 0 — never anything but digits. */
+function count(n: number): string {
+  return Number.isFinite(n) && n > 0 ? String(Math.trunc(n)) : "0";
 }
 
 /** `http://localhost:3100` → `localhost:3100`; anything unparseable as written. */
