@@ -90,3 +90,24 @@ test("absolute redirects to the target are rewritten to the CRT origin (F-4)", a
   expect(new URL(page.url()).search).toBe("?from=redirect");
   await expect(page.locator("#crt-host .launcher")).toBeVisible();
 });
+
+test("GET /__crt/ is the landing page in proxy mode too, while / stays the app (PRD-polish F-114)", async ({ page, request }) => {
+  const res = await request.get("/__crt/");
+  expect(res.status()).toBe(200);
+  expect(res.headers()["content-type"]).toBe("text/html; charset=utf-8");
+  const html = await res.text();
+  expect(html).toContain("This is the CRT server — not your app.");
+  expect(html).toContain(`<h1>You are browsing your app through CRT at <code>${new URL(CRT_PROXY_ORIGIN).host}</code>.</h1>`);
+  expect(html).toContain(`href="${CRT_PROXY_ORIGIN}/">Open ${CRT_PROXY_ORIGIN}`);
+  expect(html).toContain("proxy · ");
+  expect(html.match(/<script/gi)).toHaveLength(1);
+  await page.goto("/__crt/");
+  await expect(page.locator("#crt-host")).toHaveCount(0);
+  // The doctor rows arrive here too: the proxy mode row and the port row for this server.
+  await expect(page.locator("#rows tr.row", { hasText: /^ok\s*mode\s*proxy/ })).toHaveCount(1);
+  await expect(page.locator("#rows tr.row", { hasText: new RegExp(`^ok\s*port\s*${new URL(CRT_PROXY_ORIGIN).port} — this server`) })).toHaveCount(1);
+  await expect(page.locator("#rows tr.row", { hasText: /^--\s*integration\s*proxy mode/ })).toHaveCount(1);
+  // / is still the app, injected.
+  await page.goto("/");
+  await expect(page.locator("#crt-host .launcher")).toBeVisible();
+});

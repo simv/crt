@@ -96,6 +96,8 @@ crt                          # the CRT server on http://localhost:4400; opens yo
 
 Inside Claude Code, `/crt:serve` does what `crt` does — it reuses a CRT that is already serving the project, offers `/crt:init` first when the project is not set up, and replies with four lines saying where CRT is, where tasks go, which agent answers and what to click next.
 
+If you open `http://localhost:4400` itself instead of your app, you get CRT's status page: where your app is, anything `crt doctor` would flag with the fix beside it, this server's facts and the three steps below — served from the CRT origin only, nothing fetched from anywhere else.
+
 1. **Browse your app as usual** — `http://localhost:3000`, your own URL, no proxied copy. A **CRT** button sits in the bottom-right corner (drag it anywhere; `Ctrl/Cmd+Shift+.` toggles it). Its dot says how things stand — hover it: green is connected (which project, which agent, whether it is logged in), amber means the agent is not ready (the fix is in the tooltip), red means the CRT server stopped answering. On a project’s first visit a small card above the button says which CRT server the page talks to (`Talking to CRT at http://localhost:4400 for C:\my-app.`), where tasks go and which agent will answer; **Got it** dismisses it for that project, **Show me** opens the toolbar with Select armed.
 2. **Point at the problem.** Open the toolbar and pick a tool:
    - **Select** — hover shows an outline and a label (tag, id/classes, and the React/Vue component name when detectable); click pins the element. `↑` moves to the parent, `↓` to the first child, `Enter` pins, `Esc` cancels.

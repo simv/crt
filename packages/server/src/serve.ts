@@ -30,6 +30,7 @@ import { CrtError } from "./errors.js";
 import { applyInit, type CrtMode, isInitialised, planInit, readConfig, renderPlan, resolveMode, writeLocalConfig } from "./init.js";
 import { fetchHealth, isPortFree, requestShutdown } from "./probes.js";
 import { findProjectRoot } from "./project.js";
+import { sdkVersion } from "./providers/claude.js";
 import { createProxyServer, type CrtServer } from "./proxy.js";
 import { describeResolution, loginField, ProviderRegistry } from "./session.js";
 import { SessionRegistry } from "./sessions.js";
@@ -208,6 +209,9 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
     providers,
     version,
     startedAt: new Date().toISOString(),
+    // PRD-polish F-114: the landing page's This server card and its Cmd/Ctrl hints.
+    sdkVersion: sdkVersion(),
+    platform: process.platform,
     tasksDir,
     shutdown: close,
     log,

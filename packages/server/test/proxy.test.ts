@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { encodeFrame, readFrame, startFixture, type Fixture } from "../e2e/fixture/server.mjs";
 import { INJECT_TAGS, OVERLAY_TAG } from "../src/inject.js";
-import { createProxyServer, landingPage, requestingOrigin } from "../src/proxy.js";
+import { createProxyServer, requestingOrigin } from "../src/proxy.js";
 import { samplePost } from "./helpers/sample-capture.js";
 
 let fixture: Fixture;
@@ -505,7 +505,7 @@ describe("embedded mode (PRD-embedded F-91, F-93, F-94)", () => {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const NEVER_LOADED = "crt: opened http://localhost:3000 but the page never loaded the CRT loader — add the integration (`crt init` prints the snippet, /crt:init applies it), or run `crt proxy`";
 
-  it("answers every non-/__crt/ request with the landing page — version, project, the app link, the two ways forward, no scripts (F-91)", async () => {
+  it("answers every non-/__crt/ request with the landing page — the kicker, the project, the app link, the two ways forward, exactly one inline script (F-91, PRD-polish F-114)", async () => {
     const e = await embedded({ target: "http://localhost:3000" });
     try {
       for (const path of ["/", "/app?x=1", "/deep/route"]) {
@@ -514,21 +514,37 @@ describe("embedded mode (PRD-embedded F-91, F-93, F-94)", () => {
         expect(r.headers["content-type"]).toBe("text/html; charset=utf-8");
         expect(r.headers["content-length"]).toBe(String(r.body.length));
         const html = r.body.toString();
-        expect(html).toContain(`CRT 0.4.0 is running for ${tmp}. This is the CRT server, not your app.`);
-        expect(html).toContain('<a href="http://localhost:3000">Open http://localhost:3000</a> — the CRT button appears there once your app includes the CRT integration');
+        expect(html).toContain("<title>CRT 0.4.0</title>");
+        expect(html).toContain("This is the CRT server — not your app.");
+        expect(html).toContain(`<span class="path">${tmp}</span>`);
+        expect(html).toContain('<a class="btn" id="open" href="http://localhost:3000">Open http://localhost:3000 <span aria-hidden="true">↗</span></a>');
         expect(html).toContain("Run <code>crt init</code> for the one-line snippet for your framework, or <code>crt proxy</code> to proxy your app instead.");
-        expect(html).not.toMatch(/<script/i);
+        // PRD-polish §9: the F-91 "no scripts" becomes exactly one inline <script> with no src.
+        expect(html.match(/<script/gi)).toHaveLength(1);
+        expect(html).not.toMatch(/<script[^>]*\ssrc=/i);
+        expect(html).toContain('<link rel="icon" href="/__crt/favicon.svg">');
       }
       // HEAD gets the headers only; a POST gets the page too (nothing is forwarded anywhere).
       expect((await e.get("/", {}, "HEAD")).body.length).toBe(0);
       expect((await e.get("/api/save", {}, "POST")).status).toBe(200);
+      // F-114: GET /__crt/ is the same page; other methods there are 405.
+      const at = await e.get("/__crt/");
+      expect(at.status).toBe(200);
+      expect(at.headers["content-type"]).toBe("text/html; charset=utf-8");
+      expect(at.body.toString()).toContain("This is the CRT server — not your app.");
+      expect((await e.get("/__crt/", {}, "POST")).status).toBe(405);
     } finally {
       await e.close();
     }
-    // No app known: no link, the rest unchanged.
-    expect(landingPage({ version: null, projectRoot: "C:\\my-app", app: null })).not.toContain("<a ");
-    expect(landingPage({ version: null, projectRoot: "C:\\my-app", app: null })).toContain("CRT is running for C:\\my-app. This is the CRT server, not your app.");
-    expect(landingPage({ version: "0.4.0", projectRoot: "C:\\<app>", app: null })).toContain("for C:\\&lt;app&gt;.");
+    // No app known: the second hero state, no Open button.
+    const none = await embedded({ target: null });
+    try {
+      const html = (await none.get("/")).body.toString();
+      expect(html).toContain("<h1>No dev server found yet.</h1>");
+      expect(html).not.toContain('id="open"');
+    } finally {
+      await none.close();
+    }
   });
 
   it("serves /__crt/loader.js with CORS for a loopback origin and no-store, counts it in health, and refuses upgrades (F-93, F-94)", async () => {

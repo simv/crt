@@ -11,7 +11,9 @@
  * `DoctorFacts`; `collectDoctorFacts` gathers them from the machine with localhost probes only
  * (N-16). The guided start reuses the same rows (minus target and plugin) before its first
  * prompt; the plugin row spawns `claude plugin list --json` and so runs only inside `crt doctor`
- * (PRD-setup §13 decision 5).
+ * (PRD-setup §13 decision 5) and behind `GET /__crt/doctor?plugin=1` (PRD-polish F-113, doctor-route.ts),
+ * which builds the same facts inside the running server — with the `port` fact's `self` case, since
+ * the probe below would find that very server and call it held.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -49,7 +51,8 @@ export interface DoctorFacts {
   integration: { kind: "proxy" } | { kind: "embedded"; framework: Framework; file: string | null; found: IntegrationFound | null };
   /** F-103: the existing instruction files (an import-only `CLAUDE.md` skipped) and whether each carries the markers. */
   instructions: Array<{ file: InstructionFile; hasBlock: boolean }>;
-  port: { port: number; state: "free" } | { port: number; state: "crt"; health: CrtHealth; thisProject: boolean } | { port: number; state: "busy" };
+  /** `self` (PRD-polish F-113): the F-113 route runs inside the server on `port` — `ok … — this server`, never a probe. */
+  port: { port: number; state: "free" } | { port: number; state: "crt"; health: CrtHealth; thisProject: boolean } | { port: number; state: "busy" } | { port: number; state: "self" };
   providers: ProviderStatus[];
   resolution: Resolution;
   /** This package's version. */
@@ -114,6 +117,7 @@ export function doctorRows(f: DoctorFacts): DoctorReport {
   rows.push(instructionsRow(f.instructions));
   const p = f.port;
   if (p.state === "free") rows.push({ status: "ok", name: "port", detail: `${p.port} free` });
+  else if (p.state === "self") rows.push({ status: "ok", name: "port", detail: `${p.port} — this server` });
   else if (p.state === "crt") {
     const where = p.thisProject ? "this project" : `project ${p.health.projectRoot}`;
     const fix = p.thisProject ? "crt --replace" : `crt starts on ${p.port + 1}, or crt --replace`;
@@ -189,6 +193,8 @@ export interface CollectOptions {
   providers?: ProviderRegistry;
   /** The resolved mode (the start path's `crt proxy` / `--mode`); `crt doctor` reads the config files. */
   mode?: CrtMode;
+  /** An already-known port fact (the F-113 route: `{ port, state: "self" }`); otherwise the port is probed. */
+  port?: DoctorFacts["port"];
   env?: NodeJS.ProcessEnv;
 }
 
@@ -217,7 +223,7 @@ export async function collectDoctorFacts(opts: CollectOptions): Promise<DoctorFa
     mode: { mode, source: opts.mode !== undefined && opts.mode !== config.mode ? null : config.modeSource },
     integration: mode === "proxy" ? { kind: "proxy" } : integrationFact(root),
     instructions: instructionsStatus(root),
-    port: await portFact(config.port, root),
+    port: opts.port ?? (await portFact(config.port, root)),
     providers: providers.status(),
     resolution: providers.resolve(null),
     version: opts.version,
@@ -272,7 +278,7 @@ async function portFact(port: number, root: string): Promise<DoctorFacts["port"]
 }
 
 /** F-76 plugin row: `claude plugin list --json` (observed shape: `[{ id: "crt@crt", version, … }]`), parsed defensively (§12 rule 2). */
-async function pluginFact(env: NodeJS.ProcessEnv): Promise<NonNullable<DoctorFacts["plugin"]>> {
+export async function pluginFact(env: NodeJS.ProcessEnv): Promise<NonNullable<DoctorFacts["plugin"]>> {
   const claude = findOnPath("claude", process.platform, env);
   if (!claude) return { claudeOnPath: false };
   const r = await runExecutable(claude, ["plugin", "list", "--json"], { env, timeoutMs: 10_000 });

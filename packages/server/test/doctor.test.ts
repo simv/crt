@@ -197,6 +197,13 @@ describe("crt doctor (PRD-setup F-76)", () => {
     expect(row(facts({ crt: { readme: true, tasks: 1, config: true, localConfig: false, ignore: true } }), ".crt")).toBe("ok    .crt      README.md, tasks/ (1 task), config.json, .gitignore entries");
   });
 
+  it("the `self` port fact renders `ok    port      <port> — this server` — the F-113 route inside the running server (PRD-polish F-113)", () => {
+    const f = facts({ port: { port: 4400, state: "self" } });
+    expect(row(f, "port")).toBe("ok    port      4400 — this server");
+    expect(doctorRows(f).exitCode).toBe(0);
+    expect(row(facts({ port: { port: 4401, state: "self" } }), "port")).toBe("ok    port      4401 — this server");
+  });
+
   it("the start path omits the target and plugin rows (they are undefined, not null) (F-76, §13 decision 5)", () => {
     const { target: _t, plugin: _p, ...rest } = facts();
     const names = doctorRows(rest).rows.map((r) => r.name);
