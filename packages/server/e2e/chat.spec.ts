@@ -412,6 +412,41 @@ test.describe("anchored threads (F-65, F-66, F-67, F-68)", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("in a short window the chat popover is clamped above the dock, never under it; a dock dragged into the upper half gives the popover the whole viewport (F-65, PRD-polish §9, CRT-0029)", async ({ page }) => {
+    // 800 × 600: the chat (60vh + header, composer, footer) is taller than the space beside a marker in the
+    // lower half, so `placePopover` clamps it — above the dock, which is CRT's own chrome.
+    await page.setViewportSize({ width: 800, height: 600 });
+    await page.goto("/app");
+    await page.evaluate(() => {
+      window.__crt.addSelect("[data-testid=card-2] .price");
+      window.__crt.setNote(1, "total excludes discount");
+    });
+    await page.evaluate(() => window.__crt.send({ n: 1 }));
+    const pop = shadow(page, '.pop[data-n="1"]');
+    await expect(pop.locator(".perm button.deny")).toBeVisible();
+    const dock = shadow(page, ".dock");
+    await expect(dock).toBeVisible();
+    const [p, d] = await Promise.all([pop.boundingBox(), dock.boundingBox()]);
+    expect(d!.y).toBeGreaterThan(300); // the dock sits in the lower half by default
+    expect(p!.y + p!.height).toBeLessThanOrEqual(d!.y);
+    expect(p!.y).toBeGreaterThanOrEqual(0);
+    // Drag the launcher into the upper half: the dock follows it there, and the popover may use the whole viewport again.
+    const launcher = shadow(page, ".launcher");
+    const l = (await launcher.boundingBox())!;
+    await page.mouse.move(l.x + l.width / 2, l.y + l.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(l.x + l.width / 2, 120, { steps: 8 });
+    await page.mouse.up();
+    await expect.poll(async () => (await dock.boundingBox())!.y).toBeLessThan(300);
+    await page.evaluate(() => window.scrollBy(0, 1)); // any reposition pass re-places the open popover
+    await expect.poll(async () => {
+      const b = (await pop.boundingBox())!;
+      return b.y + b.height;
+    }).toBeGreaterThan((await dock.boundingBox())!.y);
+    await shadow(page, '.pop[data-n="1"] .perm button.deny').click();
+    await expect(shadow(page, '.mark-state[data-n="1"]')).toHaveText("your turn");
+  });
 });
 
 test.describe("provider UX on the stub axis (F-46, F-47, F-49, F-56, F-57, F-61)", () => {
