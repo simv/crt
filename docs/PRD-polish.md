@@ -263,3 +263,4 @@ Ticked by M24 with evidence (test name, e2e spec, task Log entry or run URL).
 3. **A docs site** (GitHub Pages from `docs/`). Not before the pages have stabilised for a release.
 4. **A `modes.svg` illustration** (embedded vs proxy). Only if cheap once the first two exist.
 5. **The rename** (carried from PRD-providers Open question 1 and PRD-embedded Open question 5): the lockup's wordmark is "CRT"; a rename would replace the wordmark file only.
+
