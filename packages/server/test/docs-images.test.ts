@@ -19,10 +19,10 @@ const SCREENSHOTS = ["arrival.png", "select.png", "chat.png", "marker-states.png
 const ILLUSTRATIONS = ["loop.svg", "loop-dark.svg", "architecture.svg", "architecture-dark.svg"];
 const bytes = (name: string) => statSync(join(images, name)).size;
 
-/** The pages whose image references the test follows: the two READMEs and every Markdown page under docs/ (one level). */
+/** The pages whose image references the test follows: the two READMEs, every Markdown page under docs/ (one level) and docs/images/README.md itself. */
 function pages(): string[] {
   const docs = join(root, "docs");
-  return [join(root, "README.md"), join(root, "packages", "server", "README.md"), ...readdirSync(docs).filter((n) => n.endsWith(".md")).map((n) => join(docs, n))];
+  return [join(root, "README.md"), join(root, "packages", "server", "README.md"), ...readdirSync(docs).filter((n) => n.endsWith(".md")).map((n) => join(docs, n)), join(images, "README.md")];
 }
 
 /**

@@ -38,4 +38,16 @@ Determinism (N-27): the config pins the viewport, the DPR, the light colour sche
 | `loop.svg`, `loop-dark.svg` | The loop: your app in the browser with the pill → annotate (the badge) → chat in the page → a task file → `/crt:next` → a pull request, and one arrow back |
 | `architecture.svg`, `architecture-dark.svg` | How it fits together: your app on its own origin with the loader and the overlay ⇄ the CRT server on `127.0.0.1:4400` → the agent session → `write_task` → `.crt/tasks/` |
 
-Hand-drawn SVG on the brand geometry (`docs/brand/`: the tube for the browser, the pill for the button, the badge for annotations), ≤ 10 KB each. GitHub renders SVG through `<img>` — no page CSS, and `currentColor` is black — so every colour is fixed in the file (no `currentColor`, no CSS variables, no `<style>`) and each drawing has a light file and a dark file, embedded through `<picture>` with `prefers-color-scheme`. The palette is the landing page's (`packages/server/src/landing.ts`) over the overlay's tokens (`packages/overlay/src/tokens.ts`); text is `system-ui` with a generic fallback. Edit them by hand; keep the light and dark files the same drawing.
+Hand-drawn SVG on the brand geometry (`docs/brand/`: the tube for the browser, the pill for the button, the badge for annotations), ≤ 10 KB each. GitHub renders SVG through `<img>` — no page CSS, and `currentColor` is black — so every colour is fixed in the file (no `currentColor`, no CSS variables, no `<style>`) and each drawing has a light file and a dark file, embedded through `<picture>` with `prefers-color-scheme`, as here:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="loop-dark.svg">
+  <img alt="The CRT loop: annotate in the browser, chat in the page, a task file, /crt:next, a pull request, and back" src="loop.svg" width="960">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="architecture-dark.svg">
+  <img alt="How CRT fits together: the app with the loader and the overlay, the CRT server on 127.0.0.1:4400, the agent session, write_task, .crt/tasks/" src="architecture.svg" width="960">
+</picture>
+
+The palette is the landing page's (`packages/server/src/landing.ts`) over the overlay's tokens (`packages/overlay/src/tokens.ts`); text is `system-ui` with a generic fallback. Edit them by hand; keep the light and dark files the same drawing.
