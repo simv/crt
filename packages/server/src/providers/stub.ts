@@ -184,21 +184,35 @@ export function startStubSession(opts: StartSessionOptions, variant: StubVariant
     setState("idle");
   };
 
+  /**
+   * PRD-polish §12 rule 4 (CRT-0029): the component and source file the script talks about come from
+   * the first message's annotation lines (`components: ProductCard ← Shop`, `source:
+   * components/ProductCard.tsx:10 (…)`) when the page had them, so the chat reads right on any
+   * annotated element; a page without component detection (the e2e fixture's /app) gets the script's
+   * original CartSummary / src/components/Cart.tsx.
+   */
+  const subject = (text: string): { component: string; file: string } => {
+    const component = /^\s*components: ([A-Za-z0-9_$]+)/m.exec(text)?.[1] ?? "CartSummary";
+    const file = /^\s*source: (\S+?)(?::\d+)? \(/m.exec(text)?.[1] ?? "src/components/Cart.tsx";
+    return { component, file };
+  };
+
   const firstTurn = async (first: { text: string; images?: Array<{ label: string }> }) => {
     const t = turn;
+    const { component, file } = subject(first.text);
     emit({ type: "user", text: first.text, images: (first.images ?? []).map((i) => i.label) });
     await sleep(TICK_MS);
     if (cancelled(t)) return;
     emitInit();
     setState("running");
-    await say(t, "I read the capture. The annotated element is rendered by **CartSummary**; let me look at the source.\n");
+    await say(t, `I read the capture. The annotated element is rendered by **${component}**; let me look at the source.\n`);
     if (cancelled(t)) return;
     if (HOLD_RE.test(first.text)) {
       // F-116: stay `running` — no tool, no result — until the session is interrupted or closed.
       while (!cancelled(t)) await sleep(TICK_MS * 10);
       return;
     }
-    if (!(await useTool(t, "Read", { file_path: "src/components/Cart.tsx" }, "Read src/components/Cart.tsx", "88 lines"))) return;
+    if (!(await useTool(t, "Read", { file_path: file }, `Read ${file}`, "88 lines"))) return;
     const ran = await useTool(t, "Bash", { command: "npm test" }, "Bash npm test", "12 passing");
     if (cancelled(t)) return;
     await say(
@@ -217,7 +231,8 @@ export function startStubSession(opts: StartSessionOptions, variant: StubVariant
     if (cancelled(t)) return;
     emitInit();
     setState("running");
-    if (!(await useTool(t, "Read", { file_path: "src/components/Cart.tsx" }, "Read src/components/Cart.tsx", "88 lines"))) return;
+    const { file } = subject(first.text);
+    if (!(await useTool(t, "Read", { file_path: file }, `Read ${file}`, "88 lines"))) return;
     if (/ask me/i.test(first.text)) {
       await say(t, "Quick question before I write this: should the discount apply before or after tax?");
       finish(t, true);

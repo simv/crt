@@ -121,4 +121,27 @@ describe("stub provider variants (F-42, F-46)", () => {
     expect(events.at(-1)).toEqual({ type: "state", state: "idle" });
     driver.close();
   });
+
+  it.each([
+    ["a React page: the first message's components and source lines", `${FIRST_MESSAGE_HEADING}\n\n1. [select] "Price ignores the promo"\n   element: <div class="price">\n   selector: [data-testid=card-mug] .price\n   components: ProductCard ← Shop ← HomePage\n   source: components/ProductCard.tsx:10 (debug_source)\n`, "ProductCard", "components/ProductCard.tsx"],
+    ["a page without component detection: the script's own CartSummary", `${FIRST_MESSAGE_HEADING}\n\n1. [select] "Total ignores the promo"\n   element: <span class="price">\n   selector: .price\n`, "CartSummary", "src/components/Cart.tsx"],
+  ])("names the annotated component and its source file from %s (PRD-polish §12 rule 4, CRT-0029)", async (_name, text, component, file) => {
+    const events: Array<{ type: string; text?: string; label?: string }> = [];
+    const driver = makeStubProfile().start({
+      id: "subject",
+      cwd: root,
+      systemPromptAppend: "",
+      first: { text },
+      decide: (name) => ({ kind: name === "Read" ? "allow" : "deny" }),
+      writeTask: async () => ({ id: "CRT-0001", path: "x" }),
+      mcp: { command: "node", args: [], env: {} },
+      model: null,
+    });
+    driver.onEvent((e) => events.push(e));
+    await expect.poll(() => events.some((e) => e.type === "tool_use"), { timeout: 5_000 }).toBe(true);
+    const spoken = events.filter((e) => e.type === "text").map((e) => e.text).join("");
+    expect(spoken).toContain(`The annotated element is rendered by **${component}**; let me look at the source.`);
+    expect(events.find((e) => e.type === "tool_use")).toMatchObject({ label: `Read ${file}` });
+    driver.close();
+  });
 });

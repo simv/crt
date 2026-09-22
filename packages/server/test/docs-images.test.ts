@@ -13,7 +13,7 @@ const root = join(import.meta.dirname, "..", "..", "..");
 const images = join(root, "docs", "images");
 const PNG_BUDGET = 400 * 1024;
 const SVG_BUDGET = 10 * 1024;
-/** F-116 §5.3: the five screenshots, 1280 × 800 CSS px at DPR 2. */
+/** F-116 §5.3: the five screenshots, 800 × 600 CSS px at DPR 2 (CRT-0029; 1280 × 800 until then). */
 const SCREENSHOTS = ["arrival.png", "select.png", "chat.png", "marker-states.png", "landing.png"];
 /** F-117: the two illustrations, light and dark. */
 const ILLUSTRATIONS = ["loop.svg", "loop-dark.svg", "architecture.svg", "architecture-dark.svg"];
@@ -57,10 +57,10 @@ describe("docs/images (PRD-polish F-116, F-117, N-27)", () => {
     }
   });
 
-  it("the five screenshots exist, are PNGs of 1280 × 800 CSS px at DPR 2 and stay ≤ 400 KB each (F-116)", () => {
+  it("the five screenshots exist, are PNGs of 800 × 600 CSS px at DPR 2 and stay ≤ 400 KB each (F-116)", () => {
     for (const name of SCREENSHOTS) {
       expect(existsSync(join(images, name)), name).toBe(true);
-      expect(pngSize(name), name).toEqual({ width: 2560, height: 1600 });
+      expect(pngSize(name), name).toEqual({ width: 1600, height: 1200 });
       expect(bytes(name), `${name}: ${bytes(name)} bytes`).toBeLessThanOrEqual(PNG_BUDGET);
     }
   });

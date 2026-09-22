@@ -88,11 +88,13 @@ Sections, top to bottom (the review's final order):
 
 ### 5.3 Screenshots and illustrations
 
-Five screenshots in `docs/images/`, PNG, light, 1280 × 800 CSS px at DPR 2, taken by `npm run screenshots` against the e2e fixture app and a `CRT_SESSION_STUB=1` embedded server so every image is reproducible (F-116):
+Five screenshots in `docs/images/`, PNG, light, 800 × 600 CSS px at DPR 2, taken by `npm run screenshots` against the e2e fixture app's `/shop` page and a `CRT_SESSION_STUB=1` embedded server so every image is reproducible (F-116):
+
+> Amended 2026-09-22 (Simon, after M23; task CRT-0029): the viewport was 1280 × 800 and the page the fixture's `/app` playground. The screenshots now show the trial shop (the `tool-validation` app's home page) ported into the fixture as `/shop` — its markup and CSS, rendered with the fixture's React 18 dev build so the component names show — at 800 × 600, so everything is tighter. The port keeps N-27: a reviewer regenerates from this repo alone. Two small product changes came with it: a popover is clamped above the dock when the dock is in the lower half of the window (F-65's "inside the viewport", §9), and the stub names the component and source file the first message reports (§12 rule 4).
 
 | File | Shows |
 |---|---|
-| `arrival.png` | The fixture page with the CRT pill bottom-right and the first-visit welcome card |
+| `arrival.png` | The shop page with the CRT pill bottom-right and the first-visit welcome card |
 | `select.png` | Select hovering an element: outline, tag/component label, one pinned marker with its popover and a note |
 | `chat.png` | The popover as the chat: streamed text, a collapsed tool line, an **Allow / Deny** card (the stub scripts it) |
 | `marker-states.png` | Three markers side by side: `thinking…`, `your turn`, `CRT-0007` |
@@ -192,6 +194,7 @@ Each milestone is one task file. DoD items are **worker-checkable** unless marke
 
 | Statement | v0.6 |
 |---|---|
+| PRD F-65 "inside the viewport" | inside the viewport and above the dock: when the toolbar is open in the lower half of the window, the popover is clamped above it (at 600 px a chat popover would otherwise end under the toolbar) — CRT-0029. |
 | PRD-embedded F-91 "a landing page that says, in plain words … and nothing else (no scripts)" | the F-114 page: the same sentences (the kicker now reads `This is the CRT server — not your app.`), the app link, plus Attention, the loop, Checkup and this server's facts; one inline script, same-origin only (N-23). The e2e/unit assertions `not.toMatch(/<script/)` become "exactly one inline `<script>` and no `src`". |
 | PRD-embedded F-100 `crt init` footer "Production builds contain nothing from CRT (README › Production)" | "… (docs/integration.md › Production)" (M23). |
 | PRD-embedded F-107 "README quotes every new line (doc test)" | the line is quoted in the README **or** in the `docs/` page the section moved to (§5.4); `docs.test.ts` is the doc test. |
