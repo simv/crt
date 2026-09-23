@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Built — M25–M27 landed (CRT-0030 as #84 and CRT-0031 as #85, both 2026-09-23; F-122 applied by CRT-0033 as #83 the same day); §10 ticked with evidence by M27; release `0.7.0` is CRT-0032's last step |
+| **Status** | Built — M25–M27 landed (CRT-0030 as #84 and CRT-0031 as #85, both 2026-09-23; F-122 applied by CRT-0033 as #83 the same day); §10 ticked with evidence by M27; `0.7.0` released and promoted 2026-09-23 |
 | **Owner** | Simon (simv) |
 | **Repo** | https://github.com/simv/crt |
 | **Baseline** | `main` at 5fdcbd8 = v0.6.0 (PRD-polish M20–M24, CRT-0029) |
@@ -179,7 +179,7 @@ Ticked by M27 with evidence (test name, e2e spec, task Log entry or run URL).
 - [x] `summarizeIntake` and `summarizeProposal` are unit-tested pure functions (N-29, test names). — `test/intake-message.test.ts` › "the developer's words for the first bubble (PRD-chat F-119, N-28)" (five rows); `test/proposal.test.ts` (eight rows); `proposal.ts` imports nothing.
 - [x] The pills are keyboard-operable with `aria-expanded`; the overlay bundle grew ≤ 2 KB gzipped (N-30, M25/M26 Logs). — both e2e rows reach the pill with Shift+Tab from the reply box and toggle it with Enter and Space (`aria-expanded` `true`/`false`); `dist/overlay.js` gzipped 36,715 B at 5fdcbd8 → 37,252 B (M25) → 37,781 B (M26): +1,066 B.
 - [x] `/crt:done` closes a task as the last commit on its PR branch and merges it; CRT-0033 and every later task in this PRD closed without a second PR (F-122; the tasks' Logs). — CRT-0033 (#83), CRT-0030 (#84) and CRT-0031 (#85) each end on `— done; closed in <PR URL>` inside their own squash-merged PR; CRT-0032 closes the same way.
-- [ ] CI green on `main`; `v0.7.0` tagged, published and promoted; the GitHub Release names M25–M26 and F-122; `docs/images/chat.png` shows the folded bubble (M27). — `chat.png` regenerated on the release branch with the log at its start (CRT-0032 Log); CI on `main`, the tag, the release run, the Release notes and the promotion are filled in by CRT-0032's close-out.
+- [x] CI green on `main`; `v0.7.0` tagged, published and promoted; the GitHub Release names M25–M26 and F-122; `docs/images/chat.png` shows the folded bubble (M27). — `chat.png` regenerated on the release branch with the log at its start (CRT-0032 Log); CI on `main` green at ee26727 (https://github.com/simv/crt/actions/runs/35819140428); tag `v0.7.0` on ee26727, release run https://github.com/simv/crt/actions/runs/35819153249 staged 0.7.0; the GitHub Release https://github.com/simv/crt/releases/tag/v0.7.0 names M25 (#84), M26 (#85), M27 (#86) and F-122 (#83); promoted by Simon 2026-09-23, `npm view claude-review-tool version` → `0.7.0`; a clean `npm i -g claude-review-tool@0.7.0` + `crt setup` installs `crt@crt 0.7.0` with the seven skills (CRT-0032 Log 2026-09-23T15:43).
 
 ## 11. Risks
 
