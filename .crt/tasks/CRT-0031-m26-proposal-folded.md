@@ -1,10 +1,10 @@
 ---
 id: CRT-0031
 title: M26 — The proposal, folded: the agent's plan shows its restatement and a "Definition of done · N items" pill, the full proposal one click away
-status: backlog
+status: in_progress
 priority: high
 created: 2026-09-23T08:20:00+08:00
-updated: 2026-09-23T08:20:00+08:00
+updated: 2026-09-23T11:33:00+08:00
 url: null
 route: null
 session: null
@@ -43,3 +43,4 @@ Read `docs/PRD-chat.md` §5.2, §5.3, §11, §12 and §13 first. Decisions alrea
 
 ## Log
 - 2026-09-23T08:20+08:00 — created from docs/PRD-chat.md milestone M26 by the planning session that wrote it (session 516e0741-5065-4f83-92e2-a6c83cf9dbd1), on Simon's request of 2026-09-23.
+- 2026-09-23T11:33+08:00 — claimed by /crt:next, session 1927cf6f-8d0a-416d-92d6-6016602681b0, branch crt/CRT-0031-m26-proposal-folded
