@@ -2,7 +2,7 @@
 
 Annotate your local site in the browser, talk to Claude in the page, and get a self-contained task file in your repo that any Claude Code session can pick up later with `/crt:next`. CRT started as Claude-only; since v0.2 it also works with Codex, since v0.5 with Gemini CLI and any Agent Client Protocol agent (both experimental — see Providers) and with the Antigravity CLI, and Claude Code remains the default. The name is historical.
 
-> v0.6.0. [docs/PRD.md](docs/PRD.md) defines the scope, requirement IDs (F-n, N-n) and the definition of done; [docs/PRD-providers.md](docs/PRD-providers.md) (v0.2, providers), [docs/PRD-setup.md](docs/PRD-setup.md) (v0.3, setup and first run), [docs/PRD-embedded.md](docs/PRD-embedded.md) (v0.4, embedded mode) and [docs/PRD-polish.md](docs/PRD-polish.md) (v0.6, polish) amend it; v0.5 shipped PRD-providers M10 (Gemini CLI and any ACP agent, experimental); v0.6 ships PRD-polish M20–M23 (the mark, the landing page, the screenshots, this front page) and PRD-providers M19 (the Antigravity CLI). This README is the front page; the manual is [`docs/`](#docs).
+> v0.7.0. [docs/PRD.md](docs/PRD.md) defines the scope, requirement IDs (F-n, N-n) and the definition of done; [docs/PRD-providers.md](docs/PRD-providers.md) (v0.2, providers), [docs/PRD-setup.md](docs/PRD-setup.md) (v0.3, setup and first run), [docs/PRD-embedded.md](docs/PRD-embedded.md) (v0.4, embedded mode), [docs/PRD-polish.md](docs/PRD-polish.md) (v0.6, polish) and [docs/PRD-chat.md](docs/PRD-chat.md) (v0.7, compact chat) amend it; v0.5 shipped PRD-providers M10 (Gemini CLI and any ACP agent, experimental); v0.6 shipped PRD-polish M20–M23 (the mark, the landing page, the screenshots, this front page) and PRD-providers M19 (the Antigravity CLI); v0.7 ships PRD-chat M25–M26 (the compact chat: your words and the agent's proposal folded, the full text behind a pill). This README is the front page; the manual is [`docs/`](#docs).
 
 <p align="center">
   <picture>
@@ -93,7 +93,7 @@ Inside Claude Code, `/crt:serve` does what `crt` does — it reuses a CRT that i
    - **Sessions** lists the recent intake sessions (note, state, task ID) so you can reopen one — for example a quick note that turned into a question while you were browsing elsewhere.
    - Tool use shows as collapsed lines; anything not pre-allowed (reads, searches, read-only `git`, writes under `.crt/`) asks you in the popover with **Allow / Deny** (if you are busy in another popover, the marker pulses and the status line points at it instead). **Stop** interrupts the turn; **Discard** closes the session and removes the annotation; **×** just hides the popover. The footer shows the session ID and `claude --resume <id>` to continue the same conversation in a terminal.
 
-![The popover as the chat: the streamed text, a collapsed tool line, the Allow / Deny card](docs/images/chat.png)
+![The popover as the chat: your note with its Capture pill, the streamed text, a collapsed tool line, the permission card](docs/images/chat.png)
 
 ![Three markers on one page: thinking…, your turn, CRT-0007](docs/images/marker-states.png)
 
@@ -128,7 +128,7 @@ Verify any build with `grep -r "__crt" dist/` (or `.next/static`) — it finds n
 - `.crt/tasks/` — the task files (`CRT-NNNN-<slug>.md`), their `assets/<ID>/` screenshots and the generated `README.md` index. Committed.
 - `.crt/config.json` — per project, committed: `mode`, `target`, `port`, `provider`.
 - two `.gitignore` lines — `.crt/captures/` (transient captures) and `.crt/config.local.json` (per machine: the remembered target, the remembered provider).
-- a CRT section in `CLAUDE.md` and `AGENTS.md` (whichever exist; one is created when neither does) between `<!-- BEGIN:crt v0.6 -->` and `<!-- END:crt -->`, so the project's agents know what `.crt/tasks/*.md` are, that they appear during intake, and that they are committed with the project — never deleted or "cleaned up". Re-running `crt init` replaces the section in place; `--no-instructions` skips it.
+- a CRT section in `CLAUDE.md` and `AGENTS.md` (whichever exist; one is created when neither does) between `<!-- BEGIN:crt v0.7 -->` and `<!-- END:crt -->`, so the project's agents know what `.crt/tasks/*.md` are, that they appear during intake, and that they are committed with the project — never deleted or "cleaned up". Re-running `crt init` replaces the section in place; `--no-instructions` skips it.
 
 That is the complete list. At runtime the server (`crt`, `crt serve`, `crt proxy`) writes only under `.crt/` — captures, tasks, the index, `config.local.json` — and never touches `.gitignore`, `CLAUDE.md`, `AGENTS.md` or any app file; `crt init` is the one command that writes outside `.crt/`, and it names every file on stdout as it does (the other explicit CLI writes are `crt skills install`, into `.agents/skills/`, and `crt setup`, into Claude Code's own plugin store).
 
@@ -162,7 +162,7 @@ ok    instructions CLAUDE.md carries the CRT section
 ok    port      4400 free
 ok    claude    Claude Code (Agent SDK 0.3.270) — logged in
 warn  codex     codex-cli 0.154.0 — not logged in — run `codex login`
-ok    plugin    crt@crt 0.6.0 installed (claude on PATH)
+ok    plugin    crt@crt 0.7.0 installed (claude on PATH)
 → claude — codex not logged in
 ```
 

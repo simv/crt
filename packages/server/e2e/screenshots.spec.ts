@@ -74,14 +74,15 @@ async function settle(page: Page): Promise<void> {
 }
 
 /**
- * The transcript scrolls to its end smoothly on every append (chat.ts); at 600 px the log overflows enough that the
- * animation lands short under the fake clock, so land it at its end outright, then wait until it is there — every
- * run shows the same lines.
+ * The transcript scrolls to its end smoothly on every append (chat.ts); at 600 px the log overflows by about 60 px,
+ * so the folded capture bubble and the Allow / Deny buttons are never in view together. The picture leads with the
+ * bubble (PRD-chat F-121: chat.png shows the folded bubble): land the log at its start outright, then wait until it
+ * is there — every run shows the same lines, down to the permission card's title and command.
  */
-async function scrolledToEnd(page: Page, pop: ReturnType<typeof shadow>): Promise<void> {
+async function scrolledToStart(page: Page, pop: ReturnType<typeof shadow>): Promise<void> {
   const log = pop.locator(".chat-log");
-  await log.evaluate((el) => el.scrollTo({ top: el.scrollHeight, behavior: "instant" }));
-  await expect.poll(() => log.evaluate((el) => el.scrollTop + el.clientHeight >= el.scrollHeight - 1)).toBe(true);
+  // A smooth scroll still in flight under the fake clock can nudge it back, so set it on every poll.
+  await expect.poll(() => log.evaluate((el) => (el.scrollTo({ top: 0, behavior: "instant" }), el.scrollTop))).toBe(0);
 }
 
 /** The centre of an element on the page, for the Select tool's hover. */
@@ -150,7 +151,7 @@ test("select.png — Select armed, the hover outline and label on a price, one p
   await shoot(page, "select.png");
 });
 
-test("chat.png — the popover as the chat: the folded capture bubble, streamed text, a collapsed tool line, the Allow / Deny card (F-25, F-26, F-66, F-116, F-119)", async ({ page }) => {
+test("chat.png — the popover as the chat: the folded capture bubble, streamed text, a collapsed tool line, the permission card (F-25, F-26, F-66, F-116, F-119, F-121)", async ({ page }) => {
   await openApp(page);
   // The mug's price: the stub names the component and the source file the page reports (ProductCard).
   await page.evaluate(() => {
@@ -173,7 +174,7 @@ test("chat.png — the popover as the chat: the folded capture bubble, streamed 
   await expect(pop.locator(".perm button.deny")).toBeVisible();
   await expect(shadow(page, '.mark-state[data-n="1"]')).toHaveText("needs permission");
   await settle(page);
-  await scrolledToEnd(page, pop);
+  await scrolledToStart(page, pop);
   // F-65 (CRT-0029): at 600 px the chat popover sits above the dock, never under it.
   const [popBox, dockBox] = await Promise.all([pop.boundingBox(), shadow(page, ".dock").boundingBox()]);
   expect(popBox!.y + popBox!.height).toBeLessThanOrEqual(dockBox!.y);

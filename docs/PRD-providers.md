@@ -91,6 +91,8 @@ overlay ── POST /__crt/sessions { captureId, quick, provider? } ──▶ Se
 | `plugin/skills/intake/SKILL.md` | Claude-flavoured wording | provider-neutral wording, quick-note sentinel preserved verbatim (F-55) |
 | `.claude/hooks/guard.mjs`, `.claude/agents/prd-reviewer.md`, `CLAUDE.md`, tests asserting `claude --resume` | Claude-specific | updated in the same PR as the module move (F-63) |
 
+*v0.7: every driver produces the `user` event as before; its `intake` field (the first message's summary for the panel) is added by the registry, never by a driver (PRD-chat F-119, CRT-0030).*
+
 ### 5.2 Why drive CLIs, not SDKs or APIs
 
 The v1.0 reason for the Agent SDK (§5.3) was: reuse the machine's login, load the project's own instructions and tools, be resumable in the terminal. Those hold for every provider. Every mainstream agent exposes a non-interactive, machine-readable mode that runs the *developer's installed, logged-in* binary. Driving that binary keeps N-4 true, needs no API keys, and picks up `AGENTS.md`/`GEMINI.md` exactly as Claude Code picks up `CLAUDE.md`.

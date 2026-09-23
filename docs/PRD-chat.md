@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft — M25–M27 planned (CRT-0030…0032), written 2026-09-23 |
+| **Status** | Built — M25–M27 landed (CRT-0030 as #84 and CRT-0031 as #85, both 2026-09-23; F-122 applied by CRT-0033 as #83 the same day); §10 ticked with evidence by M27; release `0.7.0` is CRT-0032's last step |
 | **Owner** | Simon (simv) |
 | **Repo** | https://github.com/simv/crt |
 | **Baseline** | `main` at 5fdcbd8 = v0.6.0 (PRD-polish M20–M24, CRT-0029) |
@@ -153,7 +153,7 @@ F-122 is not a milestone: CRT-0033 applies it directly (2026-09-23), before M25 
 
 ## 9. Amendments to the earlier PRDs, the docs and `CLAUDE.md`
 
-Each row names the milestone that applies it; "noted by M27" means the `*v0.7: …*` note inline in the earlier PRD is written by M27 (CRT-0032), the way M24 wrote the `*v0.6: …*` notes.
+Each row names the milestone that applies it; "noted by M27" means the `*v0.7: …*` note inline in the earlier PRD was written by M27 (CRT-0032), the way M24 wrote the `*v0.6: …*` notes; M27 also added PRD-chat to PRD.md's Amended-by row, the README's version line and `docs/develop.md`'s list of PRDs.
 
 | Statement | v0.7 |
 |---|---|
@@ -163,23 +163,23 @@ Each row names the milestone that applies it; "noted by M27" means the `*v0.7: �
 | PRD F-28 / `session-events.ts` "Echo of a developer message, so a reconnecting panel can rebuild the transcript" | the first echo of a session carries `intake` (§5.1), set by the registry, so the rebuilt transcript is the folded one (M25); noted by M27. |
 | PRD-providers §5 "every provider driver … produces these events" | drivers produce the `user` event as before; `intake` is added by the registry, never by a driver (M25); noted by M27. |
 | `plugin/skills/intake/SKILL.md` step 4 "Reply with a one-paragraph restatement of the ask and a checklist of concrete, checkable DoD items" | "Reply with, in this order: one paragraph restating the ask (no heading, no list); the line `Proposed definition of done:`; the checklist, one `- [ ]` item per line; then exactly this line and nothing after it: …" (M26). |
-| README › The loop step 3 "the same popover becomes the chat" | gains: "Your note is the first bubble; the page, selector and console detail Claude was given sits behind a `Capture` pill. Claude's proposal shows its restatement and a `Definition of done · N items` pill — open it, then **Accept**." (M25 the first sentence, M26 the second); `docs/how-it-works.md` › Intake session gains the same in its own words; `docs/images/chat.png` regenerated (M25, again by M27 if the overlay changed since). |
+| README › The loop step 3 "the same popover becomes the chat" | gains: "Your note is the first bubble; the page, selector and console detail Claude was given sits behind a `Capture` pill. Claude's proposal shows its restatement and a `Definition of done · N items` pill — open it, then **Accept**." (M25 the first sentence, M26 the second); `docs/how-it-works.md` › Intake session gains the same in its own words; `docs/images/chat.png` regenerated (M25, again by M27 if the overlay changed since). *M27: the overlay changed in M26, so `npm run screenshots` ran again; at 800 × 600 the log cannot show the folded bubble and the Allow / Deny buttons together, so `chat.png` now lands the log at its start (the bubble, the text, the tool line, the permission card's title and command) instead of its end, and the README alt text and `docs/images/README.md` say so.* |
 | CLAUDE.md "Read `docs/PRD.md`, … and `docs/PRD-polish.md`" | "… `docs/PRD-polish.md` and `docs/PRD-chat.md`" with the sixth's one-line description (applied in the PR that adds this document). `.claude/agents/prd-reviewer.md` reads this document's §6, §7 and §9 too and knows F-119…F-121 / N-28…N-30 live here (same PR). |
 | PRD F-40 "`/crt:done <ID>` — marks review → done after the PR merges, appending the PR URL" | marks review → done as the last commit on the reviewed PR branch, then merges the PR; no second PR (F-122, CRT-0033); noted inline by CRT-0033. |
 | `plugin/skills/done/SKILL.md`, `plugin/skills/task/SKILL.md` review line, README › The loop `/crt:done` comment, CLAUDE.md › Work tracking "`/crt:done <ID> <pr-url>` closes it after merge" | the F-122 flow, in each one's words (CRT-0033). |
-| CLAUDE.md "What this is" | the chat sentence gains "; the panel shows the developer's words and the agent's proposal folded, the full text one click away (PRD-chat F-119, F-120)" (M27). |
+| CLAUDE.md "What this is" | the chat sentence gains "; the panel shows the developer's words and the agent's proposal folded, the full text one click away (PRD-chat F-119, F-120)" (M27, applied). |
 
 ## 10. Definition of done (v0.7)
 
 Ticked by M27 with evidence (test name, e2e spec, task Log entry or run URL).
 
-- [ ] After Send, the first bubble shows the developer's words and a `Capture` pill; the pill opens the full first message; the same after a reload and from the session list (M25, e2e + Manual).
-- [ ] The first message the agent receives is byte-identical to v0.6 for the same capture (N-28, M25 Log hash).
-- [ ] A proposal folds to its restatement and `Definition of done · N items`, unfolds to the checklist, and Accept still writes the task; a question never folds (M26, e2e + Manual).
-- [ ] `summarizeIntake` and `summarizeProposal` are unit-tested pure functions (N-29, test names).
-- [ ] The pills are keyboard-operable with `aria-expanded`; the overlay bundle grew ≤ 2 KB gzipped (N-30, M25/M26 Logs).
-- [ ] `/crt:done` closes a task as the last commit on its PR branch and merges it; CRT-0033 and every later task in this PRD closed without a second PR (F-122; the tasks' Logs).
-- [ ] CI green on `main`; `v0.7.0` tagged, published and promoted; the GitHub Release names M25–M26 and F-122; `docs/images/chat.png` shows the folded bubble (M27).
+- [x] After Send, the first bubble shows the developer's words and a `Capture` pill; the pill opens the full first message; the same after a reload and from the session list (M25, e2e + Manual). — `e2e/chat.spec.ts` › "the first bubble shows the developer's words and folds the capture message… (F-119, N-30)" (words, `▸ Capture · 2 images`, the fold body with `CRT intake for capture <id>` and `Attached images: viewport (annotated), annotation 1`, folded again after `page.reload()`) and "a grouped send shows one line per annotation… (F-65, F-119)"; `test/sessions.test.ts` (the replay to a second subscriber carries `intake`); Manual: CRT-0030 Log 2026-09-23T09:11 DoD 7 (trial app, one annotation, two in one send, a page Chat, a quick note; screenshots in `.crt/captures/`).
+- [x] The first message the agent receives is byte-identical to v0.6 for the same capture (N-28, M25 Log hash). — CRT-0030 Log 2026-09-23T09:11: SHA-256 `7281e834…` (plain) and `16263037…` (quick) at 5fdcbd8 and after, pinned in `test/intake-message.test.ts`.
+- [x] A proposal folds to its restatement and `Definition of done · N items`, unfolds to the checklist, and Accept still writes the task; a question never folds (M26, e2e + Manual). — `e2e/chat.spec.ts` › "the proposal streams verbatim, then folds…", "a typed edit yields a second proposal … `1 item`…" and the quick-note `ask me` row (no `.proposal`); Manual: CRT-0031 Log 2026-09-23T11:48 DoD 7 (three real Claude sessions on the trial app, `▸ Definition of done · 7 items`, Accept wrote the task; one first proposal led with its findings — the §11 risk, recorded there).
+- [x] `summarizeIntake` and `summarizeProposal` are unit-tested pure functions (N-29, test names). — `test/intake-message.test.ts` › "the developer's words for the first bubble (PRD-chat F-119, N-28)" (five rows); `test/proposal.test.ts` (eight rows); `proposal.ts` imports nothing.
+- [x] The pills are keyboard-operable with `aria-expanded`; the overlay bundle grew ≤ 2 KB gzipped (N-30, M25/M26 Logs). — both e2e rows reach the pill with Shift+Tab from the reply box and toggle it with Enter and Space (`aria-expanded` `true`/`false`); `dist/overlay.js` gzipped 36,715 B at 5fdcbd8 → 37,252 B (M25) → 37,781 B (M26): +1,066 B.
+- [x] `/crt:done` closes a task as the last commit on its PR branch and merges it; CRT-0033 and every later task in this PRD closed without a second PR (F-122; the tasks' Logs). — CRT-0033 (#83), CRT-0030 (#84) and CRT-0031 (#85) each end on `— done; closed in <PR URL>` inside their own squash-merged PR; CRT-0032 closes the same way.
+- [ ] CI green on `main`; `v0.7.0` tagged, published and promoted; the GitHub Release names M25–M26 and F-122; `docs/images/chat.png` shows the folded bubble (M27). — `chat.png` regenerated on the release branch with the log at its start (CRT-0032 Log); CI on `main`, the tag, the release run, the Release notes and the promotion are filled in by CRT-0032's close-out.
 
 ## 11. Risks
 

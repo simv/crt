@@ -6,7 +6,7 @@ allowed-tools: Bash(npx *) Read Edit Write Glob Grep AskUserQuestion
 
 Set CRT up in this project (PRD-embedded F-104), from the project root `${CLAUDE_PROJECT_DIR}`: run `crt init`, then apply the snippet it prints to the one app file it names. You edit at most one app file — the snippet target — and you never commit.
 
-`crt` below is `npx --no crt` when the project has it installed (a devDependency, a workspace, or a global install), else `npx -y claude-review-tool@0.6`. The fallback may have to download the package (~220 MB on a first run); say so while you wait.
+`crt` below is `npx --no crt` when the project has it installed (a devDependency, a workspace, or a global install), else `npx -y claude-review-tool@0.7`. The fallback may have to download the package (~220 MB on a first run); say so while you wait.
 
 ## 1. Run `crt init --yes`
 
