@@ -147,6 +147,21 @@ describe("session routes (F-24, F-25, F-29)", () => {
     const types = first.events.map((e) => e.type);
     expect(types[0]).toBe("user");
     expect(first.events[0]).toMatchObject({ type: "user", text: expect.stringContaining(`CRT intake for capture ${cap.id}`), images: ["viewport (annotated)", "annotation 1", "annotation 2"] });
+    // F-119: the first echo carries the developer's words for the folded bubble, set by the registry (the stub knows nothing of it).
+    const intake = {
+      captureId: cap.id,
+      note: null,
+      annotations: [
+        { n: 1, kind: "select", note: "total excludes discount", label: "CartSummary span#total.cart-total" },
+        { n: 2, kind: "pin", note: "missing a coupon field here", label: "pin" },
+      ],
+      quick: false,
+      instructions: false,
+    };
+    expect((first.events[0] as Extract<SessionEvent, { type: "user" }>).intake).toEqual(intake);
+    // A second subscriber's replay carries it too: the event is stored as recorded.
+    const again = await collect(`/__crt/sessions/${id}/events`, (e) => e.type === "init");
+    expect((again.events[0] as Extract<SessionEvent, { type: "user" }>).intake).toEqual(intake);
     expect(types).toContain("init");
     // F-47: the init event carries the provider identity; the registry learns the native id from it.
     const init = first.events.find((e) => e.type === "init") as Extract<SessionEvent, { type: "init" }>;
@@ -195,6 +210,7 @@ describe("session routes (F-24, F-25, F-29)", () => {
     const after = Number(first.ids.at(-1)) + rest.events.length;
     const turn = await collect(`/__crt/sessions/${id}/events?after=${after}`, (e) => e.type === "result");
     expect(turn.events[0]).toEqual({ type: "user", text: "write it", images: [] });
+    expect(turn.events[0]).not.toHaveProperty("intake"); // F-119: only the first echo of a session carries it
     const written = turn.events.find((e) => e.type === "task_written") as Extract<SessionEvent, { type: "task_written" }>;
     expect(written).toMatchObject({ id: "CRT-0001", path: ".crt/tasks/CRT-0001-cart-total-excludes-applied-discount.md" });
     expect(registry.get(id)?.taskId).toBe("CRT-0001");
@@ -234,7 +250,8 @@ provider: stub
     expect((await api("POST", `/__crt/sessions/${id}/capture`, { captureId: cap.id })).status).toBe(409);
 
     const got = await collect(`/__crt/sessions/${id}/events`, (e) => e.type === "permission");
-    expect(got.events[0]).toMatchObject({ type: "user", text: expect.stringContaining(`CRT intake for capture ${cap.id}`) });
+    // F-119: the warm start's first echo is the capture message, so it carries the summary too.
+    expect(got.events[0]).toMatchObject({ type: "user", text: expect.stringContaining(`CRT intake for capture ${cap.id}`), intake: { captureId: cap.id, quick: false, instructions: false } });
     expect(got.events.map((e) => e.type)).toContain("init");
     registry.close(id);
   });
@@ -270,7 +287,7 @@ provider: stub
     expect(r.json.session).toMatchObject({ quick: true, summary: "total excludes discount", url: "http://localhost:4400/cart?promo=SAVE10#top" });
     expect(logs.at(-1)).toContain(`quick-note session ${id}`);
     const got = await collect(`/__crt/sessions/${id}/events`, isState("idle"));
-    expect(got.events[0]).toMatchObject({ type: "user", text: expect.stringContaining("Quick note (F-14)") });
+    expect(got.events[0]).toMatchObject({ type: "user", text: expect.stringContaining("Quick note (F-14)"), intake: { captureId: cap.id, quick: true, instructions: false } });
     expect(got.events.some((e) => e.type === "permission")).toBe(false);
     expect(got.events.find((e) => e.type === "task_written")).toMatchObject({ id: "CRT-0001" });
     expect(registry.get(id)).toMatchObject({ quick: true, taskId: "CRT-0001", state: "idle" });
@@ -381,6 +398,8 @@ provider: stub
     expect(first.text.startsWith(`${FIRST_MESSAGE_HEADING}\n\nINTAKE for the capture directory named in the first message\n\n---\n\nCRT intake for capture ${cap.id}.`)).toBe(true);
     expect(first.text.trim().split(/\n{2,}/).at(-1)).toBe(QUICK_NOTE_INSTRUCTIONS);
     expect(first.images).toEqual(["viewport (annotated)", "annotation 1", "annotation 2"]);
+    // F-119: the summary says the instructions and the quick-note paragraph are in the text (the pill names both).
+    expect(first.intake).toMatchObject({ captureId: cap.id, quick: true, instructions: true, annotations: [{ n: 1 }, { n: 2 }] });
     // The variant's own checks (heading, no system prompt, no base64) all passed: no error events.
     expect(events.filter((e) => e.type === "error")).toEqual([]);
     expect(events.some((e) => e.type === "permission")).toBe(false);
@@ -391,6 +410,7 @@ provider: stub
     const d = (await api("POST", "/__crt/sessions", { captureId: capD.id })).json as { id: string };
     const plain = await collect(`/__crt/sessions/${d.id}/events`, (e) => e.type === "init");
     expect((plain.events[0] as { text: string }).text.startsWith(`CRT intake for capture ${capD.id}.`)).toBe(true);
+    expect((plain.events[0] as Extract<SessionEvent, { type: "user" }>).intake).toMatchObject({ captureId: capD.id, quick: false, instructions: false });
     reg.closeAll();
     registry.close(d.id);
   });

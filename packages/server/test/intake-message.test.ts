@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { CaptureBundle } from "../src/capture-schema.js";
 import { writeCapture } from "../src/captures.js";
-import { buildIntakeMessage, CaptureNotFoundError, FIRST_MESSAGE_HEADING, prependInstructions, QUICK_NOTE_INSTRUCTIONS, readCaptureBundle, renderIntakeText, summarizeCapture } from "../src/intake-message.js";
+import { buildIntakeMessage, CaptureNotFoundError, FIRST_MESSAGE_HEADING, prependInstructions, QUICK_NOTE_INSTRUCTIONS, readCaptureBundle, renderIntakeText, summarizeCapture, summarizeIntake } from "../src/intake-message.js";
 import { PNG_B64, sampleBundle, samplePost } from "./helpers/sample-capture.js";
 
 let root: string;
@@ -124,5 +126,68 @@ describe("first intake message (F-24)", () => {
   it("rejects a missing or invalid capture", () => {
     expect(() => readCaptureBundle(join(root, "nope"))).toThrow(CaptureNotFoundError);
     expect(() => buildIntakeMessage(join(root, "nope"))).toThrow(/not found/);
+  });
+});
+
+describe("the developer's words for the first bubble (PRD-chat F-119, N-28)", () => {
+  const plain = { quick: false, instructions: false };
+
+  it("summarizeIntake: a page-level chat's note is the words, trimmed, with no annotations (F-68)", () => {
+    const bundle = sampleBundle();
+    bundle.id = "20260923-000000-abcd";
+    bundle.annotations = [];
+    bundle.note = "  the whole page feels slow after applying a promo  ";
+    expect(summarizeIntake(bundle, plain)).toEqual({
+      captureId: "20260923-000000-abcd",
+      note: "the whole page feels slow after applying a promo",
+      annotations: [],
+      quick: false,
+      instructions: false,
+    });
+  });
+
+  it("summarizeIntake: one select annotation with a note and a component gets the F-8 label the popover header shows (F-119)", () => {
+    const bundle = sampleBundle();
+    bundle.annotations = [bundle.annotations[0]!];
+    bundle.annotations[0]!.element!.id = "";
+    const s = summarizeIntake(bundle, plain);
+    expect(s.note).toBeNull();
+    expect(s.annotations).toEqual([{ n: 1, kind: "select", note: "total excludes discount", label: "CartSummary span.cart-total" }]);
+    // With an id the short form is the overlay's `labelOf`: tag#id.class (at most three classes, then …).
+    bundle.annotations[0]!.element!.id = "total";
+    bundle.annotations[0]!.element!.classes = ["a", "b", "c", "d"];
+    expect(summarizeIntake(bundle, plain).annotations[0]!.label).toBe("CartSummary span#total.a.b.c…");
+    bundle.annotations[0]!.element!.components = [];
+    expect(summarizeIntake(bundle, plain).annotations[0]!.label).toBe("span#total.a.b.c…");
+  });
+
+  it("summarizeIntake: three annotations of the three kinds, in order, the empty note kept empty, box and pin labelled by kind (F-119)", () => {
+    const bundle = sampleBundle();
+    const [select, pin] = bundle.annotations as [CaptureBundle["annotations"][0], CaptureBundle["annotations"][1]];
+    bundle.annotations = [
+      select,
+      { n: 2, kind: "box", note: "   ", rect: { x: 5, y: 6, width: 199.6, height: 80.2 }, point: null, element: null, elements: [], image: null },
+      { ...pin, n: 3, note: "  missing a coupon field here " },
+    ];
+    expect(summarizeIntake(bundle, plain).annotations).toEqual([
+      { n: 1, kind: "select", note: "total excludes discount", label: "CartSummary span#total.cart-total" },
+      { n: 2, kind: "box", note: "", label: "box 200×80" },
+      { n: 3, kind: "pin", note: "missing a coupon field here", label: "pin" },
+    ]);
+  });
+
+  it("summarizeIntake: `quick` and `instructions` are passed through (F-14, F-51)", () => {
+    const bundle = sampleBundle();
+    expect(summarizeIntake(bundle, { quick: true, instructions: false })).toMatchObject({ quick: true, instructions: false });
+    expect(summarizeIntake(bundle, { quick: false, instructions: true })).toMatchObject({ quick: false, instructions: true });
+  });
+
+  it("buildIntakeMessage's text for the fixture is byte-identical to v0.6 — SHA-256 pinned at 5fdcbd8 (N-28)", () => {
+    const written = writeCapture(root, samplePost());
+    // Only the capture directory and the minted id vary between runs and platforms.
+    const norm = (t: string) => t.split(join(written.dir, "capture.json")).join("<bundle>").split(written.id).join("<id>");
+    const sha = (t: string) => createHash("sha256").update(norm(t)).digest("hex");
+    expect(sha(buildIntakeMessage(written.dir).text)).toBe("7281e834f694a9c39c19ae4f6ddc0baaa2a20c0e64010e88048179b0d1589cfa");
+    expect(sha(buildIntakeMessage(written.dir, undefined, { quick: true }).text)).toBe("16263037fefb0130018398a2cdf7ff91a692b1605c6773cf964fdcb9e48bf694");
   });
 });

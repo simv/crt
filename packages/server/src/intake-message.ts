@@ -12,7 +12,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { type CaptureBundle, validateCaptureBundle } from "./capture-schema.js";
-import type { ProviderCapabilities, UserImage, UserInput } from "./session-events.js";
+import type { IntakeSummary, ProviderCapabilities, UserImage, UserInput } from "./session-events.js";
 
 /** The Messages API caps images at 5 MB; stay under it with headroom for base64. */
 export const MAX_IMAGE_BYTES = 3.5 * 1024 * 1024;
@@ -90,6 +90,43 @@ export function summarizeCapture(bundle: CaptureBundle): string {
   const note = bundle.note?.trim() || bundle.annotations.map((a) => a.note.trim()).find(Boolean);
   const where = bundle.page.pathname + bundle.page.query;
   return note ? truncate(note, 80) : `${bundle.annotations.length} annotation${bundle.annotations.length === 1 ? "" : "s"} on ${where}`;
+}
+
+/**
+ * F-119 (PRD-chat §5.1): the developer's words for the panel's first bubble — the page-level note
+ * (F-68) or one entry per annotation with the F-8 label the popover header shows — plus which
+ * extras the message carried (the F-14 paragraph, the F-51 instructions). Pure; the message text
+ * itself is untouched (N-28).
+ */
+export function summarizeIntake(bundle: CaptureBundle, opts: { quick: boolean; instructions: boolean }): IntakeSummary {
+  const note = bundle.note?.trim();
+  return {
+    captureId: bundle.id,
+    note: note ? note : null,
+    annotations: bundle.annotations.map((a) => ({ n: a.n, kind: a.kind, note: a.note.trim(), label: annotationLabel(a) })),
+    quick: opts.quick,
+    instructions: opts.instructions,
+  };
+}
+
+/**
+ * The F-8 label as the popover header reads it (overlay `describeAnnotation` / `labelOf`): the
+ * first component name when there is one, then the element as `tag#id.class…` (at most three
+ * classes) for a select; `box <w>×<h>` for a box; `pin` for a pin.
+ */
+function annotationLabel(a: CaptureBundle["annotations"][number]): string {
+  if (a.kind === "select") {
+    const el = a.element;
+    if (!el) return "element";
+    let short = el.tag;
+    if (el.id) short += `#${el.id}`;
+    if (el.classes.length) short += `.${el.classes.slice(0, 3).join(".")}`;
+    if (el.classes.length > 3) short += "…";
+    const comp = el.components[0]?.name;
+    return comp ? `${comp} ${short}` : short;
+  }
+  if (a.kind === "box") return `box ${Math.round(a.rect.width)}×${Math.round(a.rect.height)}`;
+  return "pin";
 }
 
 export function renderIntakeText(captureDir: string, b: CaptureBundle, attached: string[], images: ProviderCapabilities["images"] = "inline"): string {
