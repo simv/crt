@@ -38,11 +38,11 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
 import { capturesDir } from "./captures.js";
 import { json, readJson } from "./http.js";
-import { buildIntakeMessage, prependInstructions, readCaptureBundle, summarizeCapture } from "./intake-message.js";
+import { buildIntakeMessage, prependInstructions, readCaptureBundle, summarizeCapture, summarizeIntake } from "./intake-message.js";
 import { INTERNAL_WRITE_TASK_PATH, mcpLaunch, STALE_TOKEN_LINE } from "./mcp-stdio.js";
 import { decidePermission } from "./permissions.js";
 import { describeResolution, type ProviderRegistry } from "./session.js";
-import type { ProviderCapabilities, SessionDriver, SessionEvent, SessionInfo, SessionState, UserInput, WriteTaskRequest } from "./session-events.js";
+import type { IntakeSummary, ProviderCapabilities, SessionDriver, SessionEvent, SessionInfo, SessionState, UserInput, WriteTaskRequest } from "./session-events.js";
 import { createTask, displayPath, TaskFormatError } from "./tasks.js";
 import { parseWriteTaskRequest } from "./write-task.js";
 
@@ -73,6 +73,12 @@ interface Entry {
   token: string;
   /** The one write path (§5.3): what the in-process tool and the internal route both call. */
   writeTask: (request: WriteTaskRequest) => Promise<{ id: string; path: string }>;
+  /**
+   * F-119: the developer's words behind the first message, kept from `firstMessage()` until the
+   * driver echoes that message; `record()` then attaches it to that one `user` event and clears it,
+   * so later echoes (typed replies) carry nothing.
+   */
+  intake: IntakeSummary | null;
   events: SessionEvent[];
   subscribers: Set<(seq: number, event: SessionEvent) => void>;
 }
@@ -126,6 +132,7 @@ export class SessionRegistry {
         entry.info.taskId = created.id;
         return { id: created.id, path: displayPath(this.opts.projectRoot, created.path) };
       },
+      intake: null,
       events: [],
       subscribers: new Set(),
     };
@@ -179,7 +186,8 @@ export class SessionRegistry {
 
   /**
    * Build the F-24 first message for the session's provider — images per F-50, instructions
-   * per F-51 — and fill the F-30 list fields from the same bundle.
+   * per F-51 — fill the F-30 list fields from the same bundle, and keep the F-119 summary of the
+   * developer's words for the echo of this message (`record()`).
    */
   private firstMessage(entry: Entry, captureId: string): UserInput {
     const dir = join(capturesDir(this.opts.projectRoot), captureId);
@@ -187,11 +195,19 @@ export class SessionRegistry {
     entry.info.summary = summarizeCapture(bundle);
     entry.info.url = bundle.page.url;
     const caps = entry.capabilities;
+    const instructions = caps?.instructions === "first-message";
+    entry.intake = summarizeIntake(bundle, { quick: entry.info.quick, instructions });
     const message = buildIntakeMessage(dir, bundle, { quick: entry.info.quick, images: caps?.images ?? "inline" });
-    return caps?.instructions === "first-message" ? prependInstructions(message, this.intakeText()) : message;
+    return instructions ? prependInstructions(message, this.intakeText()) : message;
   }
 
   private record(entry: Entry, event: SessionEvent): void {
+    // F-119: the first `user` echo of a session is the intake message (a warm start says nothing
+    // before `attachCapture`); it gets the summary, stored as recorded so the SSE replay carries it.
+    if (event.type === "user" && entry.intake) {
+      event = { ...event, intake: entry.intake };
+      entry.intake = null;
+    }
     if (event.type === "state") entry.info.state = event.state;
     if (event.type === "task_written") entry.info.taskId = event.id;
     if (event.type === "init") {

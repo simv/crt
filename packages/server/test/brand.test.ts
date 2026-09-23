@@ -153,7 +153,7 @@ describe("the tokens feed the overlay's CSS (PRD-polish F-112, decision 7)", () 
     for (const hex of OVERLAY_CSS.match(/#[0-9a-fA-F]{3,6}\b/g) ?? []) counts[hex.toLowerCase()] = (counts[hex.toLowerCase()] ?? 0) + 1;
     expect(counts).toMatchObject({
       [INK]: 10,
-      [ACCENT]: 17,
+      [ACCENT]: 18, // F-119 (CRT-0030): + the fold pill's focus ring in chat.ts
       [ACCENT_HOVER]: 2,
       [OK]: 5,
       [WARN]: 3,
@@ -171,7 +171,7 @@ describe("the tokens feed the overlay's CSS (PRD-polish F-112, decision 7)", () 
       [EXPERIMENTAL[1]]: 2,
       "#fff": 25,
     });
-    expect(OVERLAY_CSS).toHaveLength(20104);
+    expect(OVERLAY_CSS).toHaveLength(20892); // 20104 before F-119's .fold rows (CRT-0030)
   });
 
   it("the tokens are the review's values and the brand files carry the same ones (F-112, §5.1)", () => {

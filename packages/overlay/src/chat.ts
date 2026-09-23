@@ -17,7 +17,7 @@
  * sandbox" badge when `sandboxed`. The panel's own title stays "CRT" (F-64).
  * Framework-free; renders inside the overlay's Shadow DOM.
  */
-import type { SessionEvent, SessionInfo, SessionState } from "../../server/src/session-events.js";
+import type { IntakeSummary, SessionEvent, SessionInfo, SessionState } from "../../server/src/session-events.js";
 import { crtUrl } from "./base.js";
 import { ACCENT } from "./tokens.js";
 
@@ -63,6 +63,16 @@ export const CHAT_CSS = `
   .msg { max-width: 92%; padding: 8px 10px; border-radius: 10px; line-height: 1.45; word-wrap: break-word; overflow-wrap: anywhere; }
   .msg.user { align-self: flex-end; background: #111; color: #fff; white-space: pre-wrap; }
   .msg.user .imgs { display: block; margin-top: 4px; font-size: 11px; opacity: .75; }
+  .fold { display: block; margin-top: 6px; white-space: normal; }
+  .fold-pill { display: inline-flex; align-items: center; padding: 2px 9px; border: 0; border-radius: 999px; font: inherit; font-size: 11px; line-height: 1.5; color: inherit; cursor: pointer; }
+  .msg.user .fold-pill { background: rgba(255,255,255,.15); }
+  .msg.assistant .fold-pill { background: rgba(0,0,0,.06); }
+  .fold-pill:hover { filter: brightness(1.15); }
+  .fold-pill:focus-visible { outline: 2px solid ${ACCENT}; outline-offset: 1px; }
+  .fold-body { margin-top: 6px; }
+  .fold-body[hidden] { display: none; }
+  .fold-body .full { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; white-space: pre-wrap; max-height: 40vh; overflow: auto; }
+  .msg.user .fold-body .imgs { margin: 0 0 4px; }
   .msg.assistant { align-self: flex-start; background: #f3f3f5; }
   .msg.assistant p { margin: 0 0 6px; } .msg.assistant p:last-child { margin-bottom: 0; }
   .msg.assistant ul, .msg.assistant ol { margin: 4px 0 6px; padding-left: 20px; }
@@ -474,7 +484,7 @@ export class ChatPanel {
         break;
       case "user":
         this.acceptEl.hidden = true;
-        this.append(userBubble(event.text, event.images));
+        this.append(userBubble(event.text, event.images, event.intake));
         break;
       case "assistant_start":
         // The bubble is created on the first text delta: a message that only carries tool_use
@@ -677,16 +687,77 @@ export class ChatPanel {
 
 // ---- DOM builders --------------------------------------------------------------------------------
 
-function userBubble(text: string, images: string[]): HTMLElement {
+/**
+ * A developer message. With `intake` (F-119, the first message of a session) the bubble shows the
+ * developer's own words and folds the full F-24 text — page, selectors, console, the F-14 paragraph,
+ * the F-51 instructions — behind a `Capture` pill; without it (a typed reply) the text as is.
+ */
+function userBubble(text: string, images: string[], intake?: IntakeSummary): HTMLElement {
   const el = document.createElement("div");
   el.className = "msg user";
-  el.textContent = text;
-  if (images.length) {
-    const imgs = document.createElement("span");
-    imgs.className = "imgs";
-    imgs.textContent = `📎 ${images.join(", ")}`;
-    el.appendChild(imgs);
+  if (!intake) {
+    el.textContent = text;
+    if (images.length) el.appendChild(imageLine(images));
+    return el;
   }
+  const words = document.createElement("div");
+  words.className = "words";
+  words.textContent = intakeWords(intake);
+  el.appendChild(words);
+  const body = document.createElement("div");
+  if (images.length) body.appendChild(imageLine(images));
+  const full = document.createElement("div");
+  full.className = "full";
+  full.textContent = text;
+  body.appendChild(full);
+  const label = ["Capture"];
+  if (images.length) label.push(`${images.length} image${images.length === 1 ? "" : "s"}`);
+  if (intake.quick) label.push("quick note");
+  if (intake.instructions) label.push("with instructions");
+  el.appendChild(fold(label.join(" · "), body));
+  return el;
+}
+
+/** PRD-chat §5.1: the note for a page-level chat; else one line per annotation, `#n` on each when several. */
+export function intakeWords(intake: IntakeSummary): string {
+  if (intake.note) return intake.note;
+  const many = intake.annotations.length > 1;
+  const lines = intake.annotations.map((a) => (a.note ? `${many ? `#${a.n} ` : ""}${a.note}` : `#${a.n} · ${a.label}`));
+  // §12 rule 3: never an empty bubble (F-68 and F-14 make this unreachable from the UI).
+  return lines.length ? lines.join("\n") : "(no note)";
+}
+
+function imageLine(images: string[]): HTMLElement {
+  const imgs = document.createElement("span");
+  imgs.className = "imgs";
+  imgs.textContent = `📎 ${images.join(", ")}`;
+  return imgs;
+}
+
+/**
+ * PRD-chat §5.3: the one fold used by the capture bubble (F-119) and the proposal (F-120) — a pill
+ * button with `aria-expanded` that toggles the body under it. Keyboard-operable (a real button:
+ * Tab, Enter, Space); toggling never scrolls the log or moves focus.
+ */
+export function fold(label: string, body: HTMLElement): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "fold";
+  const pill = document.createElement("button");
+  pill.type = "button";
+  pill.className = "fold-pill";
+  pill.setAttribute("aria-expanded", "false");
+  pill.textContent = `▸ ${label}`;
+  const wrap = document.createElement("div");
+  wrap.className = "fold-body";
+  wrap.hidden = true;
+  wrap.appendChild(body);
+  pill.addEventListener("click", () => {
+    const open = wrap.hidden;
+    wrap.hidden = !open;
+    pill.setAttribute("aria-expanded", String(open));
+    pill.textContent = `${open ? "▾" : "▸"} ${label}`;
+  });
+  el.append(pill, wrap);
   return el;
 }
 

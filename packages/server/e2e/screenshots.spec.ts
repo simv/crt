@@ -150,7 +150,7 @@ test("select.png — Select armed, the hover outline and label on a price, one p
   await shoot(page, "select.png");
 });
 
-test("chat.png — the popover as the chat: streamed text, a collapsed tool line, the Allow / Deny card (F-25, F-26, F-66, F-116)", async ({ page }) => {
+test("chat.png — the popover as the chat: the folded capture bubble, streamed text, a collapsed tool line, the Allow / Deny card (F-25, F-26, F-66, F-116, F-119)", async ({ page }) => {
   await openApp(page);
   // The mug's price: the stub names the component and the source file the page reports (ProductCard).
   await page.evaluate(() => {
@@ -160,6 +160,10 @@ test("chat.png — the popover as the chat: streamed text, a collapsed tool line
   await page.evaluate(() => window.__crt.send({ n: 1 }));
   const pop = shadow(page, '.pop[data-n="1"]');
   await expect(pop.locator(".chat")).toBeVisible();
+  // F-119: the first bubble is the developer's words; the capture message sits folded behind its pill.
+  await expect(pop.locator(".msg.user .words")).toHaveText("Price ignores the SAVE10 promo the cart says is applied");
+  await expect(pop.locator(".msg.user .fold-pill")).toHaveText("▸ Capture · 2 images");
+  await expect(pop.locator(".msg.user .fold-body")).toBeHidden();
   await expect(pop.locator(".msg.assistant").first()).toContainText("let me look at the source");
   await expect(pop.locator(".msg.assistant strong").first()).toHaveText("ProductCard");
   await expect(pop.locator(".tool summary").first()).toHaveText("Read components/ProductCard.tsx");

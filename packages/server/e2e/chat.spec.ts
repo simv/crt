@@ -78,9 +78,11 @@ test.describe("chat panel (F-24, F-25, F-26, F-28, F-29)", () => {
   test("Send opens the chat: first message, streamed text, collapsed tool line, permission card; Deny is honoured", async ({ page }) => {
     const captureId = await sendAndWaitForPermission(page);
 
-    // F-24: the first message is the capture summary with the images attached.
-    await expect(shadow(page, ".msg.user").first()).toContainText(`CRT intake for capture ${captureId}`);
-    await expect(shadow(page, ".msg.user").first()).toContainText("viewport (annotated), annotation 1");
+    // F-24/F-119: the first bubble shows the note; the capture summary and its image list sit in the fold body (opened in the F-119 row).
+    const first = shadow(page, ".msg.user").first();
+    await expect(first.locator(".words")).toHaveText("total excludes discount");
+    await expect(first.locator(".fold-body .full")).toContainText(`CRT intake for capture ${captureId}`);
+    await expect(first.locator(".fold-body .imgs")).toContainText("viewport (annotated), annotation 1");
     // F-25: streamed text rendered as markdown, tool activity as a collapsed line.
     await expect(shadow(page, ".msg.assistant").first()).toContainText("let me look at the source");
     await expect(shadow(page, ".msg.assistant strong").first()).toHaveText("CartSummary");
@@ -107,6 +109,48 @@ test.describe("chat panel (F-24, F-25, F-26, F-28, F-29)", () => {
     await expect(shadow(page, ".mark-state")).toHaveText("your turn");
     await expect(shadow(page, ".tool summary")).toHaveCount(1); // Bash never ran
     await expect(shadow(page, ".chat-input textarea")).toBeFocused();
+  });
+
+  test("the first bubble shows the developer's words and folds the capture message behind a Capture pill: click, keyboard, and folded again after a reload (F-119, N-30)", async ({ page }) => {
+    const captureId = await sendAndWaitForPermission(page);
+    const first = shadow(page, ".msg.user").first();
+    const pill = first.locator(".fold-pill");
+    const body = first.locator(".fold-body");
+    await expect(first.locator(".words")).toHaveText("total excludes discount");
+    await expect(pill).toHaveText("▸ Capture · 2 images");
+    await expect(pill).toHaveAttribute("aria-expanded", "false");
+    await expect(body).toBeHidden();
+    // Click opens the full text as sent, with the image list above it; click again folds it.
+    await pill.click();
+    await expect(body).toBeVisible();
+    await expect(pill).toHaveAttribute("aria-expanded", "true");
+    await expect(pill).toHaveText("▾ Capture · 2 images");
+    await expect(body.locator(".full")).toContainText(`CRT intake for capture ${captureId}`);
+    await expect(body.locator(".full")).toContainText("Attached images: viewport (annotated), annotation 1");
+    await expect(body.locator(".imgs")).toHaveText("📎 viewport (annotated), annotation 1");
+    await pill.click();
+    await expect(body).toBeHidden();
+    await expect(pill).toHaveAttribute("aria-expanded", "false");
+
+    // N-30: a real button — Tab reaches it from the reply box, Enter and Space toggle it.
+    await shadow(page, ".perm button.deny").click();
+    await expect(shadow(page, ".chat-input textarea")).toBeFocused();
+    for (let i = 0; i < 8 && !(await pill.evaluate((el) => (el.getRootNode() as ShadowRoot).activeElement === el)); i++) await page.keyboard.press("Shift+Tab");
+    await expect(pill).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(body).toBeVisible();
+    await expect(pill).toHaveAttribute("aria-expanded", "true");
+    await page.keyboard.press("Space");
+    await expect(body).toBeHidden();
+    await expect(pill).toHaveAttribute("aria-expanded", "false");
+
+    // F-66: the re-attached thread rebuilds the same folded bubble from the replayed event.
+    await page.reload();
+    await expect(shadow(page, '.pop[data-n="1"] .chat')).toBeVisible();
+    const again = shadow(page, ".msg.user").first();
+    await expect(again.locator(".words")).toHaveText("total excludes discount");
+    await expect(again.locator(".fold-pill")).toHaveText("▸ Capture · 2 images");
+    await expect(again.locator(".fold-body")).toBeHidden();
   });
 
   test("Allow runs the tool; a reply of 'write' writes the task and the panel shows its ID", async ({ page }) => {
@@ -279,7 +323,8 @@ test.describe("chat panel (F-24, F-25, F-26, F-28, F-29)", () => {
 
     await page.reload();
     await expect(shadow(page, ".chat")).toBeVisible();
-    await expect(shadow(page, ".msg.user").first()).toContainText("CRT intake for capture");
+    await expect(shadow(page, ".msg.user .words").first()).toHaveText("wrong heading");
+    await expect(shadow(page, ".msg.user .fold-body .full").first()).toContainText("CRT intake for capture");
     const after = await page.evaluate(() => window.__crt.chat.snapshot());
     expect(after.sessionId).toBe(before.sessionId);
     expect(after.events.length).toBeGreaterThanOrEqual(before.events.length);
@@ -326,11 +371,14 @@ test.describe("anchored threads (F-65, F-66, F-67, F-68)", () => {
     // Each popover holds its own transcript: two different captures.
     const firstMessages = await page.evaluate(() => {
       const root = document.getElementById("crt-host")!.shadowRoot!;
-      return [1, 2].map((n) => root.querySelector(`.pop[data-n="${n}"] .msg.user`)!.textContent!.split("\n")[0]);
+      return [1, 2].map((n) => root.querySelector(`.pop[data-n="${n}"] .msg.user .fold-body .full`)!.textContent!.split("\n")[0]);
     });
     expect(firstMessages[0]).toMatch(/^CRT intake for capture /);
     expect(firstMessages[1]).toMatch(/^CRT intake for capture /);
     expect(firstMessages[0]).not.toBe(firstMessages[1]);
+    // F-119: each bubble shows its own developer's note.
+    await expect(shadow(page, '.pop[data-n="1"] .msg.user .words')).toHaveText("total excludes discount");
+    await expect(shadow(page, '.pop[data-n="2"] .msg.user .words')).toHaveText("wrong heading");
 
     // A reload re-attaches both threads: markers show their states, the popover that was open comes back.
     await page.reload();
@@ -366,6 +414,25 @@ test.describe("anchored threads (F-65, F-66, F-67, F-68)", () => {
     }
   });
 
+  test("a grouped send shows one line per annotation with `#n` first, and an annotation without a note shows its `#n · label` line (F-65, F-119)", async ({ page }) => {
+    await page.goto("/app");
+    await page.evaluate(() => {
+      window.__crt.addSelect("[data-testid=card-1] .price");
+      window.__crt.setNote(1, "total excludes discount");
+      window.__crt.addSelect("#heading"); // no note: its line is the F-8 label the popover header shows
+    });
+    await page.evaluate(() => window.__crt.send({ n: 1, include: true }));
+    const pop = shadow(page, '.pop[data-n="1"]');
+    await expect(pop.locator(".chat")).toBeVisible();
+    await expect(pop.locator(".msg.user .words")).toHaveText(/^#1 total excludes discount\s+#2 · (\w+ )?h1#heading$/);
+    await expect(pop.locator(".msg.user .fold-pill")).toHaveText("▸ Capture · 3 images");
+    await expect(pop.locator(".msg.user .fold-body")).toBeHidden();
+    await expect(pop.locator(".msg.user .fold-body .full")).toContainText("Annotations (2):");
+    expect((await page.evaluate(() => window.__crt.threads()))[0]).toMatchObject({ ns: [1, 2] });
+    await expect(shadow(page, ".perm")).toBeVisible();
+    await page.evaluate(() => window.__crt.chat.discard());
+  });
+
   test("Chat in the toolbar starts a page-level thread: a zero-annotation capture with the message as Developer's message, its state on the Chat button (F-68)", async ({ page }) => {
     await page.goto("/app");
     await shadow(page, ".launcher").click();
@@ -384,8 +451,13 @@ test.describe("anchored threads (F-65, F-66, F-67, F-68)", () => {
     await expect(compose).toBeHidden();
     await expect(shadow(page, ".pop.page .chat")).toBeVisible();
     await expect(shadow(page, ".chat-head .title")).toHaveText("Chat about this page");
-    await expect(shadow(page, ".msg.user").first()).toContainText(`Developer's message: "why is the cart total wrong on this page?"`);
-    await expect(shadow(page, ".msg.user").first()).toContainText("Annotations (0):");
+    // F-119: the bubble is the developer's message; the capture message with its Developer's message line is behind the pill.
+    const first = shadow(page, ".msg.user").first();
+    await expect(first.locator(".words")).toHaveText("why is the cart total wrong on this page?");
+    await expect(first.locator(".fold-pill")).toHaveText(/^▸ Capture · \d images?$/);
+    await expect(first.locator(".fold-body")).toBeHidden();
+    await expect(first.locator(".fold-body .full")).toContainText(`Developer's message: "why is the cart total wrong on this page?"`);
+    await expect(first.locator(".fold-body .full")).toContainText("Annotations (0):");
     await expect(shadow(page, ".perm")).toBeVisible();
     await expect(shadow(page, ".toolbar [data-action=chat] .dot")).toHaveAttribute("data-state", "waiting");
     expect(await page.evaluate(() => window.__crt.annotations())).toEqual([]);

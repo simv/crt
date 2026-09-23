@@ -64,6 +64,24 @@ export interface ProviderCapabilities {
   instructions: "system" | "first-message";
 }
 
+/**
+ * F-119 (PRD-chat §5.1): what the developer wrote, as the server saw it when it built the F-24
+ * first message — so the panel shows their words and folds the rest, the same after a reload or
+ * from the session list. Built by `summarizeIntake` (intake-message.ts); nothing the agent
+ * receives changes (N-28).
+ */
+export interface IntakeSummary {
+  captureId: string;
+  /** Page-level chat (F-68): the developer's message. Null when annotations were sent. */
+  note: string | null;
+  /** The annotations in the capture, in order; `label` is the F-8 label the popover header shows (component + selector). */
+  annotations: Array<{ n: number; kind: "select" | "box" | "pin"; note: string; label: string }>;
+  /** F-14: the message ended with the quick-note paragraph. */
+  quick: boolean;
+  /** F-51: the intake instructions were prepended to this message. */
+  instructions: boolean;
+}
+
 export type SessionEvent =
   | { type: "state"; state: SessionState; detail?: string }
   /**
@@ -83,8 +101,13 @@ export type SessionEvent =
       /** F-54 (M10): set when the profile has not been verified against a real agent; the footer shows an "experimental" badge with this reason. */
       experimental?: string;
     }
-  /** Echo of a developer message, so a reconnecting panel can rebuild the transcript. */
-  | { type: "user"; text: string; images: string[] }
+  /**
+   * Echo of a developer message, so a reconnecting panel can rebuild the transcript. F-119
+   * (PRD-chat §5.1): the first echo of a session — the F-24 intake message — carries `intake`, set
+   * by the registry (`sessions.ts` `record()`) and never by a driver, so the rebuilt transcript is
+   * the folded bubble: the developer's words visible, the full text behind the Capture pill.
+   */
+  | { type: "user"; text: string; images: string[]; intake?: IntakeSummary }
   | { type: "assistant_start"; messageId: string }
   | { type: "text"; messageId: string; text: string }
   | { type: "assistant_end"; messageId: string }
