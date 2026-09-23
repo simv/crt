@@ -13,5 +13,5 @@ Show task `$ARGUMENTS` (PRD F-33/F-38), from the project root `${CLAUDE_PROJECT_
    - `backlog` → `/crt:next $ARGUMENTS`
    - `in_progress` → a worker is on it (branch `crt/$ARGUMENTS-<slug>`); `/crt:next $ARGUMENTS` re-runs it
    - `blocked` → quote the blocking question from the Log; answer it under **## Notes**, then `/crt:next $ARGUMENTS`
-   - `review` → review the PR (`gh pr list --head crt/$ARGUMENTS-<slug>`), then `/crt:done $ARGUMENTS` once merged
+   - `review` → review the PR (`gh pr list --head crt/$ARGUMENTS-<slug>`), then `/crt:done $ARGUMENTS`: it marks the task done as the last commit on the PR branch and merges the PR
    - `done` → nothing to do
