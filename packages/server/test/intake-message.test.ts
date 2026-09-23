@@ -146,7 +146,7 @@ describe("the developer's words for the first bubble (PRD-chat F-119, N-28)", ()
     });
   });
 
-  it("summarizeIntake: one select annotation with a note and a component gets the F-8 label the popover header shows", () => {
+  it("summarizeIntake: one select annotation with a note and a component gets the F-8 label the popover header shows (F-119)", () => {
     const bundle = sampleBundle();
     bundle.annotations = [bundle.annotations[0]!];
     bundle.annotations[0]!.element!.id = "";
@@ -161,7 +161,7 @@ describe("the developer's words for the first bubble (PRD-chat F-119, N-28)", ()
     expect(summarizeIntake(bundle, plain).annotations[0]!.label).toBe("span#total.a.b.c…");
   });
 
-  it("summarizeIntake: three annotations of the three kinds, in order, the empty note kept empty, box and pin labelled by kind", () => {
+  it("summarizeIntake: three annotations of the three kinds, in order, the empty note kept empty, box and pin labelled by kind (F-119)", () => {
     const bundle = sampleBundle();
     const [select, pin] = bundle.annotations as [CaptureBundle["annotations"][0], CaptureBundle["annotations"][1]];
     bundle.annotations = [

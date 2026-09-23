@@ -503,7 +503,7 @@ describe("the front page and the docs pages (PRD-polish F-115, N-26, M23)", () =
 });
 
 describe("PRD-chat §9 (M25): the folded capture bubble on the front page and in How it works (F-119)", () => {
-  it("README › The loop step 3 and docs/how-it-works.md › Intake session say the note is the bubble and the detail sits behind a `Capture` pill", () => {
+  it("README › The loop step 3 and docs/how-it-works.md › Intake session say the note is the bubble and the detail sits behind a `Capture` pill (F-119)", () => {
     expect(readme).toContain("The overlay captures the page and the same popover becomes the chat. Your note is the first bubble; the page, selector and console detail Claude was given sits behind a `Capture` pill.");
     expect(read("docs/how-it-works.md")).toContain("The panel shows only your words for it — your note, or one line per annotation — and folds the rest behind a `Capture` pill; what the agent receives is unchanged.");
   });
