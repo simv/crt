@@ -6,10 +6,10 @@
 | **Owner** | Simon (simv) |
 | **Repo** | https://github.com/simv/crt |
 | **Baseline** | `main` at 5fdcbd8 = v0.6.0 (PRD-polish M20–M24, CRT-0029) |
-| **Amends** | `docs/PRD.md` (F-24, F-25, F-27, F-28, §4), `docs/PRD-providers.md` (§5 the event contract), `README.md`, `docs/how-it-works.md`, `plugin/skills/intake/SKILL.md` step 4, `CLAUDE.md` — every amended statement is listed in §9 |
+| **Amends** | `docs/PRD.md` (F-24, F-25, F-27, F-28, F-40, §4), `docs/PRD-providers.md` (§5 the event contract), `README.md`, `docs/how-it-works.md`, `plugin/skills/intake/SKILL.md` step 4, `plugin/skills/done/SKILL.md`, `plugin/skills/task/SKILL.md`, `CLAUDE.md` — every amended statement is listed in §9 |
 | **Design inputs** | Simon's request of 2026-09-23 (§1); the chat panel as built (`packages/overlay/src/chat.ts`), the first message as built (`packages/server/src/intake-message.ts`), the intake skill's step 4 |
 
-This document extends `docs/PRD.md`, `docs/PRD-providers.md`, `docs/PRD-setup.md`, `docs/PRD-embedded.md` and `docs/PRD-polish.md`. Everything in the five stays in force unless §9 amends it. Requirement IDs continue the numbering (F-119…F-121, N-28…N-30, after PRD-polish F-118 / N-27); milestones are M25–M27 (after PRD-polish M24), one task file each. A build session reads the five earlier PRDs, this file, `CLAUDE.md` and its task file, and nothing else, to know what "correct" means. §12 tells the builder what to do when an agent's message does not have the shape this document assumes.
+This document extends `docs/PRD.md`, `docs/PRD-providers.md`, `docs/PRD-setup.md`, `docs/PRD-embedded.md` and `docs/PRD-polish.md`. Everything in the five stays in force unless §9 amends it. Requirement IDs continue the numbering (F-119…F-122, N-28…N-30, after PRD-polish F-118 / N-27); milestones are M25–M27 (after PRD-polish M24), one task file each. A build session reads the five earlier PRDs, this file, `CLAUDE.md` and its task file, and nothing else, to know what "correct" means. §12 tells the builder what to do when an agent's message does not have the shape this document assumes.
 
 ---
 
@@ -125,7 +125,11 @@ One component, used by both bubbles: `fold(label, body)` in `chat.ts` — a `<bu
 
 - **F-120 (Must) The proposal, folded.** `plugin/skills/intake/SKILL.md` step 4 states the four-part shape of §5.2 (`accept-line.test.ts` pins `Proposed definition of done:` in the skill and the stub; `intake-skill.test.ts`'s existing rows still pass). `summarizeProposal` per §5.2, exported from `packages/overlay/src/proposal.ts`, with unit rows: the stub's two proposals (lead, 2 and 1 items, the body without the closing line); a proposal with a heading and a fenced block before the checklist; a checklist of `- ` items without boxes; a message with no list (items `[]`, lead = first paragraph); the closing line with markdown emphasis and curly quotes (the `endsWithAcceptLine` tolerances); a question (not a proposal — the caller checks `endsWithAcceptLine` first). The panel folds a message per §5.2 when its turn ends and it ends on the line, never earlier and never otherwise; the Accept bar's rule (F-27) is unchanged. e2e rows: the stub's proposal streams verbatim then folds into the lead and `Definition of done · 2 items`; the closing line is not visible in the bubble; the Accept bar is visible; clicking the pill shows the two checkbox items; **Accept** sends `Accept` and writes the task; the proposal stays folded afterwards; a typed edit (`no tests`) yields a second proposal that folds on its own with `1 item`; a question from the quick-note `ask me` script is not folded; after a reload the proposal is folded on re-attach.
 
-### 6.3 Release
+### 6.3 Workflow
+
+- **F-122 (Must) Close-out in the PR.** Simon, 2026-09-23: closing a task after its merge meant a second PR (`crt/<ID>-done`) just to flip `review → done` on a protected `main`. `/crt:done <ID>` now closes a task from its **reviewed, open** pull request: precondition `status: review` and a PR on `crt/<ID>-<slug>` whose `reviewDecision` is not `CHANGES_REQUESTED`, whose checks pass and which is not conflicting; it sets `status: done` with `— done; closed in <PR URL>` in the Log as the **last commit on the PR branch**, pushes, merges the PR (`gh pr merge --squash --delete-branch`, or the project's method) and returns to the default branch. A refused merge leaves the done commit on the branch and reports the merge command; nothing opens a second PR. The post-merge path stays only as the fallback for a task whose PR merged before it was closed. The flow reads claim → build → commit → review → done → commit → merge; `/crt:next` still never merges (F-37), and a task is finished only when it is `done`, merged and without an open PR (`CLAUDE.md` › Work tracking). Applied directly by CRT-0033 (no milestone): the `done` skill, `/crt:task`'s review line, the README's loop block, `CLAUDE.md` › Work tracking and the `*v0.7*` note on PRD F-40 say the same; `test/skill-pin.test.ts` and `claude plugin validate ./plugin` stay green. CRT-0033 is the first task closed this way.
+
+### 6.4 Release
 
 - **F-121 (Must) Release 0.7.0.** Version `0.7.0` in `packages/server/package.json`, both plugin manifests and the seven skills' pin (`claude-review-tool@0.7`; `test/skill-pin.test.ts` green); `npm run screenshots` re-run and `docs/images/chat.png` committed with the folded bubble (PRD-polish F-116 — the overlay's UI changed); §9 rows applied and §10 ticked with evidence; the release notes name M25–M26; `v0.7.0` tagged, the release workflow green, the staged version promoted on npm (Simon); `crt setup` from the published package installs `crt@crt 0.7.0`.
 
@@ -143,6 +147,8 @@ Each milestone is one task file. DoD items are **worker-checkable** unless marke
 
 **M26 — The proposal, folded (`.crt/tasks/CRT-0031`).** F-120, N-29, N-30. The skill's step 4 shape, `proposal.ts`, the fold at turn end, the unit and e2e rows of F-120. DoD: `npm run check` and `npm run e2e` green; `claude plugin validate ./plugin` green; **Manual**: on the trial app with a real Claude session, a proposal folds to its restatement and item count, unfolds to the checklist, Accept writes the task; an edit yields a second folded proposal; a step-3 question is not folded; screenshots in the Log.
 
+F-122 is not a milestone: CRT-0033 applies it directly (2026-09-23), before M25 starts, so M25–M27 are closed the new way.
+
 **M27 — Release 0.7.0 (`.crt/tasks/CRT-0032`).** F-121, the §9 rows not yet applied, §10 evidence. Depends on M25–M26. DoD: versions and pins `0.7.0` / `@0.7`; `npm run screenshots` re-run on the release commit and the PNGs unchanged or committed; `v0.7.0` tagged; the release workflow green; promoted on npm (**Manual (Simon)** — the one user-only step); `crt setup` from a clean `npm i -g claude-review-tool@0.7.0` installs the plugin; every §10 row ticked with evidence.
 
 ## 9. Amendments to the earlier PRDs, the docs and `CLAUDE.md`
@@ -159,6 +165,8 @@ Each row names the milestone that applies it; "noted by M27" means the `*v0.7: �
 | `plugin/skills/intake/SKILL.md` step 4 "Reply with a one-paragraph restatement of the ask and a checklist of concrete, checkable DoD items" | "Reply with, in this order: one paragraph restating the ask (no heading, no list); the line `Proposed definition of done:`; the checklist, one `- [ ]` item per line; then exactly this line and nothing after it: …" (M26). |
 | README › The loop step 3 "the same popover becomes the chat" | gains: "Your note is the first bubble; the page, selector and console detail Claude was given sits behind a `Capture` pill. Claude's proposal shows its restatement and a `Definition of done · N items` pill — open it, then **Accept**." (M25 the first sentence, M26 the second); `docs/how-it-works.md` › Intake session gains the same in its own words; `docs/images/chat.png` regenerated (M25, again by M27 if the overlay changed since). |
 | CLAUDE.md "Read `docs/PRD.md`, … and `docs/PRD-polish.md`" | "… `docs/PRD-polish.md` and `docs/PRD-chat.md`" with the sixth's one-line description (applied in the PR that adds this document). `.claude/agents/prd-reviewer.md` reads this document's §6, §7 and §9 too and knows F-119…F-121 / N-28…N-30 live here (same PR). |
+| PRD F-40 "`/crt:done <ID>` — marks review → done after the PR merges, appending the PR URL" | marks review → done as the last commit on the reviewed PR branch, then merges the PR; no second PR (F-122, CRT-0033); noted inline by CRT-0033. |
+| `plugin/skills/done/SKILL.md`, `plugin/skills/task/SKILL.md` review line, README › The loop `/crt:done` comment, CLAUDE.md › Work tracking "`/crt:done <ID> <pr-url>` closes it after merge" | the F-122 flow, in each one's words (CRT-0033). |
 | CLAUDE.md "What this is" | the chat sentence gains "; the panel shows the developer's words and the agent's proposal folded, the full text one click away (PRD-chat F-119, F-120)" (M27). |
 
 ## 10. Definition of done (v0.7)
@@ -170,7 +178,8 @@ Ticked by M27 with evidence (test name, e2e spec, task Log entry or run URL).
 - [ ] A proposal folds to its restatement and `Definition of done · N items`, unfolds to the checklist, and Accept still writes the task; a question never folds (M26, e2e + Manual).
 - [ ] `summarizeIntake` and `summarizeProposal` are unit-tested pure functions (N-29, test names).
 - [ ] The pills are keyboard-operable with `aria-expanded`; the overlay bundle grew ≤ 2 KB gzipped (N-30, M25/M26 Logs).
-- [ ] CI green on `main`; `v0.7.0` tagged, published and promoted; the GitHub Release names M25–M26; `docs/images/chat.png` shows the folded bubble (M27).
+- [ ] `/crt:done` closes a task as the last commit on its PR branch and merges it; CRT-0033 and every later task in this PRD closed without a second PR (F-122; the tasks' Logs).
+- [ ] CI green on `main`; `v0.7.0` tagged, published and promoted; the GitHub Release names M25–M26 and F-122; `docs/images/chat.png` shows the folded bubble (M27).
 
 ## 11. Risks
 
