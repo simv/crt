@@ -83,6 +83,13 @@ export function isQuickNote(text: string): boolean {
 export const HOLD_PHRASE = "take your time";
 const HOLD_RE = new RegExp(`\\b${HOLD_PHRASE}\\b`, "i");
 
+/** F-27 step 5 in the four-part shape of PRD-chat §5.2: after the test run was allowed, and after it was denied. */
+export const STUB_PROPOSALS = {
+  allow:
+    "Tests pass today, so the fix needs a new one.\n\nProposed definition of done:\n- [ ] Cart total applies the promo discount\n- [ ] Unit test covers the discounted total\n\nAccept as-is, or tell me what to change, and I'll write the task.",
+  deny: "Understood, I won't run tests.\n\nProposed definition of done:\n- [ ] Cart total applies the promo discount\n\nAccept as-is, or tell me what to change, and I'll write the task.",
+} as const;
+
 export function startStubSession(opts: StartSessionOptions, variant: StubVariant = "default"): SessionDriver {
   const caps = stubCapabilities(variant);
   const listeners = new Set<(e: SessionEvent) => void>();
@@ -215,12 +222,7 @@ export function startStubSession(opts: StartSessionOptions, variant: StubVariant
     if (!(await useTool(t, "Read", { file_path: file }, `Read ${file}`, "88 lines"))) return;
     const ran = await useTool(t, "Bash", { command: "npm test" }, "Bash npm test", "12 passing");
     if (cancelled(t)) return;
-    await say(
-      t,
-      ran
-        ? "Tests pass today, so the fix needs a new one.\n\nProposed definition of done:\n- [ ] Cart total applies the promo discount\n- [ ] Unit test covers the discounted total\n\nAccept as-is, or tell me what to change, and I'll write the task."
-        : "Understood, I won't run tests.\n\nProposed definition of done:\n- [ ] Cart total applies the promo discount\n\nAccept as-is, or tell me what to change, and I'll write the task.",
-    );
+    await say(t, ran ? STUB_PROPOSALS.allow : STUB_PROPOSALS.deny);
     finish(t, true);
   };
 
@@ -273,6 +275,9 @@ export function startStubSession(opts: StartSessionOptions, variant: StubVariant
     // F-27 step 5: the panel's Accept button replies "Accept"; a typed "write" still works.
     if (/\b(accept|write)\b/i.test(text)) {
       await writeStubTask(t);
+    } else if (/\bno tests?\b/i.test(text)) {
+      // PRD-chat §12 rule 4: an edit re-proposes (F-27 step 4), so a second proposal can fold on its own.
+      await say(t, STUB_PROPOSALS.deny);
     } else if (/\btests?\b/i.test(text)) {
       // A second permission round for the F-59 scenario (Allow on the first turn, Deny here).
       const ran = await useTool(t, "Bash", { command: "npm test" }, "Bash npm test", "12 passing");

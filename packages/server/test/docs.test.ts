@@ -507,4 +507,9 @@ describe("PRD-chat §9 (M25): the folded capture bubble on the front page and in
     expect(readme).toContain("The overlay captures the page and the same popover becomes the chat. Your note is the first bubble; the page, selector and console detail Claude was given sits behind a `Capture` pill.");
     expect(read("docs/how-it-works.md")).toContain("The panel shows only your words for it — your note, or one line per annotation — and folds the rest behind a `Capture` pill; what the agent receives is unchanged.");
   });
+
+  it("README › The loop step 3 and docs/how-it-works.md › Intake session say the proposal folds to its restatement and a `Definition of done · N items` pill (F-120)", () => {
+    expect(readme).toContain("sits behind a `Capture` pill. Claude's proposal shows its restatement and a `Definition of done · N items` pill — open it, then **Accept**.");
+    expect(read("docs/how-it-works.md")).toContain("the panel folds it to its first paragraph and a `Definition of done · N items` pill that opens the full checklist, and the closing line becomes the **Accept** button");
+  });
 });

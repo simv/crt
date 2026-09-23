@@ -19,6 +19,7 @@
  */
 import type { IntakeSummary, SessionEvent, SessionInfo, SessionState } from "../../server/src/session-events.js";
 import { crtUrl } from "./base.js";
+import { ACCEPT_LINE, ACCEPT_REPLY, endsWithAcceptLine, summarizeProposal } from "./proposal.js";
 import { ACCENT } from "./tokens.js";
 
 export const SESSIONS_ENDPOINT = "/__crt/sessions";
@@ -27,18 +28,7 @@ const UNKNOWN_AGENT = "the agent";
 
 export type InitEvent = Extract<SessionEvent, { type: "init" }>;
 
-/**
- * F-27 step 5: the intake skill ends its proposal with exactly this line; when a turn ends on it
- * with no task written the panel shows an Accept button that replies `ACCEPT_REPLY`.
- */
-export const ACCEPT_LINE = "Accept as-is, or tell me what to change, and I'll write the task.";
-export const ACCEPT_REPLY = "Accept";
-
-/** Whether an assistant message ends on `ACCEPT_LINE`, tolerating markdown emphasis, curly quotes and trailing whitespace. */
-export function endsWithAcceptLine(text: string): boolean {
-  const norm = (s: string) => s.replace(/[*_`]/g, "").replace(/[‘’]/g, "'").replace(/\s+/g, " ").trim().toLowerCase();
-  return norm(text).endsWith(norm(ACCEPT_LINE));
-}
+export { ACCEPT_LINE, ACCEPT_REPLY, endsWithAcceptLine };
 
 export const CHAT_CSS = `
   .chat { display: flex; flex-direction: column; width: 100%; height: min(60vh, 560px); border-radius: 12px; background: #fff;
@@ -82,6 +72,8 @@ export const CHAT_CSS = `
   .msg.assistant pre { margin: 6px 0; padding: 8px; border-radius: 8px; background: #1e1e24; color: #eee; overflow: auto; }
   .msg.assistant pre code { background: none; padding: 0; color: inherit; }
   .msg.assistant h1, .msg.assistant h2, .msg.assistant h3 { font-size: 13px; margin: 8px 0 4px; }
+  .msg.assistant.proposal .lead { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .msg.assistant.proposal[data-open] .lead { display: block; }
   .msg.assistant.streaming::after { content: "▍"; color: ${ACCENT}; animation: crt-blink 1s steps(2) infinite; }
   @keyframes crt-blink { to { opacity: 0; } }
   .tool { align-self: stretch; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; color: #555; }
@@ -500,12 +492,15 @@ export class ChatPanel {
         this.lastMessageId = event.messageId;
         let el = this.log.querySelector<HTMLElement>(`.msg.assistant[data-mid="${cssEscape(event.messageId)}"]`);
         if (!el) el = this.append(assistantBubble(event.messageId));
+        el.classList.remove("proposal");
+        el.removeAttribute("data-open");
         el.innerHTML = renderMarkdown(text);
         this.scrollToEnd();
         break;
       }
       case "assistant_end":
         this.log.querySelector(`.msg.assistant[data-mid="${cssEscape(event.messageId)}"]`)?.classList.remove("streaming");
+        this.foldProposal(event.messageId);
         break;
       case "tool_use":
         this.hideThinking();
@@ -538,6 +533,8 @@ export class ChatPanel {
         this.hideThinking();
         if (!event.ok) this.system(event.errors.join("; ") || "The turn failed", !/interrupt/i.test(event.errors.join(" ")));
         for (const el of Array.from(this.log.querySelectorAll(".msg.assistant.streaming"))) el.classList.remove("streaming");
+        // PRD-chat §12 rule 2: a provider that never sends `assistant_end` folds when the turn closes.
+        if (this.lastMessageId) this.foldProposal(this.lastMessageId);
         break;
       case "task_written":
         this.taskId = event.id;
@@ -554,6 +551,26 @@ export class ChatPanel {
         this.system(event.message, true);
         break;
     }
+  }
+
+  /**
+   * F-120 (PRD-chat §5.2): once its message has ended, a bubble that ends on `ACCEPT_LINE` shows the
+   * restatement and a `Definition of done · N items` pill over the whole proposal minus the closing
+   * line. Idempotent; the full text stays in `this.texts`, which the Accept bar reads.
+   */
+  private foldProposal(messageId: string): void {
+    const el = this.log.querySelector<HTMLElement>(`.msg.assistant[data-mid="${cssEscape(messageId)}"]`);
+    const text = this.texts.get(messageId) ?? "";
+    if (!el || el.classList.contains("proposal") || !endsWithAcceptLine(text)) return;
+    const { lead, items, body } = summarizeProposal(text);
+    el.classList.add("proposal");
+    el.innerHTML = `<div class="lead">${inline(lead)}</div>`;
+    const full = document.createElement("div");
+    full.innerHTML = renderMarkdown(body);
+    const f = fold(items.length ? `Definition of done · ${items.length} item${items.length === 1 ? "" : "s"}` : "Full proposal", full);
+    const pill = f.querySelector("button")!;
+    pill.addEventListener("click", () => el.toggleAttribute("data-open", pill.getAttribute("aria-expanded") === "true"));
+    el.appendChild(f);
   }
 
   /** F-14: stop following quietly and bring the developer in. */

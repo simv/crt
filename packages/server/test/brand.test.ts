@@ -171,7 +171,7 @@ describe("the tokens feed the overlay's CSS (PRD-polish F-112, decision 7)", () 
       [EXPERIMENTAL[1]]: 2,
       "#fff": 25,
     });
-    expect(OVERLAY_CSS).toHaveLength(20892); // 20104 before F-119's .fold rows (CRT-0030)
+    expect(OVERLAY_CSS).toHaveLength(21084); // 20104 before F-119's .fold rows (CRT-0030), 20892 before F-120's .proposal .lead rows (CRT-0031)
   });
 
   it("the tokens are the review's values and the brand files carry the same ones (F-112, §5.1)", () => {
