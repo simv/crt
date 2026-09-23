@@ -1,10 +1,10 @@
 ---
 id: CRT-0032
 title: M27 — Release 0.7.0: version bump and skill pins, chat.png checked, PRD-chat §9/§10 evidence, tag, publish, promote
-status: backlog
+status: in_progress
 priority: normal
 created: 2026-09-23T08:20:00+08:00
-updated: 2026-09-23T08:20:00+08:00
+updated: 2026-09-23T12:15:00+08:00
 url: null
 route: null
 session: null
@@ -41,3 +41,4 @@ Depends on CRT-0030 and CRT-0031 being `done` (merged). Follow CRT-0028's Log st
 
 ## Log
 - 2026-09-23T08:20+08:00 — created from docs/PRD-chat.md milestone M27 by the planning session that wrote it (session 516e0741-5065-4f83-92e2-a6c83cf9dbd1).
+- 2026-09-23T12:15+08:00 — claimed by /crt:next, session 1e97d0a3-77a3-4a57-9ac4-c18f38dbceb4, branch crt/CRT-0032-m27-release-0-7-0
