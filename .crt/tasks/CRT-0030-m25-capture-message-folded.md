@@ -1,10 +1,10 @@
 ---
 id: CRT-0030
 title: M25 — The capture message, folded: the first bubble shows the developer's words, the full first message behind a Capture pill
-status: backlog
+status: in_progress
 priority: high
 created: 2026-09-23T08:20:00+08:00
-updated: 2026-09-23T08:20:00+08:00
+updated: 2026-09-23T08:48:27+08:00
 url: null
 route: null
 session: null
@@ -43,3 +43,4 @@ Read `docs/PRD-chat.md` §5.1, §5.3, §11 and §12 first. Decisions already tak
 
 ## Log
 - 2026-09-23T08:20+08:00 — created from docs/PRD-chat.md milestone M25 by the planning session that wrote it (session 516e0741-5065-4f83-92e2-a6c83cf9dbd1), on Simon's request of 2026-09-23.
+- 2026-09-23T08:48+08:00 — claimed by /crt:next, session 579102c6-bc26-4e29-89da-e52ce50aa6b8, branch crt/CRT-0030-m25-capture-message-folded
