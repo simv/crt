@@ -8,7 +8,7 @@ The pictures the README and the docs embed: five screenshots that one command re
 |---|---|
 | `arrival.png` | The shop page with the CRT pill bottom-right and the first-visit welcome card open |
 | `select.png` | Select armed: the hover outline and label on a price (the component name first), one pinned marker with its popover and a typed note |
-| `chat.png` | The popover as the chat: the streamed text, a collapsed tool line, the **Allow / Deny** card |
+| `chat.png` | The popover as the chat: your note as the first bubble with its `Capture` pill, the streamed text, a collapsed tool line, the permission card (its **Allow / Deny** buttons scrolled just below) |
 | `marker-states.png` | Three markers on one page — `thinking…`, `your turn`, `CRT-0007` |
 | `landing.png` | The CRT server's landing page (`/`), light |
 

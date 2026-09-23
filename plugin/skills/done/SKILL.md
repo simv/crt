@@ -5,7 +5,7 @@ argument-hint: "<CRT-ID> [pr-url]"
 disable-model-invocation: true
 ---
 
-Close task `$0` (PRD F-40 as amended by PRD-chat F-122), from the project root `${CLAUDE_PROJECT_DIR}`. `crt` means `npx --no crt` if the project has it installed, else `npx -y claude-review-tool@0.6`. The done commit is the **last commit on the task's PR branch before the merge**: the flow is claim → build → commit → review → done → commit → merge, and closing a task never opens a second PR.
+Close task `$0` (PRD F-40 as amended by PRD-chat F-122), from the project root `${CLAUDE_PROJECT_DIR}`. `crt` means `npx --no crt` if the project has it installed, else `npx -y claude-review-tool@0.7`. The done commit is the **last commit on the task's PR branch before the merge**: the flow is claim → build → commit → review → done → commit → merge, and closing a task never opens a second PR.
 
 1. `crt task $0` (or read `.crt/tasks/$0-*.md`). The status must be `review`; otherwise say what it is and stop. Note the file name; `<slug>` is the file name without `CRT-NNNN-` and `.md`.
 2. Find the task's pull request: `$1` if given, else `gh pr list --state open --head crt/$0-<slug> --json number,url,headRefName -q '.[0]'`, else `gh pr list --state open --search "$0 in:title" --json number,url,headRefName -q '.[0]'`. No open PR → look for a merged one (`--state merged`, same searches): found → this task was reviewed under the old flow, go to step 7; nothing at all (or no `gh`) → say so and stop; do not close the task.

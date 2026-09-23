@@ -28,7 +28,7 @@ crt --version                                  # crt <version> (agent sdk <versi
 | `crt doctor` | | Read-only checklist, one row per check; exit 1 on any `FAIL`. First step in [Troubleshooting](troubleshooting.md). |
 | `crt init [--yes] [--no-instructions] [--snippet [--json]]` | | Sets the project up explicitly: prints its plan (`.crt/README.md`, `.crt/tasks/`, `.crt/config.json`, the two `.gitignore` lines, a CRT section in `CLAUDE.md` / `AGENTS.md` — only what is not in place), asks `Go ahead? [Y/n]` on a terminal (`--yes` skips the question; off a terminal it applies without asking), announces every write, and ends with the one-line snippet for your framework. `--no-instructions` leaves `CLAUDE.md` / `AGENTS.md` alone; `--snippet` prints only the snippet and writes nothing (`--json` for tooling). Idempotent: a second run says `crt init: <root> is set up (…)`. |
 | `crt setup [--claude <path>]` | `claude` on PATH | Registers the plugin bundled in the package with Claude Code and installs (or updates) `crt@crt`; says `already installed` when it is. `--claude` names the Claude Code executable when it is not on PATH. |
-| `crt --version` | | `crt 0.6.0 (agent sdk 0.3.270)`, read from local files — CRT never checks a registry. |
+| `crt --version` | | `crt 0.7.0 (agent sdk 0.3.270)`, read from local files — CRT never checks a registry. |
 
 ## What `crt` prints
 

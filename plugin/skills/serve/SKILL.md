@@ -8,7 +8,7 @@ allowed-tools: Bash(npx *) Bash(curl *) Read Edit Write Glob Grep AskUserQuestio
 
 Start the CRT server for this project (PRD F-36, PRD-embedded F-105), from the project root `${CLAUDE_PROJECT_DIR}`. Never start the user's dev server for them: CRT works alongside one that is already running. In embedded mode (the default since v0.4) the app's own page loads the CRT overlay from the CRT server, so the CRT button appears on the app's own URL; `/crt:serve --proxy [target]` is the v0.3 flow that proxies the app through the CRT URL instead.
 
-`crt` below is `npx --no crt` when the project has it installed (a devDependency, a workspace, or a global install), else `npx -y claude-review-tool@0.6`. Remember which one you used: the fallback may have to download the package (~220 MB on a first run), which changes how long you wait in step 2.
+`crt` below is `npx --no crt` when the project has it installed (a devDependency, a workspace, or a global install), else `npx -y claude-review-tool@0.7`. Remember which one you used: the fallback may have to download the package (~220 MB on a first run), which changes how long you wait in step 2.
 
 ## 0. Is a CRT already running for this project?
 
