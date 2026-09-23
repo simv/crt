@@ -16,6 +16,13 @@ describe("accept line (F-27)", () => {
     expect(stub).toContain(ACCEPT_LINE);
   });
 
+  it("the skill states the four-part proposal shape and the stub proposes in it (F-120)", () => {
+    expect(skill).toContain("the line `Proposed definition of done:`");
+    expect(skill).toContain("one `- [ ]` item per line");
+    expect(skill).toContain("one paragraph restating the ask (no heading, no list)");
+    expect(stub).toContain("\\n\\nProposed definition of done:\\n- [ ] ");
+  });
+
   it("endsWithAcceptLine matches the line at the end of a message, tolerating markdown and curly quotes", () => {
     expect(endsWithAcceptLine(`Proposed DoD:\n- [ ] a\n- [ ] b\n\n${ACCEPT_LINE}`)).toBe(true);
     expect(endsWithAcceptLine(`${ACCEPT_LINE}\n\n`)).toBe(true);

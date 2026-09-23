@@ -207,7 +207,9 @@ test.describe("chat panel (F-24, F-25, F-26, F-28, F-29)", () => {
     await expect(shadow(page, ".chat-accept")).toBeHidden();
     await shadow(page, ".perm button.deny").click();
     await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
-    await expect(shadow(page, ".msg.assistant").nth(1)).toContainText("Accept as-is, or tell me what to change, and I'll write the task.");
+    // F-120: the proposal folds to its restatement; the closing line is the Accept bar's, not the bubble's.
+    await expect(shadow(page, ".msg.assistant").nth(1).locator(".lead")).toHaveText("Understood, I won't run tests.");
+    await expect(shadow(page, ".msg.assistant").nth(1)).not.toContainText("Accept as-is");
     await expect(shadow(page, ".chat-accept")).toBeVisible();
 
     // A reload replays the transcript and reaches the same idle-on-proposal state (F-25).
@@ -230,6 +232,103 @@ test.describe("chat panel (F-24, F-25, F-26, F-28, F-29)", () => {
     rmSync(join(root, written.path), { force: true });
     rmSync(join(tasksDir, "assets", written.id), { recursive: true, force: true });
     writeIndex(tasksDir);
+  });
+
+  test("the proposal streams verbatim, then folds to its restatement and a `Definition of done · 2 items` pill; the pill opens the checklist by click and keyboard; Accept writes the task and the proposal stays folded, also after a reload (F-120, N-30)", async ({ page }) => {
+    await sendAndWaitForPermission(page);
+    // Record whether a still-streaming bubble ever showed the checklist verbatim (the stub streams word by word).
+    await page.evaluate(() => {
+      const root = document.getElementById("crt-host")!.shadowRoot!;
+      const w = window as unknown as { __sawStreamingChecklist: boolean; __foldedWhileStreaming: boolean };
+      w.__sawStreamingChecklist = false;
+      w.__foldedWhileStreaming = false;
+      new MutationObserver(() => {
+        if (root.querySelector(".msg.assistant.streaming li.task")) w.__sawStreamingChecklist = true;
+        if (root.querySelector(".msg.assistant.streaming.proposal")) w.__foldedWhileStreaming = true;
+      }).observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
+    });
+    await shadow(page, ".perm button.allow").click();
+    await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
+
+    const proposal = shadow(page, ".msg.assistant.proposal");
+    await expect(proposal).toHaveCount(1);
+    const pill = proposal.locator(".fold-pill");
+    const body = proposal.locator(".fold-body");
+    await expect(proposal.locator(".lead")).toBeVisible();
+    await expect(proposal.locator(".lead")).toHaveText("Tests pass today, so the fix needs a new one.");
+    await expect(pill).toHaveText("▸ Definition of done · 2 items");
+    await expect(pill).toHaveAttribute("aria-expanded", "false");
+    await expect(body).toBeHidden();
+    await expect(proposal).not.toContainText("Accept as-is");
+    await expect(shadow(page, ".chat-accept")).toBeVisible();
+    expect(await page.evaluate(() => (window as unknown as { __sawStreamingChecklist: boolean }).__sawStreamingChecklist)).toBe(true);
+    expect(await page.evaluate(() => (window as unknown as { __foldedWhileStreaming: boolean }).__foldedWhileStreaming)).toBe(false);
+    // Earlier messages that do not end on the line never fold.
+    await expect(shadow(page, ".msg.assistant").first()).not.toHaveClass(/proposal/);
+
+    // Click unfolds the whole proposal minus the closing line: the two checklist items.
+    await pill.click();
+    await expect(body).toBeVisible();
+    await expect(pill).toHaveText("▾ Definition of done · 2 items");
+    await expect(proposal).toHaveAttribute("data-open", "");
+    await expect(body.locator("li.task input[type=checkbox]")).toHaveCount(2);
+    await expect(body.locator("li.task").nth(0)).toBeVisible();
+    await expect(body.locator("li.task").nth(0)).toHaveText("Cart total applies the promo discount");
+    await expect(body.locator("li.task").nth(1)).toHaveText("Unit test covers the discounted total");
+    await pill.click();
+    await expect(body).toBeHidden();
+
+    // N-30: a real button — Tab reaches it from the reply box, Enter and Space toggle it.
+    await shadow(page, ".chat-input textarea").focus();
+    for (let i = 0; i < 8 && !(await pill.evaluate((el) => (el.getRootNode() as ShadowRoot).activeElement === el)); i++) await page.keyboard.press("Shift+Tab");
+    await expect(pill).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(body).toBeVisible();
+    await expect(pill).toHaveAttribute("aria-expanded", "true");
+    await page.keyboard.press("Space");
+    await expect(body).toBeHidden();
+    await expect(pill).toHaveAttribute("aria-expanded", "false");
+
+    // Accept: echoed, the task written, the proposal stays folded as history; the confirmation is not a proposal.
+    await shadow(page, ".chat-accept button").click();
+    await expect(shadow(page, ".msg.user").nth(1)).toHaveText("Accept");
+    await expect(shadow(page, ".chat-task b")).toHaveText(/^CRT-\d{4}$/);
+    await expect(proposal).toHaveCount(1);
+    await expect(body).toBeHidden();
+    await expect(shadow(page, ".msg.assistant").last()).toHaveText(/^Written CRT-\d{4} at /);
+    await expect(shadow(page, ".msg.assistant").last()).not.toHaveClass(/proposal/);
+
+    // F-66: the re-attached thread replays the events and shows the proposal folded at once.
+    await page.reload();
+    await expect(shadow(page, '.pop[data-n="1"] .chat')).toBeVisible();
+    await expect(shadow(page, ".msg.assistant.proposal")).toHaveCount(1);
+    await expect(shadow(page, ".msg.assistant.proposal .fold-pill")).toHaveText("▸ Definition of done · 2 items");
+    await expect(shadow(page, ".msg.assistant.proposal .fold-body")).toBeHidden();
+
+    const snap = await page.evaluate(() => window.__crt.chat.snapshot());
+    const written = snap.events.find((e) => e.type === "task_written") as Extract<SessionEvent, { type: "task_written" }>;
+    const root = await projectRoot(page);
+    const tasksDir = join(root, ".crt", "tasks");
+    rmSync(join(root, written.path), { force: true });
+    rmSync(join(tasksDir, "assets", written.id), { recursive: true, force: true });
+    writeIndex(tasksDir);
+  });
+
+  test("a typed edit yields a second proposal that folds on its own with `1 item` while the first stays folded (F-120)", async ({ page }) => {
+    await sendAndWaitForPermission(page);
+    await shadow(page, ".perm button.allow").click();
+    await expect(shadow(page, ".chat-accept")).toBeVisible();
+    await shadow(page, ".chat-input textarea").fill("no tests");
+    await shadow(page, ".chat-input textarea").press("Enter");
+    await expect(shadow(page, ".msg.user").nth(1)).toHaveText("no tests");
+    const proposals = shadow(page, ".msg.assistant.proposal");
+    await expect(proposals).toHaveCount(2);
+    await expect(proposals.nth(1).locator(".lead")).toHaveText("Understood, I won't run tests.");
+    await expect(proposals.nth(1).locator(".fold-pill")).toHaveText("▸ Definition of done · 1 item");
+    await expect(proposals.nth(0).locator(".fold-pill")).toHaveText("▸ Definition of done · 2 items");
+    await expect(proposals.locator(".fold-body").nth(0)).toBeHidden();
+    await expect(proposals.locator(".fold-body").nth(1)).toBeHidden();
+    await expect(shadow(page, ".chat-accept")).toBeVisible();
   });
 
   test("Quick note: the chat stays hidden, Claude writes the task, the status line shows the id (F-14)", async ({ page }) => {
@@ -281,6 +380,9 @@ test.describe("chat panel (F-24, F-25, F-26, F-28, F-29)", () => {
     await expect(shadow(page, ".chat")).toBeVisible();
     await expect(shadow(page, ".msg.assistant").first()).toContainText("Quick question before I write this");
     await expect(shadow(page, ".status")).toContainText("Claude needs you: Claude has a question");
+    // F-120: a question does not end on the accept line, so it is never folded.
+    await expect(shadow(page, ".msg.assistant.proposal")).toHaveCount(0);
+    await expect(shadow(page, ".msg.assistant .fold-pill")).toHaveCount(0);
     await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
     expect((await page.evaluate(() => window.__crt.chat.snapshot())).taskId).toBeNull();
   });

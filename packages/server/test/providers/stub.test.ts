@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeCapture } from "../../src/captures.js";
 import { FIRST_MESSAGE_HEADING } from "../../src/intake-message.js";
-import { HOLD_PHRASE, isQuickNote, makeStubProfile, STUB_CAPABILITIES, STUB_VARIANTS, stubCapabilities, stubProfile, stubVariantFromEnv } from "../../src/providers/stub.js";
+import { HOLD_PHRASE, isQuickNote, makeStubProfile, STUB_CAPABILITIES, STUB_PROPOSALS, STUB_VARIANTS, stubCapabilities, stubProfile, stubVariantFromEnv } from "../../src/providers/stub.js";
 import { samplePost } from "../helpers/sample-capture.js";
 import { runConformance } from "./conformance.js";
 
@@ -119,6 +119,30 @@ describe("stub provider variants (F-42, F-46)", () => {
     await driver.interrupt();
     expect(events.at(-2)).toMatchObject({ type: "result", ok: false, errors: ["interrupted"] });
     expect(events.at(-1)).toEqual({ type: "state", state: "idle" });
+    driver.close();
+  });
+
+  it('re-proposes in the Deny shape when a reply says "no tests", without a second test run (PRD-chat F-120, §12 rule 4)', async () => {
+    const events: Array<{ type: string; text?: string; name?: string; state?: string }> = [];
+    const driver = makeStubProfile().start({
+      id: "repropose",
+      cwd: root,
+      systemPromptAppend: "",
+      first: { text: `CRT intake for capture x\n\n1. [select] "Total ignores the promo"` },
+      decide: () => ({ kind: "allow" }),
+      writeTask: async () => ({ id: "CRT-0001", path: "x" }),
+      mcp: { command: "node", args: [], env: {} },
+      model: null,
+    });
+    driver.onEvent((e) => events.push(e));
+    const spoken = () => events.filter((e) => e.type === "text").map((e) => e.text).join("");
+    await expect.poll(spoken, { timeout: 5_000 }).toContain(STUB_PROPOSALS.allow);
+    await expect.poll(() => events.at(-1), { timeout: 5_000 }).toEqual({ type: "state", state: "idle" });
+    const bashRuns = events.filter((e) => e.type === "tool_use" && e.name === "Bash").length;
+    const mark = events.length;
+    driver.send({ text: "no tests please" });
+    await expect.poll(() => events.slice(mark).filter((e) => e.type === "text").map((e) => e.text).join(""), { timeout: 5_000 }).toBe(STUB_PROPOSALS.deny);
+    expect(events.filter((e) => e.type === "tool_use" && e.name === "Bash").length).toBe(bashRuns);
     driver.close();
   });
 
