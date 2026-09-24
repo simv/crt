@@ -1,10 +1,10 @@
 ---
 id: CRT-0034
 title: CI and repo hygiene — shipped assets are not docs-only, no live model call in npm test, faster e2e job
-status: backlog
+status: done
 priority: high
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-24T12:15:00+08:00
+updated: 2026-09-24T14:13:00+08:00
 url: null
 route: null
 session: null
@@ -44,13 +44,13 @@ No page capture: from the code review in session e145e7ac on Simon's request, 20
    Run plugin validation on the ubuntu leg only, with a pinned `@anthropic-ai/claude-code` version. Keep every job and check name unchanged: the ruleset requires `check (ubuntu-latest)`, `check (windows-latest)` and `e2e (ubuntu)` exactly.
 
 ## Definition of Done
-- [ ] A PR touching only `docs/brand/favicon.svg` runs the full `check` steps: the `changes` job prints `code=true`.
-- [ ] `npm test` on a machine with `~/.claude/.credentials.json` and no `CRT_SESSION_SMOKE` skips the live smoke test; it runs with `CRT_SESSION_SMOKE=1`.
-- [ ] `npm run build` after creating `packages/server/dist/stale.js` leaves no `stale.js`; `npm pack --dry-run` lists no `session-stub.js`.
-- [ ] `git status` in a checkout with `packages/server/*.tgz` shows no tarballs; `npm ls react -w packages/overlay` resolves.
-- [ ] `noUnusedLocals` and `noUnusedParameters` are on; `npm run typecheck` green.
-- [ ] CI on the PR: `check (ubuntu-latest)`, `check (windows-latest)` and `e2e (ubuntu)` all report under their exact names and are green; e2e starts without waiting for `check`.
-- [ ] `npm run check` green; no test's expected string changed.
+- [x] A PR touching only `docs/brand/favicon.svg` runs the full `check` steps: the `changes` job prints `code=true`.
+- [x] `npm test` on a machine with `~/.claude/.credentials.json` and no `CRT_SESSION_SMOKE` skips the live smoke test; it runs with `CRT_SESSION_SMOKE=1`.
+- [x] `npm run build` after creating `packages/server/dist/stale.js` leaves no `stale.js`; `npm pack --dry-run` lists no `session-stub.js`.
+- [x] `git status` in a checkout with `packages/server/*.tgz` shows no tarballs; `npm ls react -w packages/overlay` resolves.
+- [x] `noUnusedLocals` and `noUnusedParameters` are on; `npm run typecheck` green.
+- [x] CI on the PR: `check (ubuntu-latest)`, `check (windows-latest)` and `e2e (ubuntu)` all report under their exact names and are green; e2e starts without waiting for `check`.
+- [x] `npm run check` green; no test's expected string changed.
 
 ## Notes
 - Required check names are load-bearing: renaming a job blocks every PR.
@@ -59,3 +59,13 @@ No page capture: from the code review in session e145e7ac on Simon's request, 20
 
 ## Log
 - 2026-09-24T12:15+08:00 — filed by hand from the code review in session e145e7ac (Simon's request).
+- 2026-09-24T12:55+08:00 — claimed by /crt:next, session 4bf8b4eb-eaf7-4067-b66b-c83470b8dd8f, branch crt/CRT-0034-ci-and-repo-hygiene (worked in the sibling worktree review-tool-crt-0034 so concurrent sessions in the main checkout are unaffected)
+- 2026-09-24T13:08+08:00 — verified: favicon-only PR → code=true — the new `case` pattern evaluated in bash against docs/brand/favicon.svg and docs/images/chat.png gives code=true (docs/PRD-chat.md and .crt/tasks/x.md stay docs-only)
+- 2026-09-24T13:08+08:00 — verified: live smoke test — `npx vitest run test/session.test.ts` with ~/.claude/.credentials.json present and no CRT_SESSION_SMOKE: 5 passed, 1 skipped; with CRT_SESSION_SMOKE=1: 6 passed
+- 2026-09-24T13:08+08:00 — verified: clean dist — created packages/server/dist/stale.js and dist/session-stub.js, ran `npm run check` (the root prebuild runs before the overlay build): both gone; `npm pack --dry-run` in packages/server lists no session-stub.js
+- 2026-09-24T13:08+08:00 — verified: tarballs + react — a new packages/server/x-1.0.0.tgz does not show in `git status --porcelain`; `npm ls react -w packages/overlay` → react@18.3.1
+- 2026-09-24T13:08+08:00 — verified: noUnusedLocals/noUnusedParameters on in tsconfig.base.json; `npm run typecheck` green (hits fixed: provider-routes.ts unused `file`, session.ts unused `DEFAULT_PROVIDER` import — its re-export stays)
+- 2026-09-24T13:08+08:00 — verified: CI on #89 (run 35958115683) — changes, check (ubuntu-latest), check (windows-latest), e2e (ubuntu) all pass under their exact names; e2e started 05:01:32Z, before either check leg (05:01:34Z/35Z); plugin validate ran on ubuntu only with @anthropic-ai/claude-code@2.1.281
+- 2026-09-24T13:08+08:00 — verified: `npm run check` green (51 files, 699 passed, 2 skipped); the only test diff is the session.test.ts gate and its comment — no expected string changed
+- 2026-09-24T13:08+08:00 — ready for review: changed .github/workflows/ci.yml, CLAUDE.md, .gitignore, package.json (root prebuild), package-lock.json, packages/overlay/package.json, tsconfig.base.json, packages/server/src/provider-routes.ts, packages/server/src/session.ts, packages/server/test/session.test.ts. Pinned claude-code 2.1.281 (latest on npm today) and actions/cache v4.3.0 by SHA to match the other v4 actions. Worked in the sibling worktree review-tool-crt-0034; the claim line's stamp was corrected to the real claim time. PR https://github.com/simv/crt/pull/89
+- 2026-09-24T14:13+08:00 — done; closed in https://github.com/simv/crt/pull/89

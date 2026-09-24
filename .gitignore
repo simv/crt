@@ -2,6 +2,7 @@ node_modules/
 dist/
 .crt/captures/
 *.log
+*.tgz
 .DS_Store
 Thumbs.db
 test-results/

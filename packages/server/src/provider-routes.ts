@@ -53,9 +53,8 @@ export async function handleProviderRoute(
     json(res, 400, { ok: false, error: patch.error });
     return true;
   }
-  let file: string;
   try {
-    file = writeLocalConfig(projectRoot, patch.value);
+    writeLocalConfig(projectRoot, patch.value);
   } catch (err) {
     json(res, 500, { ok: false, error: `could not write .crt/${LOCAL_CONFIG_FILE}: ${(err as Error).message}` });
     return true;

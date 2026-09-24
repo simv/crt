@@ -1,19 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { claudePreflight, claudeProfile, describeInput, describeSessionError, loginProblem, startSession, toolLabel } from "../src/providers/claude.js";
 import type { SessionEvent } from "../src/session-events.js";
 
-// Pure helpers always run. The real Agent SDK session (PRD §12 smoke test) runs only when a
-// Claude login is available: CLAUDE_CODE_OAUTH_TOKEN, a CLI credentials file, or CRT_SESSION_SMOKE=1.
-// CI has none of those, so it is skipped there.
+// Pure helpers always run. The real Agent SDK session (PRD §12 smoke test) calls the model, so it
+// runs only when asked for: CRT_SESSION_SMOKE=1, or CLAUDE_CODE_OAUTH_TOKEN set. A CLI credentials
+// file alone does not opt in (CRT-0034): a plain local `npm test` spends no tokens and needs no network.
 
-const loggedIn =
-  !!process.env.CLAUDE_CODE_OAUTH_TOKEN ||
-  !!process.env.CRT_SESSION_SMOKE ||
-  existsSync(join(homedir(), ".claude", ".credentials.json"));
+const loggedIn = !!process.env.CLAUDE_CODE_OAUTH_TOKEN || !!process.env.CRT_SESSION_SMOKE;
 
 describe("tool labels and permission text (F-25, F-26)", () => {
   const cwd = process.platform === "win32" ? "C:\\proj" : "/proj";

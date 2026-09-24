@@ -11,6 +11,7 @@
     "packages/*"
   ],
   "scripts": {
+    "prebuild": "node -e \"require('fs').rmSync('packages/server/dist', { recursive: true, force: true })\"",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
