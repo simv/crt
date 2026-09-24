@@ -35,6 +35,6 @@ The requirement IDs (F-n, N-n) referenced in code comments, tests, commits and P
 - [PRD-setup.md](PRD-setup.md) — v0.3: setup and first run (`crt [target]`, `crt doctor`, `crt setup`, login preflight, arrival UX), F-69…F-90, N-14…N-17, M12–M14.
 - [PRD-embedded.md](PRD-embedded.md) — v0.4: embedded mode (the CRT server without a proxy by default, the loader and the package entries, explicit `crt init`, the production guarantee), F-91…F-110, N-18…N-22, M15–M18.
 - [PRD-polish.md](PRD-polish.md) — v0.6: the brand mark, the landing page as a status page, the README as a front page with the reference under `docs/`, reproducible screenshots, release 0.6.0, F-112…F-118, N-23…N-27, M20–M24.
-- [PRD-chat.md](PRD-chat.md) — v0.7: compact chat (the first bubble shows the developer's words, the agent's proposal folds to its restatement and item count, the full text one click away), the close-out in the PR, release 0.7.0, F-119…F-122, N-28…N-30, M25–M27.
+- [PRD-chat.md](PRD-chat.md) — v0.7: compact chat (the first bubble shows the developer's words, the agent's proposal folds to its restatement and item count, the full text one click away), the close-out in the PR, release 0.7.0, the worker's CI wait and opt-in merge, F-119…F-123, N-28…N-30, M25–M27.
 
 Alongside them: the design review ([design/design-review-2026-09-21.md](design/design-review-2026-09-21.md)), the spikes under [spikes/](spikes/), the brand files under [brand/](brand/README.md) and the images under [images/](images/README.md).

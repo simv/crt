@@ -101,13 +101,13 @@ Inside Claude Code, `/crt:serve` does what `crt` does — it reuses a CRT that i
 
 ```
 /crt:tasks           # what's outstanding
-/crt:next            # pick the next backlog task and take it to a PR, without stopping
+/crt:next            # pick the next backlog task and take it to a PR with green CI, without stopping
 /crt:next CRT-0007   # work (or retry) a specific task
 /crt:task CRT-0007   # show one task and the next action for it
 /crt:done CRT-0007   # once the PR is reviewed: mark it done on the branch, merge the PR
 ```
 
-`/crt:next` claims the task (`status: in_progress`, log entry, branch `crt/CRT-0007-<slug>`), implements the **Ask**, ticks each **Definition of Done** item it verified, runs the project's tests/lint/build, sets `status: review`, commits, pushes and opens a PR whose body is the task's Summary + DoD + a link to the task file. It never asks you anything: if the task file is not enough to proceed it sets `status: blocked` with the question in the **Log** — answer it under **Notes** and run `/crt:next CRT-0007` again. Merging is yours.
+`/crt:next` claims the task (`status: in_progress`, log entry, branch `crt/CRT-0007-<slug>`), implements the **Ask**, ticks each **Definition of Done** item it verified, runs the project's tests/lint/build, sets `status: review`, commits, pushes and opens a PR whose body is the task's Summary + DoD + a link to the task file. Then it waits for the PR's checks and fixes what its own change broke. It never asks you anything: if the task file is not enough to proceed it sets `status: blocked` with the question in the **Log** — answer it under **Notes** and run `/crt:next CRT-0007` again. Merging is yours (`/crt:done`). To have the worker close and merge its own PR once CI is green, put `"worker": { "merge": true }` in `.crt/config.json`, or in `.crt/config.local.json` for yourself only.
 
 If you open `http://localhost:4400` itself instead of your app, you get CRT's status page: where your app is, anything `crt doctor` would flag with the fix beside it, this server's facts and the three steps above — served from the CRT origin only, nothing fetched from anywhere else.
 
