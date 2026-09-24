@@ -1,10 +1,10 @@
 ---
 id: CRT-0036
 title: write_task loses the capture when a field contains a `## ` heading — validate before moving assets
-status: backlog
+status: in_progress
 priority: high
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-24T12:15:00+08:00
+updated: 2026-09-24T16:25:47+08:00
 url: null
 route: null
 session: null
@@ -48,3 +48,4 @@ No page capture: from the code review in session e145e7ac, 2026-09-24. Reproduce
 
 ## Log
 - 2026-09-24T12:15+08:00 — filed by hand from the code review in session e145e7ac (Simon's request); bug reproduced against dist.
+- 2026-09-24T16:25+08:00 — claimed by /crt:next, session da58c2cf-351d-4ef5-be6f-9435069a3ade, branch crt/CRT-0036-create-task-validate-before-move (worktree `.claude/worktrees/CRT-0036`, so a parallel session's branch switches in the main checkout cannot reach it)
