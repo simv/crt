@@ -1,4 +1,5 @@
 import { defineConfig } from "@playwright/test";
+import { PORTS } from "./e2e/helpers.js";
 
 // PRD-polish F-116 / N-27 (M22, task CRT-0026): `npm run screenshots` — the reproducible README
 // screenshots. Not part of `npm run e2e` (playwright.config.ts ignores screenshots.spec.ts) and
@@ -12,9 +13,9 @@ import { defineConfig } from "@playwright/test";
 // at DPR 2, light colour scheme, one worker in file order, a fresh browser context (cleared storage)
 // per image, and in the spec a fixed clock, `animations: "disabled"` on every capture and waits on
 // the overlay's own signals.
-const FIXTURE_PORT = 3998;
+const FIXTURE_PORT = PORTS.screenshotsFixture;
 export const SCREENSHOTS_FIXTURE_ORIGIN = `http://localhost:${FIXTURE_PORT}`;
-const CRT_PORT = 4490;
+const CRT_PORT = PORTS.screenshotsCrt;
 export const SCREENSHOTS_CRT_ORIGIN = `http://localhost:${CRT_PORT}`;
 
 export default defineConfig({

@@ -10,6 +10,7 @@ import { stubProfile } from "../src/providers/stub.js";
 import type { ProvidersPayload, SessionEvent } from "../src/session-events.js";
 import { parseTask, validateTaskText, writeIndex } from "../src/tasks.js";
 import { CRT_ACP_PORT, CRT_ANTIGRAVITY_PORT, CRT_CODEX_PORT, CRT_ORIGIN, CRT_SANDBOXED_PORT } from "../playwright.config.js";
+import { shadow } from "./helpers.js";
 
 // M3 (task CRT-0003 Ask 7): Send opens the chat panel on an intake session. The pages are the
 // fixture's on the app's own origin (baseURL) and load the overlay from the embedded CRT server
@@ -33,23 +34,6 @@ import { CRT_ACP_PORT, CRT_ANTIGRAVITY_PORT, CRT_CODEX_PORT, CRT_ORIGIN, CRT_SAN
 // replays the M6 recordings and calls `write_task` through the real `crt mcp` shim, token and
 // internal route (F-49, F-53).
 
-type Snapshot = { sessionId: string | null; state: string | null; taskId: string | null; provider: string | null; events: SessionEvent[] };
-type Hooks = {
-  addSelect(sel: string): number;
-  setNote(n: number, note: string): void;
-  send(opts?: { quick?: boolean }): Promise<{ id: string; dir: string; files: string[] }>;
-  canQuickNote(): boolean;
-  chat: { snapshot(): Snapshot; isOpen(): boolean; discard(): Promise<void> };
-  sessions: { toggle(force?: boolean): Promise<void>; list(): Promise<Array<{ id: string; startedAt: string; summary: string | null; quick: boolean; provider: string }>> };
-  providers: { toggle(force?: boolean): Promise<void>; load(refresh?: boolean): Promise<ProvidersPayload>; sendProvider(): string | null; pick(id: string | null): void; remember(id: string): Promise<void> };
-};
-declare global {
-  interface Window {
-    __crt: Hooks;
-  }
-}
-
-const shadow = (page: Page, sel: string) => page.locator("#crt-host").locator(sel);
 
 async function projectRoot(page: Page, crt = CRT_ORIGIN): Promise<string> {
   const res = await page.request.get(`${crt}/__crt/health`);
@@ -860,8 +844,8 @@ test.describe("codex provider on the fake codex CLI (F-49, F-53, F-56, F-61)", (
 
   test("Send to Codex: replayed text and tool lines, the read-only badge and no cards, a resumable thread id in the footer that survives a reload, write_task through crt mcp, Stop kills the turn (F-49, F-53, F-56, F-61)", async ({ page }) => {
     // F-43 step 2 / F-57: the server runs on codex and says so.
-    const health = (await (await page.request.get(`${CODEX}/__crt/health`)).json()) as { provider: string };
-    expect(health.provider).toBe("codex");
+    const served = (await (await page.request.get(`${CODEX}/__crt/health`)).json()) as { provider: string };
+    expect(served.provider).toBe("codex");
     const payload = (await (await page.request.get(`${CODEX}/__crt/providers`)).json()) as ProvidersPayload;
     expect(payload.active).toBe("codex");
     expect(payload.providers.find((p) => p.id === "codex")).toMatchObject({ installed: true, loggedIn: true, version: "0.154.0", problem: null, capabilities: CODEX_CAPABILITIES });
@@ -965,8 +949,8 @@ test.describe("ad-hoc ACP agent from .crt/config.json (F-49, F-54, F-56, F-61)",
 
   test("Send to Fake Agent: streamed text, a read tool line, an Allow card from the F-54 kind policy, write_task through crt mcp, a footer with no resume hint that survives a reload, Stop via session/cancel (F-49, F-54, F-56, F-61)", async ({ page }) => {
     // F-43 steps 3–4 / F-54: the object form in .crt/config.json registers the `acp` id and the server runs on it.
-    const health = (await (await page.request.get(`${ACP}/__crt/health`)).json()) as { provider: string };
-    expect(health.provider).toBe("acp");
+    const served = (await (await page.request.get(`${ACP}/__crt/health`)).json()) as { provider: string };
+    expect(served.provider).toBe("acp");
     const payload = (await (await page.request.get(`${ACP}/__crt/providers`)).json()) as ProvidersPayload;
     expect(payload.active).toBe("acp");
     expect(payload.providers.map((p) => p.id)).toEqual(["claude", "codex", "gemini", "antigravity", "acp"]);
@@ -1086,8 +1070,8 @@ test.describe("antigravity provider on the fake agy (F-49, F-56, F-61, F-111)", 
 
   test("Send to Antigravity: streamed text, a read tool line and a hook-denied command, the read-only badge and no experimental one, a resumable conversation id in the footer that survives a reload, write_task through crt mcp, Stop kills the process (F-49, F-56, F-61, F-111)", async ({ page }) => {
     // F-43 step 2 / F-57: the server runs on antigravity and says so; login is unknown by design (no status command).
-    const health = (await (await page.request.get(`${AGY}/__crt/health`)).json()) as { provider: string };
-    expect(health.provider).toBe("antigravity");
+    const served = (await (await page.request.get(`${AGY}/__crt/health`)).json()) as { provider: string };
+    expect(served.provider).toBe("antigravity");
     const payload = (await (await page.request.get(`${AGY}/__crt/providers`)).json()) as ProvidersPayload;
     expect(payload.active).toBe("antigravity");
     expect(payload.providers.find((p) => p.id === "antigravity")).toMatchObject({ installed: true, loggedIn: "unknown", version: "1.2.7", problem: null, capabilities: ANTIGRAVITY_CAPABILITIES });

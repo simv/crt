@@ -56,7 +56,7 @@ describe("claude-review-tool/react (F-97)", () => {
 
   it('the built file starts with "use client", keeps process.env.NODE_ENV for the bundler, imports react only and has no side effect on import (F-97, F-98)', async () => {
     const out = await build({ ...REACT_ESM, write: false });
-    const js = out.outputFiles[0]!.text;
+    const js = out.outputFiles![0]!.text;
     expect(js.split("\n")[0]).toBe('"use client";');
     expect(js).toContain('process.env.NODE_ENV !== "production"');
     expect([...js.matchAll(/^import .* from "([^"]+)";?$/gm)].map((m) => m[1])).toEqual(["react"]);

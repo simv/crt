@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { request as httpRequest, type Server } from "node:http";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -13,6 +13,8 @@ import { ProviderRegistry } from "../src/session.js";
 import type { SessionEvent, WriteTaskRequest } from "../src/session-events.js";
 import { SessionRegistry } from "../src/sessions.js";
 import { parseTask, validateTaskText } from "../src/tasks.js";
+import { waitForEvent } from "./helpers/fake-cli.js";
+import { apiAt, listen0 } from "./helpers/http.js";
 import { samplePost } from "./helpers/sample-capture.js";
 
 // The registry and its /__crt/sessions routes, driven by the scripted stub (providers/stub.ts),
@@ -20,7 +22,7 @@ import { samplePost } from "./helpers/sample-capture.js";
 // The Claude driver is exercised by session.test.ts when a Claude login is available.
 
 let fixture: Fixture;
-let proxy: Server;
+let server: Awaited<ReturnType<typeof listen0>>;
 let crt: string;
 let root: string;
 let registry: SessionRegistry;
@@ -40,16 +42,14 @@ beforeAll(async () => {
     permissionTimeoutMs: 400,
     log: (l) => logs.push(l),
   });
-  proxy = createProxyServer({ target: fixture.url, projectRoot: root, overlayPath: join(root, "overlay.js"), sessions: registry, providers });
-  await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
-  registry.mcpPort = (proxy.address() as { port: number }).port;
-  crt = `http://localhost:${registry.mcpPort}`;
+  server = await listen0(createProxyServer({ target: fixture.url, projectRoot: root, overlayPath: join(root, "overlay.js"), sessions: registry, providers }));
+  registry.mcpPort = server.port;
+  crt = server.origin;
 });
 
 afterAll(async () => {
   registry.closeAll();
-  proxy.closeAllConnections();
-  await new Promise<void>((r) => proxy.close(() => r()));
+  await server.close();
   await fixture.close();
   rmSync(root, { recursive: true, force: true });
 });
@@ -58,14 +58,7 @@ afterEach(() => {
   for (const f of readdirSync(join(root, ".crt", "tasks"))) rmSync(join(root, ".crt", "tasks", f), { recursive: true, force: true });
 });
 
-async function api(method: string, path: string, body?: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
-  const res = await fetch(crt + path, {
-    method,
-    headers: body === undefined ? {} : { "content-type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  return { status: res.status, json: (await res.json()) as Record<string, unknown> };
-}
+const api = apiAt(() => crt);
 
 /**
  * Read the SSE stream until `until(event)` is true (or the stream ends); returns every event seen,
@@ -390,10 +383,7 @@ provider: stub
     expect(info.provider).toBe("stub");
     const events: SessionEvent[] = [];
     reg.subscribe(info.id, 0, (_s, e) => events.push(e));
-    await new Promise<void>((resolve) => {
-      const tick = () => (events.some((e) => e.type === "state" && e.state === "idle") ? resolve() : setTimeout(tick, 10));
-      tick();
-    });
+    await waitForEvent(events, (e) => e.type === "state" && e.state === "idle");
     const first = events[0] as Extract<SessionEvent, { type: "user" }>;
     expect(first.text.startsWith(`${FIRST_MESSAGE_HEADING}\n\nINTAKE for the capture directory named in the first message\n\n---\n\nCRT intake for capture ${cap.id}.`)).toBe(true);
     expect(first.text.trim().split(/\n{2,}/).at(-1)).toBe(QUICK_NOTE_INSTRUCTIONS);
@@ -416,11 +406,9 @@ provider: stub
   });
 
   it("answers 503 when the server has no session registry", async () => {
-    const bare = createProxyServer({ target: fixture.url, projectRoot: root, overlayPath: join(root, "overlay.js") });
-    await new Promise<void>((r) => bare.listen(0, "127.0.0.1", r));
-    const res = await fetch(`http://localhost:${(bare.address() as { port: number }).port}/__crt/sessions`);
+    const bare = await listen0(createProxyServer({ target: fixture.url, projectRoot: root, overlayPath: join(root, "overlay.js") }));
+    const res = await fetch(`${bare.origin}/__crt/sessions`);
     expect(res.status).toBe(503);
-    bare.closeAllConnections();
-    await new Promise<void>((r) => bare.close(() => r()));
+    await bare.close();
   });
 });

@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { FIXTURE_ORIGIN, PORTS } from "./e2e/helpers.js";
 
 // E2E smoke (PRD §9, task CRT-0001 Ask 8; PRD-embedded F-110, M18): the static fixture app is the
 // app under test on its own origin (baseURL) and carries the CRT loader tag for the primary
@@ -6,23 +7,21 @@ import { defineConfig, devices } from "@playwright/test";
 // real app does since v0.4 — the overlay loaded cross-origin from the CRT server. A dedicated
 // `crt proxy` server on its own scratch root serves proxy.spec.ts (and the proxy rows in
 // arrival.spec.ts / start.spec.ts spawn their own). Playwright starts the web servers in order,
-// so the fixture is up before crt probes it.
-const FIXTURE_PORT = 3999;
-/** The app origin: what every browser spec navigates to (F-110). */
-export const FIXTURE_ORIGIN = `http://localhost:${FIXTURE_PORT}`;
-const CRT_PORT = 4499;
+// so the fixture is up before crt probes it. Every port is in the e2e/helpers.ts registry (PORTS).
+const FIXTURE_PORT = PORTS.fixture;
+const CRT_PORT = PORTS.crt;
 /** The primary embedded CRT server: `/__crt/*` for the pages on FIXTURE_ORIGIN. */
 export const CRT_ORIGIN = `http://localhost:${CRT_PORT}`;
 /** PRD-providers F-61 `stub` axis, `sandboxed` variant (F-46): a second CRT on its own scratch root. */
-export const CRT_SANDBOXED_PORT = 4498;
+export const CRT_SANDBOXED_PORT = PORTS.sandboxed;
 /** PRD-providers F-61 `codex` axis: a third CRT on `--provider codex` against the fake Codex CLI (e2e/fixture/fake-codex.mjs). */
-export const CRT_CODEX_PORT = 4497;
+export const CRT_CODEX_PORT = PORTS.codex;
 /** PRD-providers F-54 / F-61 `acp` axis: a fourth CRT on the ad-hoc `{ kind: "acp" }` config against the fake ACP agent (e2e/fixture/fake-acp.mjs). */
-export const CRT_ACP_PORT = 4495;
+export const CRT_ACP_PORT = PORTS.acp;
 /** PRD-providers F-111 / F-61 `antigravity` axis: a fifth CRT on `--provider antigravity` against the fake Antigravity CLI (e2e/fixture/fake-agy.mjs). */
-export const CRT_ANTIGRAVITY_PORT = 4494;
+export const CRT_ANTIGRAVITY_PORT = PORTS.antigravity;
 /** PRD-embedded F-92 / N-21: the proxy-mode server for proxy.spec.ts — the v0.3 shape, on its own scratch root. */
-export const CRT_PROXY_PORT = 4496;
+export const CRT_PROXY_PORT = PORTS.proxy;
 export const CRT_PROXY_ORIGIN = `http://localhost:${CRT_PROXY_PORT}`;
 
 export default defineConfig({

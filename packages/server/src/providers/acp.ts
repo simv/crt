@@ -187,7 +187,8 @@ export interface AcpToolCall {
   rawInput?: unknown;
   rawOutput?: unknown;
 }
-export type AcpUpdate = { sessionUpdate?: string; content?: AcpContentBlock } & Partial<AcpToolCall>;
+/** One `session/update`: a message chunk's `content` is a single block, a tool call's a list of them. */
+export type AcpUpdate = { sessionUpdate?: string; content?: AcpContentBlock | AcpToolCallContent[] } & Omit<Partial<AcpToolCall>, "content">;
 export interface AcpPermissionOption {
   optionId: string;
   name?: string;
@@ -350,7 +351,8 @@ export class AcpTurnMapper {
   handle(update: AcpUpdate): void {
     switch (update.sessionUpdate) {
       case "agent_message_chunk": {
-        const text = update.content?.type === "text" ? (update.content.text ?? "") : "";
+        const block = Array.isArray(update.content) ? undefined : update.content;
+        const text = block?.type === "text" ? (block.text ?? "") : "";
         if (!text) return;
         if (this.message === null) {
           this.message = `t${this.turn}-msg-${++this.messages}`;

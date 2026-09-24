@@ -1,11 +1,9 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import type { Server } from "node:http";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ListResourcesResultSchema, McpError } from "@modelcontextprotocol/sdk/types.js";
-import { build } from "esbuild";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startFixture, type Fixture } from "../e2e/fixture/server.mjs";
 import { writeCapture } from "../src/captures.js";
@@ -15,6 +13,8 @@ import { ProviderRegistry } from "../src/session.js";
 import type { SessionEvent } from "../src/session-events.js";
 import { SessionRegistry } from "../src/sessions.js";
 import { validateTaskText } from "../src/tasks.js";
+import { buildMcpShim } from "./helpers/fake-cli.js";
+import { listen0 } from "./helpers/http.js";
 import { samplePost } from "./helpers/sample-capture.js";
 
 // F-49 transport contract test (PRD-providers §5.3, N-9): the official MCP TypeScript client
@@ -24,7 +24,7 @@ import { samplePost } from "./helpers/sample-capture.js";
 // writer. The stub provider owns the session whose token the shim carries.
 
 let fixture: Fixture;
-let proxy: Server;
+let crt: Awaited<ReturnType<typeof listen0>>;
 let port: number;
 let root: string;
 let registry: SessionRegistry;
@@ -45,25 +45,20 @@ beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), "crt-mcp-"));
   mkdirSync(join(root, ".crt", "tasks"), { recursive: true });
   // The shim as the agent would run it: one file, Node built-ins plus the bundled schema code.
-  const entry = join(root, "entry.mjs");
-  writeFileSync(entry, `import { runMcpStdio } from ${JSON.stringify(join(import.meta.dirname, "..", "src", "mcp-stdio.ts"))};\nprocess.exitCode = await runMcpStdio({ input: process.stdin, output: process.stdout, env: process.env });\n`);
-  shim = join(root, "crt-mcp.mjs");
-  await build({ entryPoints: [entry], bundle: true, platform: "node", format: "esm", target: "node20", outfile: shim, logLevel: "silent" });
+  shim = await buildMcpShim();
 
   fixture = await startFixture();
   const providers = new ProviderRegistry({ root, env: { CRT_SESSION_STUB: "1" }, log: (l) => logs.push(l) });
   await providers.refresh();
   registry = new SessionRegistry({ projectRoot: root, tasksDir: join(root, ".crt", "tasks"), intakePrompt: "INTAKE", providers, log: (l) => logs.push(l) });
-  proxy = createProxyServer({ target: fixture.url, projectRoot: root, overlayPath: join(root, "overlay.js"), sessions: registry, providers });
-  await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
-  port = (proxy.address() as { port: number }).port;
+  crt = await listen0(createProxyServer({ target: fixture.url, projectRoot: root, overlayPath: join(root, "overlay.js"), sessions: registry, providers }));
+  port = crt.port;
   registry.mcpPort = port;
 }, 60_000);
 
 afterAll(async () => {
   registry.closeAll();
-  proxy.closeAllConnections();
-  await new Promise<void>((r) => proxy.close(() => r()));
+  await crt.close();
   await fixture.close();
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });

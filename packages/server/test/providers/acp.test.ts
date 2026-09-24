@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
-import { build } from "esbuild";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { installFakeGemini } from "../../e2e/fixture/fake-codex-install.mjs";
 import { writeCapture } from "../../src/captures.js";
@@ -45,6 +44,7 @@ import {
 } from "../../src/providers/gemini.js";
 import { renderProviders, type ProviderStatus } from "../../src/session.js";
 import type { SessionEvent } from "../../src/session-events.js";
+import { buildMcpShim, driverHarness, driverOptions, env as fakeEnv, restoreEnv, setEnv, useFake } from "../helpers/fake-cli.js";
 import { samplePost } from "../helpers/sample-capture.js";
 import { runConformance } from "./conformance.js";
 
@@ -53,8 +53,9 @@ import { runConformance } from "./conformance.js";
 //   1. the profiles and the pure pieces (JSON-RPC framing, version parsing, the F-54 policy over
 //      tool kinds and the option mapping, capability negotiation, update → event mapping);
 //   2. preflight and the F-59 conformance scenario against the fake ACP agent from
-//      e2e/fixture/fake-acp.mjs — installed npm-style as `gemini` (the `.cmd` shim on Windows)
-//      for the gemini profile, and run by command for the ad-hoc profile — so `exec.ts`, the
+//      e2e/fixture/fake-acp.mjs — installed npm-style as `gemini` (the `.cmd` shim on Windows) on an
+//      isolated PATH (test/helpers/fake-cli.ts) for the gemini profile, and run by command for the
+//      ad-hoc profile — so `exec.ts`, the
 //      permission round-trip, the real `crt mcp` shim plus internal route all run;
 //   3. the failure lines: protocol-version mismatch, logged out, tier refused, not on PATH.
 
@@ -62,39 +63,21 @@ const FAKE = join(import.meta.dirname, "..", "..", "e2e", "fixture", "fake-acp.m
 let tmp: string;
 let bin: string;
 let shim: string;
-const savedPath = process.env.PATH;
-const savedEnv: Record<string, string | undefined> = {};
 
 beforeAll(async () => {
   tmp = mkdtempSync(join(tmpdir(), "crt-acp-"));
   bin = installFakeGemini(join(tmp, "npm"));
-  const entry = join(tmp, "entry.mjs");
-  writeFileSync(entry, `import { runMcpStdio } from ${JSON.stringify(join(import.meta.dirname, "..", "..", "src", "mcp-stdio.ts"))};\nprocess.exitCode = await runMcpStdio({ input: process.stdin, output: process.stdout, env: process.env });\n`);
-  shim = join(tmp, "crt-mcp.mjs");
-  await build({ entryPoints: [entry], bundle: true, platform: "node", format: "esm", target: "node20", outfile: shim, logLevel: "silent" });
+  shim = await buildMcpShim();
 }, 60_000);
 
 afterAll(() => {
   rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
-function useFake(extra: Record<string, string> = {}): void {
-  process.env.PATH = `${bin}${delimiter}${savedPath ?? ""}`;
-  for (const [k, v] of Object.entries(extra)) {
-    if (!(k in savedEnv)) savedEnv[k] = process.env[k];
-    process.env[k] = v;
-  }
-}
-afterEach(() => {
-  process.env.PATH = savedPath;
-  for (const [k, v] of Object.entries(savedEnv)) {
-    if (v === undefined) delete process.env[k];
-    else process.env[k] = v;
-  }
-  for (const k of Object.keys(savedEnv)) delete savedEnv[k];
-});
+afterEach(restoreEnv);
 
-const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({ PATH: `${bin}${delimiter}${dirname(process.execPath)}`, PATHEXT: ".COM;.EXE;.BAT;.CMD", GEMINI_CLI_HOME: join(tmp, "nohome"), ...extra });
+/** The preflight environment, with a GEMINI_CLI_HOME that holds no login files. */
+const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => fakeEnv(bin, { GEMINI_CLI_HOME: join(tmp, "nohome"), ...extra });
 
 describe("gemini profile (F-42, F-54)", () => {
   it("declares the spike-verified markers, launch signal, capabilities, skills dirs and resume command (F-42, F-44, F-46, F-58)", () => {
@@ -353,7 +336,7 @@ describe("ACP driver on the fake agent (F-49, F-50, F-51, F-54, F-59, N-7)", () 
   });
 
   it("gemini passes the F-59 conformance scenario: permission round-trip, write_task through crt mcp + the internal route, session/cancel, close", async () => {
-    useFake({ GEMINI_API_KEY: "fake-key" });
+    useFake(bin, { GEMINI_API_KEY: "fake-key" });
     const id = randomUUID();
     const r = await runConformance({
       profile: geminiProfile,
@@ -414,7 +397,7 @@ describe("ACP driver on the fake agent (F-49, F-50, F-51, F-54, F-59, N-7)", () 
   }, 60_000);
 
   it("an agent that answers initialize with another protocol version fails with the N-7 line (F-54)", async () => {
-    useFake({ FAKE_ACP_PROTOCOL: "7", GEMINI_API_KEY: "k" });
+    useFake(bin, { FAKE_ACP_PROTOCOL: "7", GEMINI_API_KEY: "k" });
     const { events, driver, waitFor } = start(root, captureDir, shim);
     await waitFor((e) => e.type === "state" && e.state === "error");
     expect(events.filter((e) => e.type === "error")).toEqual([{ type: "error", message: unsupportedProtocol("Gemini", 7) }]);
@@ -423,12 +406,12 @@ describe("ACP driver on the fake agent (F-49, F-50, F-51, F-54, F-59, N-7)", () 
   }, 30_000);
 
   it("logged out and tier-refused agents fail at session/new with the N-7 lines (F-54, N-7)", async () => {
-    useFake({ FAKE_ACP_AUTH: "missing", GEMINI_API_KEY: "k" });
+    useFake(bin, { FAKE_ACP_AUTH: "missing", GEMINI_API_KEY: "k" });
     let s = start(root, captureDir, shim);
     await s.waitFor((e) => e.type === "state" && e.state === "error");
     expect(s.events.at(-1)).toMatchObject({ type: "state", state: "error", detail: GEMINI_NOT_LOGGED_IN });
     s.driver.close();
-    useFake({ FAKE_ACP_AUTH: "tier" });
+    useFake(bin, { FAKE_ACP_AUTH: "tier" });
     s = start(root, captureDir, shim);
     await s.waitFor((e) => e.type === "state" && e.state === "error");
     expect(s.events.at(-1)).toMatchObject({ type: "state", state: "error", detail: GEMINI_TIER_REFUSED });
@@ -436,7 +419,7 @@ describe("ACP driver on the fake agent (F-49, F-50, F-51, F-54, F-59, N-7)", () 
   }, 30_000);
 
   it("images are dropped when the agent does not advertise them, and the init capabilities say so (F-50)", async () => {
-    useFake({ FAKE_ACP_NO_IMAGES: "1", GEMINI_API_KEY: "k" });
+    useFake(bin, { FAKE_ACP_NO_IMAGES: "1", GEMINI_API_KEY: "k" });
     const { events, driver, waitFor } = start(root, captureDir, shim);
     await waitFor((e) => e.type === "permission");
     const card = events.find((e) => e.type === "permission") as Extract<SessionEvent, { type: "permission" }>;
@@ -449,7 +432,7 @@ describe("ACP driver on the fake agent (F-49, F-50, F-51, F-54, F-59, N-7)", () 
   }, 30_000);
 
   it("F-57 models: gemini gets -m and init reports it; an ad-hoc agent is not told and init reports only what it runs (F-54)", async () => {
-    useFake({ GEMINI_API_KEY: "k" });
+    useFake(bin, { GEMINI_API_KEY: "k" });
     const g = start(root, captureDir, shim, { model: "gemini-2.5-flash" });
     await g.waitFor((e) => e.type === "init");
     expect((g.events.find((e) => e.type === "init") as { model: string }).model).toBe("gemini-2.5-flash"); // the fake echoes -m as currentModelId
@@ -462,7 +445,7 @@ describe("ACP driver on the fake agent (F-49, F-50, F-51, F-54, F-59, N-7)", () 
   }, 30_000);
 
   it("gemini not on PATH → the session fails at once with the N-7 install line", async () => {
-    process.env.PATH = tmp;
+    setEnv({ PATH: tmp });
     const { events, driver, waitFor } = start(root, captureDir, shim);
     await waitFor((e) => e.type === "state" && e.state === "error");
     expect(events.filter((e) => e.type !== "user")).toEqual([
@@ -475,29 +458,7 @@ describe("ACP driver on the fake agent (F-49, F-50, F-51, F-54, F-59, N-7)", () 
 
 /** Start the gemini driver on the fake with a capture as the first message; returns a waiter over its events. */
 function start(root: string, captureDir: string, shimFile: string, opts: { model?: string; profile?: typeof geminiProfile } = {}) {
-  const events: SessionEvent[] = [];
-  const driver = (opts.profile ?? geminiProfile).start({
-    id: randomUUID(),
-    cwd: root,
-    systemPromptAppend: "",
-    first: { text: "hello from the test", images: [{ mediaType: "image/png", path: join(captureDir, "viewport.png"), data: "AAAA", label: "viewport" }] },
-    decide: () => ({ kind: "allow" }),
-    writeTask: async () => ({ id: "CRT-0001", path: "x" }),
-    mcp: { command: process.execPath, args: [shimFile], env: { CRT_MCP_TOKEN: "t", CRT_MCP_PORT: "1" } },
-    model: opts.model ?? null,
-  });
-  driver.onEvent((e) => events.push(e));
-  const waitFor = (pred: (e: SessionEvent) => boolean, timeoutMs = 20_000): Promise<void> =>
-    new Promise((resolve, reject) => {
-      const started = Date.now();
-      const tick = () => {
-        if (events.some(pred)) return resolve();
-        if (Date.now() - started > timeoutMs) return reject(new Error(`timed out; events: ${JSON.stringify(events.slice(-5))}`));
-        setTimeout(tick, 20);
-      };
-      tick();
-    });
-  return { events, driver, waitFor };
+  return driverHarness((opts.profile ?? geminiProfile).start(driverOptions({ cwd: root, captureDir, shim: shimFile, imageData: "AAAA", model: opts.model ?? null })));
 }
 
 // startAcpSession is exercised through the profiles above; keep the direct import used for the deps type.
@@ -521,7 +482,7 @@ describe("the Gemini 0.60.0 recordings (F-54 M10 verdicts, N-7)", () => {
   it("initialize.jsonl: the client's F-54 capabilities go out; protocol 1, image prompts, four auth methods and the version come back", () => {
     const lines = parseAcpFixture("initialize.jsonl");
     expect(lines[0]!.msg).toMatchObject({ method: "initialize", params: { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false } } });
-    const init = lines[1]!.msg.result as { protocolVersion: number; agentInfo: { name: string; version: string }; authMethods: unknown[] };
+    const init = lines[1]!.msg.result as { protocolVersion: number; agentInfo: { name: string; version: string }; authMethods: Array<{ id?: string }> };
     expect(init.protocolVersion).toBe(1);
     expect(ACP_PROTOCOL_VERSIONS).toContain(init.protocolVersion);
     expect(init.agentInfo).toEqual({ name: "gemini-cli", title: "Gemini CLI", version: "0.60.0" });
