@@ -1,10 +1,10 @@
 ---
 id: CRT-0035
 title: Typecheck the tests and e2e as `lint`, and share the test helpers the suites copy
-status: backlog
+status: in_progress
 priority: high
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-24T12:15:00+08:00
+updated: 2026-09-24T14:16:00+08:00
 url: null
 route: null
 session: null
@@ -64,3 +64,4 @@ No page capture: from the code review in session e145e7ac, 2026-09-24. The revie
 
 ## Log
 - 2026-09-24T12:15+08:00 — filed by hand from the code review in session e145e7ac (Simon's request).
+- 2026-09-24T14:16+08:00 — claimed by /crt:next, session 6dea7f5e-3832-4f29-8d7a-f3bf9b1230a8, branch crt/CRT-0035-typecheck-tests-and-shared-helpers (worked in the worktree .claude/worktrees/CRT-0035 off origin/main c1f21dc, so parallel sessions keep the main checkout)
