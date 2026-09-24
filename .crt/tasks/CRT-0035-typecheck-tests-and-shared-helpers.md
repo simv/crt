@@ -1,10 +1,10 @@
 ---
 id: CRT-0035
 title: Typecheck the tests and e2e as `lint`, and share the test helpers the suites copy
-status: review
+status: done
 priority: high
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-24T15:40:00+08:00
+updated: 2026-09-24T15:44:00+08:00
 url: null
 route: null
 session: null
@@ -82,3 +82,4 @@ No page capture: from the code review in session e145e7ac, 2026-09-24. The revie
 - 2026-09-24T15:40+08:00 — unblocked: Simon chose (a) in chat (recorded in ## Notes); the speed row now reads "the unit run is faster than before on the same machine (record both)". No code changed since the blocked commit b4ed933.
 - 2026-09-24T15:40+08:00 — verified: speed row, as amended — nothing written under `packages/server` by the unit run (marker check above); before: median 18.3 s over three warm rounds (17.2 / 22.7 / 18.3 s) and 25.5 s for the first, cold run; after: median 15.4 s (14.7 / 15.4 / 15.5 s), 16.1–16.9 s in other runs; same machine, alternating rounds.
 - 2026-09-24T15:40+08:00 — ready for review: changed packages/server/{tsconfig.test.json, package.json, playwright.config.ts, playwright.screenshots.config.ts}, scripts/copy-intake.mjs and four new scripts/e2e `.d.mts`, packages/overlay/build.d.mts (renamed), src/providers/acp.ts (the `AcpUpdate` type only), test/helpers/{fake-cli,http}.ts, e2e/helpers.ts, 16 test files (conformance.ts included) and 9 e2e specs moved onto them, CLAUDE.md (lint line and a helpers convention), package-lock.json (`@types/react-dom`). Reviewer notes: CRT-0040…0043 can now rely on `npm run lint` catching type drift in the tests; the Codex and ACP suites now run on an isolated PATH like Antigravity; a prd-reviewer pass found nothing blocking.
+- 2026-09-24T15:44+08:00 — done; closed in https://github.com/simv/crt/pull/90 (CI 7/7 green, mergeable; prd-reviewer found nothing blocking)
