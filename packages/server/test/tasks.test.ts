@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeCapture } from "../src/captures.js";
 import {
   allocateTaskId,
@@ -68,13 +68,16 @@ function sampleTask(): Task {
 }
 
 describe("ids and slugs (F-31)", () => {
-  it("allocates one above the highest existing id, ignoring other files", () => {
+  it("allocates one above the highest existing id, counting assets/ folders, ignoring other files", () => {
     expect(allocateTaskId(tasksDir)).toBe("CRT-0001");
     writeFileSync(join(tasksDir, "CRT-0003-x.md"), "");
     writeFileSync(join(tasksDir, "CRT-0012-y.md"), "");
     writeFileSync(join(tasksDir, "README.md"), "");
-    mkdirSync(join(tasksDir, "assets", "CRT-0040"), { recursive: true });
+    mkdirSync(join(tasksDir, "assets", "notes"), { recursive: true });
     expect(allocateTaskId(tasksDir)).toBe("CRT-0013");
+    // CRT-0036: a leftover assets/<ID>/ (its task deleted, or another server's) holds its id too.
+    mkdirSync(join(tasksDir, "assets", "CRT-0040"), { recursive: true });
+    expect(allocateTaskId(tasksDir)).toBe("CRT-0041");
     expect(allocateTaskId(join(root, "missing"))).toBe("CRT-0001");
   });
 
@@ -336,6 +339,109 @@ describe("createTask (F-23, F-31, F-32, F-34)", () => {
     const text = readFileSync(created.path, "utf8");
     expect(text).toContain("\nsession: null\nprovider: null\n");
     expect(parseTask(text).sections.Log).toBe(`- ${logStamp(NOW)} — created by intake.`);
+  });
+
+  // CRT-0036: the file is rendered and validated before anything on disk changes, a heading in
+  // the agent's text never breaks the F-32 sections, and an id is never taken twice.
+
+  it("a `## Steps` heading in context no longer fails the write: the capture moves and the file shows `### Steps` (F-32)", () => {
+    const capture = writeCapture(root, samplePost(), NOW);
+    const created = createTask(root, tasksDir, { ...input, context: "Repro:\n\n## Steps\n1. go", captureId: capture.id }, NOW);
+    const text = readFileSync(created.path, "utf8");
+    expect(validateTaskText(text, created.file)).toEqual([]);
+    expect(parseTask(text).sections.Context).toBe("Repro:\n\n### Steps\n1. go");
+    expect(existsSync(capture.dir)).toBe(false);
+    expect(readdirSync(created.assetsDir!)).toContain("capture.json");
+  });
+
+  it("writes `# ` and `## ` lines of every free-text field as `### `; a `# ` comment in a code fence stays (F-32)", () => {
+    const post = samplePost();
+    post.bundle.annotations[1]!.note = "missing a coupon field\n## here";
+    const capture = writeCapture(root, post, NOW);
+    const created = createTask(
+      root,
+      tasksDir,
+      {
+        ...input,
+        summary: "# Cart\nThe total is wrong.",
+        context: "```sh\n# start it\nnpm run dev\n## also this\n```\n# After",
+        evidence: "## Console\nTypeError",
+        ask: "## Fix\nRender the total.",
+        definitionOfDone: ["## Total applies the discount", "Test covers it\n## and this"],
+        notes: "### Already fine\n#hashtag stays",
+        captureId: capture.id,
+      },
+      NOW,
+    );
+    const text = readFileSync(created.path, "utf8");
+    expect(validateTaskText(text, created.file)).toEqual([]);
+    const { sections } = parseTask(text);
+    expect(sections.Summary).toBe("### Cart\nThe total is wrong.");
+    expect(sections.Context).toBe("```sh\n# start it\nnpm run dev\n### also this\n```\n### After");
+    expect(sections.Evidence).toContain('Annotation 2 — pin at (300, 400): "missing a coupon field\n### here"');
+    expect(sections.Evidence.endsWith("\n\n### Console\nTypeError")).toBe(true);
+    expect(sections.Ask).toBe("### Fix\nRender the total.");
+    expect(sections["Definition of Done"]).toBe("- [ ] ### Total applies the discount\n- [ ] Test covers it\n### and this");
+    expect(sections.Notes).toBe("### Already fine\n#hashtag stays");
+  });
+
+  it("changes nothing on disk when the input fails: the capture stays whole and no assets/<ID>/ appears (F-23)", () => {
+    const capture = writeCapture(root, samplePost(), NOW);
+    const before = readdirSync(capture.dir).sort();
+    // "- [ ]" passes the input check but renders as an empty checkbox, which the F-32 check rejects.
+    expect(() => createTask(root, tasksDir, { ...input, definitionOfDone: ["- [ ]"], captureId: capture.id }, NOW)).toThrow(
+      /Definition of Done needs at least one/,
+    );
+    // An ask that is empty after trimming is refused before anything else.
+    expect(() => createTask(root, tasksDir, { ...input, ask: " \n ", captureId: capture.id }, NOW)).toThrow(/ask is required/);
+    expect(readdirSync(capture.dir).sort()).toEqual(before);
+    expect(existsSync(join(tasksDir, "assets"))).toBe(false);
+    expect(readdirSync(tasksDir)).toEqual([]);
+    // So the agent's retry finds its capture.
+    expect(createTask(root, tasksDir, { ...input, captureId: capture.id }, NOW).id).toBe("CRT-0001");
+  });
+
+  it("does not reuse the id of a leftover assets/<ID>/ folder, and leaves that folder alone (F-23, F-31)", () => {
+    writeFileSync(join(tasksDir, "CRT-0012-old.md"), "");
+    mkdirSync(join(tasksDir, "assets", "CRT-0041"), { recursive: true });
+    writeFileSync(join(tasksDir, "assets", "CRT-0041", "viewport.png"), "a deleted task's screenshot");
+    const capture = writeCapture(root, samplePost(), NOW);
+    const created = createTask(root, tasksDir, { ...input, captureId: capture.id }, NOW);
+    expect(created.id).toBe("CRT-0042");
+    expect(created.assetsDir).toBe(join(tasksDir, "assets", "CRT-0042"));
+    expect(readdirSync(join(tasksDir, "assets", "CRT-0041"))).toEqual(["viewport.png"]);
+    expect(readFileSync(join(tasksDir, "assets", "CRT-0041", "viewport.png"), "utf8")).toBe("a deleted task's screenshot");
+  });
+
+  it("takes the next id instead of overwriting when another server wrote the allocated file first (F-31)", async () => {
+    // Two CRT servers on one project (embedded and `crt proxy`) scan the folder at the same moment:
+    // the other one writes its task right after this one's scan, under the id both picked.
+    const theirs = join(tasksDir, "CRT-0001-cart-total-excludes-applied-discount.md");
+    vi.doMock("node:fs", async (importOriginal) => {
+      const fs = await importOriginal<typeof import("node:fs")>();
+      let raced = false;
+      const readdirSync = (dir: string) => {
+        const names = fs.readdirSync(dir);
+        if (!raced && resolve(dir) === resolve(tasksDir)) {
+          raced = true;
+          fs.writeFileSync(theirs, "the other server's task\n");
+        }
+        return names;
+      };
+      return { ...fs, readdirSync };
+    });
+    try {
+      vi.resetModules();
+      const tasks = await import("../src/tasks.js");
+      const created = tasks.createTask(root, tasksDir, input, NOW);
+      expect(created.id).toBe("CRT-0002");
+      expect(basename(created.path)).toBe("CRT-0002-cart-total-excludes-applied-discount.md");
+      expect(readFileSync(theirs, "utf8")).toBe("the other server's task\n");
+      expect(validateTaskText(readFileSync(created.path, "utf8"), created.file)).toEqual([]);
+    } finally {
+      vi.doUnmock("node:fs");
+      vi.resetModules();
+    }
   });
 });
 

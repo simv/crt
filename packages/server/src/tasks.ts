@@ -4,8 +4,8 @@
  * A task is `<tasksDir>/<ID>-<slug>.md`: YAML frontmatter (a fixed set of scalar/list keys — the
  * tiny parser below handles exactly the subset the format uses; unknown keys are ignored since
  * v0.2, PRD-providers F-48) followed by seven `##` sections in a fixed order. IDs are allocated
- * by scanning the directory for the highest existing one, so there is no counter file to
- * conflict on. `README.md` in the same directory is a generated table
+ * by scanning the directory (task files and `assets/` folders) for the highest existing one, so
+ * there is no counter file to conflict on. `README.md` in the same directory is a generated table
  * and is rewritten whenever a task is created or `crt tasks` notices it is stale.
  * Everything is written with `\n` line endings.
  */
@@ -345,10 +345,15 @@ export function serializeTask(task: Task): string {
 // Directory operations
 // ---------------------------------------------------------------------------------------------
 
-/** F-31: `CRT-` + zero-padded 4 digits, one above the highest id present in the directory. */
-export function allocateTaskId(tasksDir: string): string {
-  let max = 0;
-  for (const name of safeReaddir(tasksDir)) {
+/**
+ * F-31: `CRT-` + zero-padded 4 digits, one above the highest id present in the directory. An
+ * `assets/<ID>/` folder holds its id too, so a task deleted after its screenshots moved, or one
+ * another CRT server is writing, never has its id (and its assets folder) handed out again.
+ */
+export function allocateTaskId(tasksDir: string, after?: string): string {
+  // `after`: an id just found taken, so the result is above it even if the scan cannot see it.
+  let max = after === undefined ? 0 : Number(after.slice("CRT-".length));
+  for (const name of [...safeReaddir(tasksDir), ...safeReaddir(join(tasksDir, ASSETS_DIRNAME))]) {
     const m = /^CRT-(\d{4})\b/.exec(name);
     if (m) max = Math.max(max, Number(m[1]));
   }
@@ -483,9 +488,16 @@ export interface CreatedTask {
   assetsDir: string | null;
 }
 
+/** How many ids `createTask` tries when another writer takes the one it allocated (F-31). */
+const MAX_ID_ATTEMPTS = 10;
+
 /**
- * Allocate an id, render the F-32 file, move the capture's assets (F-23), write the file and
- * regenerate the index (F-34). All inside `<root>/.crt/` (N-5).
+ * Allocate an id and render the F-32 file; only once it validates, write it, move the capture's
+ * assets (F-23) and regenerate the index (F-34). Input that does not validate changes nothing on
+ * disk, so the capture is still there when the agent retries. The file is created exclusively:
+ * when another CRT server on the project wrote the same file first, the next id is used instead
+ * of overwriting that task. (Two servers writing different titles under one id in the same
+ * instant still both succeed; only the file name is exclusive.) All inside `<root>/.crt/` (N-5).
  */
 export function createTask(root: string, tasksDir: string, input: NewTaskInput, now: Date = new Date()): CreatedTask {
   const errors: string[] = [];
@@ -496,59 +508,88 @@ export function createTask(root: string, tasksDir: string, input: NewTaskInput, 
   if (input.priority !== undefined && !(TASK_PRIORITIES as readonly string[]).includes(input.priority)) errors.push(`priority must be one of ${TASK_PRIORITIES.join("|")}`);
   if (errors.length) throw new TaskFormatError(errors, "task input");
 
-  mkdirSync(tasksDir, { recursive: true });
-  const id = allocateTaskId(tasksDir);
-  const file = taskFileName(id, input.title.trim());
-  const path = join(tasksDir, file);
-
   let capture: CaptureBundle | null = null;
   let captureDir: string | null = null;
+  let captureFiles: string[] = [];
   if (input.captureId) {
     captureDir = join(capturesDir(root), input.captureId);
     capture = readCapture(captureDir);
+    captureFiles = safeReaddir(captureDir);
   }
 
-  let assetsDir: string | null = null;
-  let assetFiles: string[] = [];
-  if (captureDir && capture) {
-    assetsDir = join(tasksDir, ASSETS_DIRNAME, id);
-    assetFiles = moveAssets(captureDir, assetsDir);
-  }
-
+  const title = input.title.trim();
   const stamp = localIso(now);
-  const dod = input.definitionOfDone.map((d) => d.trim()).filter(Boolean).map((d) => (/^- \[[ x]\]/i.test(d) ? d : `- [ ] ${d.replace(/^-\s*/, "")}`));
+  const dod = input.definitionOfDone
+    .map((d) => demoteHeadings(d.trim()))
+    .filter(Boolean)
+    .map((d) => (/^- \[[ x]\]/i.test(d) ? d : `- [ ] ${d.replace(/^-\s*/, "")}`));
   const who = `${input.session ? `intake session ${input.session}` : "intake"}${input.provider ? ` (${input.provider})` : ""}`;
-  const task: Task = {
-    frontmatter: {
-      id,
-      title: input.title.trim(),
-      status: "backlog",
-      priority: input.priority ?? "normal",
-      created: stamp,
-      updated: stamp,
-      url: capture?.page.url ?? null,
-      route: capture?.framework.route ?? capture?.page.pathname ?? null,
-      session: input.session,
-      provider: input.provider ?? null,
-      tags: (input.tags ?? []).map((t) => t.trim()).filter(Boolean),
-      files: (input.files ?? []).map((f) => f.trim()).filter(Boolean),
-    },
-    sections: {
-      Summary: input.summary.trim(),
-      Context: input.context?.trim() || "See Evidence.",
-      Evidence: renderEvidence(id, capture, assetFiles, input.evidence),
-      Ask: input.ask.trim(),
-      "Definition of Done": dod.join("\n"),
-      Notes: input.notes?.trim() || "None.",
-      Log: `- ${logStamp(now)} — created by ${who}${input.captureId ? ` from capture ${input.captureId}` : ""}.`,
-    },
-  };
-  const text = serializeTask(task);
-  const problems = validateTaskText(text, file);
-  if (problems.length) throw new TaskFormatError(problems, file);
-  writeFileSync(path, text, "utf8");
-  writeIndex(tasksDir);
-  return { id, path, file, assetsDir };
+  const render = (id: string): string =>
+    serializeTask({
+      frontmatter: {
+        id,
+        title,
+        status: "backlog",
+        priority: input.priority ?? "normal",
+        created: stamp,
+        updated: stamp,
+        url: capture?.page.url ?? null,
+        route: capture?.framework.route ?? capture?.page.pathname ?? null,
+        session: input.session,
+        provider: input.provider ?? null,
+        tags: (input.tags ?? []).map((t) => t.trim()).filter(Boolean),
+        files: (input.files ?? []).map((f) => f.trim()).filter(Boolean),
+      },
+      sections: {
+        Summary: demoteHeadings(input.summary.trim()),
+        Context: demoteHeadings(input.context?.trim() || "See Evidence."),
+        // The whole section: the developer's annotation notes are free text too.
+        Evidence: demoteHeadings(renderEvidence(id, capture, captureFiles, input.evidence)),
+        Ask: demoteHeadings(input.ask.trim()),
+        "Definition of Done": dod.join("\n"),
+        Notes: demoteHeadings(input.notes?.trim() || "None."),
+        Log: `- ${logStamp(now)} — created by ${who}${input.captureId ? ` from capture ${input.captureId}` : ""}.`,
+      },
+    });
+
+  let id = allocateTaskId(tasksDir);
+  for (let attempt = 1; ; attempt++) {
+    const file = taskFileName(id, title);
+    const text = render(id);
+    const problems = validateTaskText(text, file);
+    if (problems.length) throw new TaskFormatError(problems, file);
+    const path = join(tasksDir, file);
+    mkdirSync(tasksDir, { recursive: true });
+    try {
+      writeFileSync(path, text, { encoding: "utf8", flag: "wx" });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST" || attempt >= MAX_ID_ATTEMPTS) throw err;
+      id = allocateTaskId(tasksDir, id);
+      continue;
+    }
+    const assetsDir = captureDir ? join(tasksDir, ASSETS_DIRNAME, id) : null;
+    if (captureDir && assetsDir) moveAssets(captureDir, assetsDir);
+    writeIndex(tasksDir);
+    return { id, path, file, assetsDir };
+  }
+}
+
+/**
+ * The agent's free text sits under the file's own `## ` sections, which `validateTaskText` finds
+ * by their heading lines, so a `# ` or `## ` line in it is written as `### `: still a heading to
+ * the reader, never a section. A `# ` line inside a fenced code block is a comment and stays; a
+ * `## ` one is demoted all the same, because the section check does not see fences. Lines are
+ * split on the same terminators the check's `^` does.
+ */
+function demoteHeadings(text: string): string {
+  const parts = text.split(/(\r\n|[\n\r\u2028\u2029])/);
+  let fenced = false;
+  for (let i = 0; i < parts.length; i += 2) {
+    const line = parts[i]!;
+    if (/^ {0,3}(```|~~~)/.test(line)) fenced = !fenced;
+    else if (line.startsWith("## ") || (!fenced && line.startsWith("# "))) parts[i] = `### ${line.slice(line.indexOf(" ") + 1)}`;
+  }
+  return parts.join("");
 }
 
 function readCapture(dir: string): CaptureBundle {
@@ -564,9 +605,8 @@ function readCapture(dir: string): CaptureBundle {
 }
 
 /** F-23: move every file of the capture into the task's asset dir, then remove the capture dir. */
-function moveAssets(captureDir: string, assetsDir: string): string[] {
+function moveAssets(captureDir: string, assetsDir: string): void {
   mkdirSync(assetsDir, { recursive: true });
-  const moved: string[] = [];
   for (const name of safeReaddir(captureDir)) {
     const from = join(captureDir, name);
     const to = join(assetsDir, name);
@@ -577,10 +617,8 @@ function moveAssets(captureDir: string, assetsDir: string): string[] {
       writeFileSync(to, readFileSync(from));
       rmSync(from, { force: true });
     }
-    moved.push(name);
   }
   rmSync(captureDir, { recursive: true, force: true });
-  return moved.sort();
 }
 
 function renderEvidence(id: string, capture: CaptureBundle | null, assetFiles: string[], extra?: string): string {
