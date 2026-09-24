@@ -1,10 +1,10 @@
 ---
 id: CRT-0034
 title: CI and repo hygiene — shipped assets are not docs-only, no live model call in npm test, faster e2e job
-status: backlog
+status: in_progress
 priority: high
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-24T12:15:00+08:00
+updated: 2026-09-24T14:05:00+08:00
 url: null
 route: null
 session: null
@@ -59,3 +59,4 @@ No page capture: from the code review in session e145e7ac on Simon's request, 20
 
 ## Log
 - 2026-09-24T12:15+08:00 — filed by hand from the code review in session e145e7ac (Simon's request).
+- 2026-09-24T14:05+08:00 — claimed by /crt:next, session 4bf8b4eb-eaf7-4067-b66b-c83470b8dd8f, branch crt/CRT-0034-ci-and-repo-hygiene (worked in the sibling worktree review-tool-crt-0034 so concurrent sessions in the main checkout are unaffected)
