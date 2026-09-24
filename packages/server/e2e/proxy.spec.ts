@@ -18,11 +18,11 @@ test("page served through CRT has the overlay launcher in a shadow root (F-2, F-
 
   const host = page.locator("#crt-host");
   await expect(host).toHaveCount(1);
-  const shadow = await host.evaluate((el) => ({
+  const root = await host.evaluate((el) => ({
     hasShadow: el.shadowRoot !== null,
     launcher: el.shadowRoot?.querySelector(".launcher")?.textContent?.trim().split(/\s/)[0] ?? null,
   }));
-  expect(shadow).toEqual({ hasShadow: true, launcher: "CRT" });
+  expect(root).toEqual({ hasShadow: true, launcher: "CRT" });
   await expect(host.locator(".launcher")).toBeVisible();
 });
 

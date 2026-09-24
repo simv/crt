@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
-import { build } from "esbuild";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { installFakeCodex } from "../../e2e/fixture/fake-codex-install.mjs";
 import { writeCapture } from "../../src/captures.js";
@@ -29,6 +28,7 @@ import {
   TurnMapper,
 } from "../../src/providers/codex.js";
 import type { SessionEvent } from "../../src/session-events.js";
+import { buildMcpShim, driverHarness, driverOptions, env, restoreEnv, setEnv, useFake } from "../helpers/fake-cli.js";
 import { samplePost } from "../helpers/sample-capture.js";
 import { parseFixture } from "./codex-fixtures.test.js";
 import { runConformance } from "./conformance.js";
@@ -38,50 +38,26 @@ import { runConformance } from "./conformance.js";
 //   1. the profile and the pure pieces (version parsing, command lines, event mapping) — the
 //      recorded fixtures are replayed through `TurnMapper` without a process;
 //   2. preflight and the F-59 conformance scenario against the fake `codex` from
-//      e2e/fixture/fake-codex.mjs, installed npm-style into a scratch bin on PATH (the `.cmd`
-//      shim on Windows) so `exec.ts`, stdin, process-tree kill and the real `crt mcp` shim plus
-//      internal route all run;
+//      e2e/fixture/fake-codex.mjs, installed npm-style into a scratch bin on an isolated PATH (the
+//      `.cmd` shim on Windows; test/helpers/fake-cli.ts) so `exec.ts`, stdin, process-tree kill and
+//      the real `crt mcp` shim plus internal route all run;
 //   3. the failure lines: a resume whose thread id differs, a stale login, codex not on PATH.
 
 let tmp: string;
 let bin: string;
 let shim: string;
-const savedPath = process.env.PATH;
-const savedEnv: Record<string, string | undefined> = {};
 
 beforeAll(async () => {
   tmp = mkdtempSync(join(tmpdir(), "crt-codex-"));
   bin = installFakeCodex(join(tmp, "npm"));
-  // The `crt mcp` shim as the agent runs it: one file bundled from src (like test/mcp-stdio.test.ts).
-  const entry = join(tmp, "entry.mjs");
-  writeFileSync(entry, `import { runMcpStdio } from ${JSON.stringify(join(import.meta.dirname, "..", "..", "src", "mcp-stdio.ts"))};\nprocess.exitCode = await runMcpStdio({ input: process.stdin, output: process.stdout, env: process.env });\n`);
-  shim = join(tmp, "crt-mcp.mjs");
-  await build({ entryPoints: [entry], bundle: true, platform: "node", format: "esm", target: "node20", outfile: shim, logLevel: "silent" });
+  shim = await buildMcpShim();
 }, 60_000);
 
 afterAll(() => {
   rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
-/** Put the fake first on PATH (the driver resolves through `process.env`) and set fake knobs. */
-function useFake(extra: Record<string, string> = {}): void {
-  process.env.PATH = `${bin}${delimiter}${savedPath ?? ""}`;
-  for (const [k, v] of Object.entries(extra)) {
-    savedEnv[k] = process.env[k];
-    process.env[k] = v;
-  }
-}
-afterEach(() => {
-  process.env.PATH = savedPath;
-  for (const [k, v] of Object.entries(savedEnv)) {
-    if (v === undefined) delete process.env[k];
-    else process.env[k] = v;
-  }
-  for (const k of Object.keys(savedEnv)) delete savedEnv[k];
-});
-
-// A synthetic PATH: the fake's bin first; on POSIX the executable script's `#!/usr/bin/env node` needs node on it too.
-const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({ PATH: `${bin}${delimiter}${dirname(process.execPath)}`, PATHEXT: ".COM;.EXE;.BAT;.CMD", ...extra });
+afterEach(restoreEnv);
 
 describe("codex profile (F-42, F-53)", () => {
   it("declares the M6-verified markers, launch signal, capabilities, telemetry opt-out, skills dirs and resume command (F-42, F-46, F-53, F-58)", () => {
@@ -245,16 +221,16 @@ describe("codex preflight against the npm-style fake (F-53, N-7, N-10)", () => {
   });
 
   it("found through the shim, versioned, logged in / not / unknown per §12 rule 3 (F-53, N-10)", async () => {
-    expect(await codexPreflight({ env: env() })).toEqual({ installed: true, loggedIn: true, version: "0.154.0", problem: null });
-    expect(await codexProfile.preflight({ env: env({ FAKE_CODEX_LOGIN: "1" }) })).toEqual({ installed: true, loggedIn: false, version: "0.154.0", problem: CODEX_NOT_LOGGED_IN });
-    expect(await codexPreflight({ env: env({ FAKE_CODEX_LOGIN: "7" }) })).toMatchObject({ installed: true, loggedIn: "unknown", problem: null });
+    expect(await codexPreflight({ env: env(bin) })).toEqual({ installed: true, loggedIn: true, version: "0.154.0", problem: null });
+    expect(await codexProfile.preflight({ env: env(bin, { FAKE_CODEX_LOGIN: "1" }) })).toEqual({ installed: true, loggedIn: false, version: "0.154.0", problem: CODEX_NOT_LOGGED_IN });
+    expect(await codexPreflight({ env: env(bin, { FAKE_CODEX_LOGIN: "7" }) })).toMatchObject({ installed: true, loggedIn: "unknown", problem: null });
   });
 
   it("too old, and a configured command that is not codex (F-53, N-7)", async () => {
-    expect(await codexPreflight({ env: env({ FAKE_CODEX_VERSION: "0.100.0" }) })).toEqual({ installed: true, loggedIn: "unknown", version: "0.100.0", problem: codexTooOld("0.100.0") });
+    expect(await codexPreflight({ env: env(bin, { FAKE_CODEX_VERSION: "0.100.0" }) })).toEqual({ installed: true, loggedIn: "unknown", version: "0.100.0", problem: codexTooOld("0.100.0") });
     const notCodex = join(tmp, "not-codex.js");
     writeFileSync(notCodex, 'console.log("hello"); process.exit(0);\n');
-    const r = await codexPreflight({ command: [process.execPath, notCodex], env: env() });
+    const r = await codexPreflight({ command: [process.execPath, notCodex], env: env(bin) });
     expect(r).toMatchObject({ installed: true, loggedIn: "unknown", version: null });
     expect(r.problem).toMatch(/codex --version failed/);
   });
@@ -273,7 +249,7 @@ describe("codex driver (F-53, F-59, N-7)", () => {
   });
 
   it("passes the F-59 conformance scenario: fixtures replayed, write_task through crt mcp + the internal route, interrupt by process-tree kill (F-49, F-50, F-51, F-53, F-59)", async () => {
-    useFake();
+    useFake(bin);
     const id = randomUUID();
     const r = await runConformance({
       profile: codexProfile,
@@ -317,7 +293,7 @@ describe("codex driver (F-53, F-59, N-7)", () => {
   }, 60_000);
 
   it("a resume whose thread.started id differs ends the session with the N-7 could-not-resume line (F-53)", async () => {
-    useFake({ FAKE_CODEX_RESUME_MISMATCH: "1" });
+    useFake(bin, { FAKE_CODEX_RESUME_MISMATCH: "1" });
     const { events, driver, waitFor } = start(root, captureDir, shim);
     await waitFor((e) => e.type === "state" && e.state === "idle");
     const init = events.find((e) => e.type === "init") as Extract<SessionEvent, { type: "init" }>;
@@ -329,7 +305,7 @@ describe("codex driver (F-53, F-59, N-7)", () => {
   }, 30_000);
 
   it("a stale login surfaces at turn time as the N-7 not-logged-in line (F-53, N-7)", async () => {
-    useFake({ FAKE_CODEX_AUTH: "stale" });
+    useFake(bin, { FAKE_CODEX_AUTH: "stale" });
     const { events, driver, waitFor } = start(root, captureDir, shim);
     await waitFor((e) => e.type === "state" && e.state === "error");
     expect(events.some((e) => e.type === "init")).toBe(true);
@@ -342,7 +318,7 @@ describe("codex driver (F-53, F-59, N-7)", () => {
   }, 30_000);
 
   it("codex not on PATH → the session fails at once with the N-7 install line (F-53, N-7)", async () => {
-    process.env.PATH = tmp;
+    setEnv({ PATH: tmp });
     const { events, driver, waitFor } = start(root, captureDir, shim);
     await waitFor((e) => e.type === "state" && e.state === "error");
     expect(events).toEqual([
@@ -355,27 +331,5 @@ describe("codex driver (F-53, F-59, N-7)", () => {
 
 /** Start a driver on the fake with a capture as the first message; returns a waiter over its events. */
 function start(root: string, captureDir: string, shimFile: string) {
-  const events: SessionEvent[] = [];
-  const driver = startCodexSession({
-    id: randomUUID(),
-    cwd: root,
-    systemPromptAppend: "",
-    first: { text: "hello from the test", images: [{ mediaType: "image/png", path: join(captureDir, "viewport.png"), label: "viewport" }] },
-    decide: () => ({ kind: "allow" }),
-    writeTask: async () => ({ id: "CRT-0001", path: "x" }),
-    mcp: { command: process.execPath, args: [shimFile], env: { CRT_MCP_TOKEN: "t", CRT_MCP_PORT: "1" } },
-    model: null,
-  });
-  driver.onEvent((e) => events.push(e));
-  const waitFor = (pred: (e: SessionEvent) => boolean, timeoutMs = 20_000): Promise<void> =>
-    new Promise((resolve, reject) => {
-      const started = Date.now();
-      const tick = () => {
-        if (events.some(pred)) return resolve();
-        if (Date.now() - started > timeoutMs) return reject(new Error(`timed out; events: ${JSON.stringify(events.slice(-5))}`));
-        setTimeout(tick, 20);
-      };
-      tick();
-    });
-  return { events, driver, waitFor };
+  return driverHarness(startCodexSession(driverOptions({ cwd: root, captureDir, shim: shimFile })));
 }

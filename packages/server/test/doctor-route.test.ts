@@ -5,34 +5,17 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startFixture, type Fixture } from "../e2e/fixture/server.mjs";
 import { DOCTOR_PATH, DOCTOR_TTL_MS, type DoctorPayload, DoctorRoute, PLUGIN_TTL_MS } from "../src/doctor-route.js";
 import { readConfig } from "../src/init.js";
-import { startStubSession, stubCapabilities } from "../src/providers/stub.js";
-import type { PreflightResult, ProviderProfile } from "../src/providers/types.js";
 import { createProxyServer } from "../src/proxy.js";
 import { ProviderRegistry } from "../src/session.js";
+import { fakeProvider, listen0 } from "./helpers/http.js";
 
 // PRD-polish F-113 / N-24: `GET /__crt/doctor` — the doctor rows built inside the server. The
 // class rows use its seams (a fake clock, a fake target probe, a fake plugin spawn) to pin the
 // caches; the server rows go through createProxyServer for the wire shape (403 on Origin, HEAD,
 // 405, 503 without a registry, the self port row against the real listening port).
 
-function fake(id: string, result: PreflightResult): ProviderProfile {
-  return {
-    id,
-    displayName: id.toUpperCase(),
-    agentName: `${id} CLI`,
-    markers: { private: [`.${id}/`], shared: ["AGENTS.md"] },
-    launchEnv: [],
-    hints: { install: `install ${id}`, login: `${id} login` },
-    capabilities: stubCapabilities("default"),
-    telemetryOptOut: [],
-    preflight: async () => result,
-    resumeCommand: (n) => `${id} resume ${n}`,
-    start: (opts) => startStubSession(opts),
-  };
-}
-
-const alpha = fake("alpha", { installed: true, loggedIn: true, version: "1.0.0", problem: null });
-const beta = fake("beta", { installed: true, loggedIn: false, version: "2.0.0", problem: "beta not logged in — beta login" });
+const alpha = fakeProvider("alpha", { installed: true, loggedIn: true, version: "1.0.0", problem: null });
+const beta = fakeProvider("beta", { installed: true, loggedIn: false, version: "2.0.0", problem: "beta not logged in — beta login" });
 
 let root: string;
 let providers: ProviderRegistry;
@@ -154,18 +137,8 @@ describe("GET /__crt/doctor — the rows (PRD-polish F-113)", () => {
 });
 
 describe("GET /__crt/doctor — on the wire (PRD-polish F-113, N-23)", () => {
-  async function server(opts: { providers?: ProviderRegistry; target?: string | null } = {}) {
-    const srv = createProxyServer({ mode: "embedded", target: opts.target === undefined ? fixture.url : opts.target, projectRoot: root, overlayPath: join(root, "overlay.js"), providers: opts.providers, version: "0.6.0", env: {} });
-    await new Promise<void>((res) => srv.listen(0, "127.0.0.1", res));
-    const port = (srv.address() as { port: number }).port;
-    return {
-      port,
-      origin: `http://localhost:${port}`,
-      close: async () => {
-        srv.closeAllConnections();
-        await new Promise<void>((res) => srv.close(() => res()));
-      },
-    };
+  function server(opts: { providers?: ProviderRegistry; target?: string | null } = {}) {
+    return listen0(createProxyServer({ mode: "embedded", target: opts.target === undefined ? fixture.url : opts.target, projectRoot: root, overlayPath: join(root, "overlay.js"), providers: opts.providers, version: "0.6.0", env: {} }));
   }
 
   it("answers 200 application/json with the self row on the listening port and the app probed; HEAD is allowed, other methods are 405 (F-113)", async () => {

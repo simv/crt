@@ -98,12 +98,12 @@ describe("crt doctor (PRD-setup F-76)", () => {
     ["config.json target down (proxy mode)", facts({ ...PROXY, target: { origin: "http://localhost:3000", source: "project", up: false } }), "FAIL  target    http://localhost:3000 (.crt/config.json) — not responding"],
     [
       "port held by CRT for this project",
-      facts({ port: { port: 4400, state: "crt", thisProject: true, health: { version: "0.3.0", startedAt: null, target: "http://localhost:3000", projectRoot: "C:\\my-app", sessions: 0 } } }),
+      facts({ port: { port: 4400, state: "crt", thisProject: true, health: { version: "0.3.0", startedAt: null, target: "http://localhost:3000", projectRoot: "C:\\my-app", sessions: 0, mode: null } } }),
       "FAIL  port      4400 held by CRT 0.3.0 → http://localhost:3000 (this project) — crt --replace",
     ],
     [
       "port held by CRT for another project",
-      facts({ port: { port: 4400, state: "crt", thisProject: false, health: { version: "0.2.0", startedAt: null, target: "http://localhost:3000", projectRoot: "C:\\other", sessions: 0 } } }),
+      facts({ port: { port: 4400, state: "crt", thisProject: false, health: { version: "0.2.0", startedAt: null, target: "http://localhost:3000", projectRoot: "C:\\other", sessions: 0, mode: null } } }),
       "FAIL  port      4400 held by CRT 0.2.0 → http://localhost:3000 (project C:\\other) — crt starts on 4401, or crt --replace",
     ],
     ["port held by a non-CRT process", facts({ port: { port: 4400, state: "busy" } }), "FAIL  port      4400 in use by a non-CRT process — crt --port 4401"],

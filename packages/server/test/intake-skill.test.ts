@@ -1,29 +1,36 @@
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { copySkills } from "../scripts/copy-intake.mjs";
 import { loadIntakePrompt } from "../src/serve.js";
 import { parseFrontmatter } from "../src/tasks.js";
 
 // F-55: the intake instructions are provider-neutral and the quick-note sentinel sentence that
 // intake-message.ts and the stub depend on survives verbatim in the built copy (dist/intake.md).
-// The build step is run here so the check is on the file the published package ships, whether or
-// not `npm run build` has happened yet on this machine.
+// The build's own copy step (scripts/copy-intake.mjs `copySkills`) is run here into a temp dist, so
+// the check is on the file the published package ships, whether or not `npm run build` has
+// happened yet on this machine, and nothing is written under packages/server.
 
 const here = import.meta.dirname;
 const skill = join(here, "..", "..", "..", "plugin", "skills", "intake", "SKILL.md");
-const dist = join(here, "..", "dist", "intake.md");
 /** Load-bearing for intake-message.ts (QUICK_NOTE_INSTRUCTIONS) and providers/stub.ts. */
 const SENTINEL = "When the first message ends with a paragraph starting `Quick note (F-14)`";
 
 describe("intake skill (F-55)", () => {
   it("the built dist/intake.md carries the quick-note sentinel sentence verbatim and it reaches the agent (F-14, F-55)", () => {
-    execFileSync(process.execPath, [join(here, "..", "scripts", "copy-intake.mjs")], { stdio: "ignore" });
-    const built = readFileSync(dist, "utf8");
-    expect(built).toBe(readFileSync(skill, "utf8"));
-    expect(built).toContain(SENTINEL);
-    expect(loadIntakePrompt(dist)).toContain(SENTINEL);
-  }, 30_000); // copy-intake.mjs also emits the entry declarations through the TypeScript API (F-97), ~3 s cold
+    const out = mkdtempSync(join(tmpdir(), "crt-intake-dist-"));
+    try {
+      copySkills(out);
+      const dist = join(out, "intake.md");
+      const built = readFileSync(dist, "utf8");
+      expect(built).toBe(readFileSync(skill, "utf8"));
+      expect(built).toContain(SENTINEL);
+      expect(loadIntakePrompt(dist)).toContain(SENTINEL);
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  });
 
   it("names no Claude-only tools or variables, tells a sandboxed agent to stop after step 4, and keeps valid frontmatter (F-55)", () => {
     const text = readFileSync(skill, "utf8");

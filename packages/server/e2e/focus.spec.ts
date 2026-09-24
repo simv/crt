@@ -1,22 +1,9 @@
 import { expect, type Page, test } from "@playwright/test";
+import { shadow } from "./helpers.js";
 
 // Regression: typing a note re-rendered the panel and detached the focused textarea on every
 // keystroke, so the caret was lost after each character (F-11).
 
-type Hooks = {
-  annotations(): Array<{ n: number; note: string }>;
-  toggle(force?: boolean): void;
-  togglePop(n: number, force?: boolean): void;
-  addSelect(sel: string): number;
-  addPin(x: number, y: number): number;
-};
-declare global {
-  interface Window {
-    __crt: Hooks;
-  }
-}
-
-const shadow = (page: Page, sel: string) => page.locator("#crt-host").locator(sel);
 
 const activeNote = (page: Page) =>
   page.evaluate(() => {

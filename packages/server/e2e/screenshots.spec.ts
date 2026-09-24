@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
 import { HOLD_PHRASE } from "../src/providers/stub.js";
 import { SCREENSHOTS_CRT_ORIGIN } from "../playwright.screenshots.config.js";
+import { shadow } from "./helpers.js";
 
 // PRD-polish F-116 / N-27 (M22, task CRT-0026): the five README screenshots, written to
 // docs/images/ by `npm run screenshots` (playwright.screenshots.config.ts — not part of `npm run
@@ -24,22 +25,6 @@ import { SCREENSHOTS_CRT_ORIGIN } from "../playwright.screenshots.config.js";
 // row — which the script cannot pin; a second run differs in those and in font rasterisation only
 // (docs/images/README.md lists them).
 
-type Hooks = {
-  welcome(): Promise<void>;
-  setTool(tool: "select" | "box" | "pin" | null): void;
-  hoverAt(x: number, y: number): unknown;
-  addSelect(sel: string): number;
-  setNote(n: number, note: string): void;
-  togglePop(n: number, force?: boolean): void;
-  send(opts?: { n?: number }): Promise<{ id: string }>;
-  threads(): Array<{ sessionId: string; ns: number[]; state: string | null; taskId: string | null; open: boolean }>;
-};
-declare global {
-  interface Window {
-    __crt: Hooks;
-  }
-}
-
 const here = dirname(fileURLToPath(import.meta.url));
 /** Where the PNGs land: docs/images/ at the repo root (the README embeds them from there, M23). */
 const IMAGES = join(here, "..", "..", "..", "docs", "images");
@@ -50,8 +35,6 @@ const STATUS_AUTOHIDE_MS = 15_000;
 /** The placeholder tasks seeded into the scratch project, so the task the stub writes is this one. */
 const SEEDED = 6;
 const WRITTEN_TASK_ID = `CRT-${String(SEEDED + 1).padStart(4, "0")}`;
-
-const shadow = (page: Page, sel: string) => page.locator("#crt-host").locator(sel);
 
 /** One capture: the whole viewport, animations disabled, caret hidden (N-27). */
 async function shoot(page: Page, name: string): Promise<void> {
@@ -79,7 +62,7 @@ async function settle(page: Page): Promise<void> {
  * bubble (PRD-chat F-121: chat.png shows the folded bubble): land the log at its start outright, then wait until it
  * is there — every run shows the same lines, down to the permission card's title and command.
  */
-async function scrolledToStart(page: Page, pop: ReturnType<typeof shadow>): Promise<void> {
+async function scrolledToStart(pop: ReturnType<typeof shadow>): Promise<void> {
   const log = pop.locator(".chat-log");
   // A smooth scroll still in flight under the fake clock can nudge it back, so set it on every poll.
   await expect.poll(() => log.evaluate((el) => (el.scrollTo({ top: 0, behavior: "instant" }), el.scrollTop))).toBe(0);
@@ -94,8 +77,8 @@ async function centre(page: Page, sel: string): Promise<{ x: number; y: number }
 test.beforeAll(async ({ request }) => {
   // The scratch project (e2e/.project/screenshots) starts every run from the same state: no
   // captures, and exactly SEEDED tasks so the id the stub allocates (F-31: highest + 1) is fixed.
-  const health = (await (await request.get(`${SCREENSHOTS_CRT_ORIGIN}/__crt/health`)).json()) as { projectRoot: string };
-  const crt = join(health.projectRoot, ".crt");
+  const served = (await (await request.get(`${SCREENSHOTS_CRT_ORIGIN}/__crt/health`)).json()) as { projectRoot: string };
+  const crt = join(served.projectRoot, ".crt");
   rmSync(join(crt, "captures"), { recursive: true, force: true });
   rmSync(join(crt, "tasks"), { recursive: true, force: true });
   mkdirSync(join(crt, "tasks"), { recursive: true });
@@ -174,7 +157,7 @@ test("chat.png — the popover as the chat: the folded capture bubble, streamed 
   await expect(pop.locator(".perm button.deny")).toBeVisible();
   await expect(shadow(page, '.mark-state[data-n="1"]')).toHaveText("needs permission");
   await settle(page);
-  await scrolledToStart(page, pop);
+  await scrolledToStart(pop);
   // F-65 (CRT-0029): at 600 px the chat popover sits above the dock, never under it.
   const [popBox, dockBox] = await Promise.all([pop.boundingBox(), shadow(page, ".dock").boundingBox()]);
   expect(popBox!.y + popBox!.height).toBeLessThanOrEqual(dockBox!.y);

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { claudePreflight, claudeProfile, describeInput, describeSessionError, loginProblem, startSession, toolLabel } from "../src/providers/claude.js";
 import type { SessionEvent } from "../src/session-events.js";
+import { waitForEvent } from "./helpers/fake-cli.js";
 
 // Pure helpers always run. The real Agent SDK session (PRD §12 smoke test) calls the model, so it
 // runs only when asked for: CRT_SESSION_SMOKE=1, or CLAUDE_CODE_OAUTH_TOKEN set. A CLI credentials
@@ -104,11 +105,14 @@ describe.skipIf(!loggedIn)("Agent SDK session smoke test (F-24, F-25, F-28, F-47
           writes.push(req);
           return { id: "CRT-9999", path: ".crt/tasks/CRT-9999-smoke-test-task.md" };
         },
+        // The Claude driver serves write_task in-process (F-52): the F-49 launch is never spawned.
+        mcp: { command: process.execPath, args: [], env: {} },
+        model: null,
         permissionTimeoutMs: 1000,
       });
       driver.onEvent((e) => events.push(e));
 
-      const idle = await waitFor(events, (e) => (e.type === "state" && (e.state === "idle" || e.state === "error")) || e.type === "error", 120_000);
+      const idle = events[await waitForEvent(events, (e) => (e.type === "state" && (e.state === "idle" || e.state === "error")) || e.type === "error", 0, 120_000)];
       expect(idle, JSON.stringify(events.slice(-5))).toMatchObject({ type: "state", state: "idle" });
 
       const init = events.find((e) => e.type === "init") as Extract<SessionEvent, { type: "init" }>;
@@ -131,21 +135,8 @@ describe.skipIf(!loggedIn)("Agent SDK session smoke test (F-24, F-25, F-28, F-47
       expect(events.find((e) => e.type === "result")).toMatchObject({ ok: true });
 
       driver.close();
-      await waitFor(events, (e) => e.type === "state" && e.state === "ended", 10_000);
+      await waitForEvent(events, (e) => e.type === "state" && e.state === "ended", 0, 10_000);
     },
     150_000,
   );
 });
-
-function waitFor(events: SessionEvent[], pred: (e: SessionEvent) => boolean, timeoutMs: number): Promise<SessionEvent> {
-  return new Promise((resolve, reject) => {
-    const started = Date.now();
-    const tick = () => {
-      const hit = events.find(pred);
-      if (hit) return resolve(hit);
-      if (Date.now() - started > timeoutMs) return reject(new Error(`timed out; last events: ${JSON.stringify(events.slice(-3))}`));
-      setTimeout(tick, 50);
-    };
-    tick();
-  });
-}

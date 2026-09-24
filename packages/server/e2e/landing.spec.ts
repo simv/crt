@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
 import type { DoctorPayload } from "../src/doctor-route.js";
-import { CRT_ORIGIN, FIXTURE_ORIGIN } from "../playwright.config.js";
+import { CRT_ORIGIN } from "../playwright.config.js";
+import { FIXTURE_ORIGIN } from "./helpers.js";
 
 // PRD-polish M21 (F-113, F-114, N-23, N-24): the landing page on the primary stub server. The
 // Checkup rows the script renders equal the route's JSON (the `stub` provider row among them), the

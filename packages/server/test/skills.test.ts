@@ -1,8 +1,8 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { copySkills } from "../scripts/copy-intake.mjs";
 import { CrtError } from "../src/errors.js";
 import { claudeProfile } from "../src/providers/claude.js";
 import { codexProfile } from "../src/providers/codex.js";
@@ -15,7 +15,6 @@ import { parseFrontmatter } from "../src/tasks.js";
 
 const here = import.meta.dirname;
 const pluginSkills = join(here, "..", "..", "..", "plugin", "skills");
-const distSkills = join(here, "..", "dist", "skills");
 
 let root: string;
 beforeEach(() => {
@@ -89,12 +88,14 @@ describe("crt skills install (F-58)", () => {
   });
 
   it("the build ships every plugin skill under dist/skills, the source the CLI installs from (F-58)", () => {
-    execFileSync(process.execPath, [join(here, "..", "scripts", "copy-intake.mjs")], { stdio: "ignore" });
+    // The build's own copy step (scripts/copy-intake.mjs), into a temp dist: nothing is written under packages/server.
+    const distSkills = join(root, "dist", "skills");
+    copySkills(join(root, "dist"));
     for (const name of SKILL_NAMES) {
       expect(readFileSync(join(distSkills, name, "SKILL.md"), "utf8"), name).toBe(readFileSync(join(pluginSkills, name, "SKILL.md"), "utf8"));
     }
     const r = installSkills({ sourceDir: distSkills, root, profile: codexProfile });
     expect(r.dir).toBe(join(root, ".agents", "skills"));
     expect(r.written.length).toBe(7);
-  }, 30_000); // copy-intake.mjs also emits the entry declarations through the TypeScript API (F-97), ~3 s cold
+  });
 });

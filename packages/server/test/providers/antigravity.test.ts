@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
-import { build } from "esbuild";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { installFakeAgy } from "../../e2e/fixture/fake-codex-install.mjs";
 import { writeCapture } from "../../src/captures.js";
@@ -36,6 +35,7 @@ import {
   writeSessionPlugin,
 } from "../../src/providers/antigravity.js";
 import type { SessionEvent } from "../../src/session-events.js";
+import { buildMcpShim, driverHarness, driverOptions, env, restoreEnv, setEnv, useFake } from "../helpers/fake-cli.js";
 import { samplePost } from "../helpers/sample-capture.js";
 import { runConformance } from "./conformance.js";
 
@@ -46,7 +46,8 @@ import { runConformance } from "./conformance.js";
 //      through `AgyMapper` without a process;
 //   2. the recordings themselves (headers, shapes: the F-59 "fixtures parse" item);
 //   3. preflight and the F-59 conformance scenario against the fake `agy` from
-//      e2e/fixture/fake-agy.mjs, installed npm-style into a scratch bin on PATH, so `exec.ts`,
+//      e2e/fixture/fake-agy.mjs, installed npm-style into a scratch bin on an isolated PATH
+//      (test/helpers/fake-cli.ts), so `exec.ts`,
 //      the plugin discovery, the hooks through `cmd /c` / `sh -c`, process-tree kill and the real
 //      `crt mcp` shim plus internal route all run;
 //   4. the failure lines: a resume whose conversation id differs, hooks that did not load, a
@@ -56,50 +57,25 @@ const FIXTURES = join(import.meta.dirname, "fixtures", "antigravity");
 let tmp: string;
 let bin: string;
 let shim: string;
-const savedPath = process.env.PATH;
-const savedEnv: Record<string, string | undefined> = {};
 
 beforeAll(async () => {
   tmp = mkdtempSync(join(tmpdir(), "crt-agy-"));
   bin = installFakeAgy(join(tmp, "npm"));
-  // The `crt mcp` shim as the agent runs it: one file bundled from src (like test/mcp-stdio.test.ts).
-  const entry = join(tmp, "entry.mjs");
-  writeFileSync(entry, `import { runMcpStdio } from ${JSON.stringify(join(import.meta.dirname, "..", "..", "src", "mcp-stdio.ts"))};\nprocess.exitCode = await runMcpStdio({ input: process.stdin, output: process.stdout, env: process.env });\n`);
-  shim = join(tmp, "crt-mcp.mjs");
-  await build({ entryPoints: [entry], bundle: true, platform: "node", format: "esm", target: "node20", outfile: shim, logLevel: "silent" });
+  shim = await buildMcpShim();
 }, 60_000);
 
 afterAll(() => {
   rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
-/**
- * Put the fake on a PATH of its own (the driver resolves through `process.env`) and set fake knobs.
- * Not "first on PATH": exec.ts prefers a bare `.exe` anywhere on PATH over an npm shim, so a real
- * `agy.exe` on the developer's machine would win over the fake's `agy.cmd` (N-9). The shell tools the
- * fake and the driver need (node, cmd/sh, taskkill) come from the node and system directories.
- */
-const SYSTEM_DIRS = process.platform === "win32" ? [join(process.env.SystemRoot ?? "C:\\Windows", "System32")] : ["/usr/bin", "/bin"];
-function useFake(extra: Record<string, string> = {}): void {
-  process.env.PATH = [bin, dirname(process.execPath), ...SYSTEM_DIRS].join(delimiter);
-  for (const [k, v] of Object.entries(extra)) {
-    savedEnv[k] = process.env[k];
-    process.env[k] = v;
-  }
-}
-afterEach(() => {
-  process.env.PATH = savedPath;
-  for (const [k, v] of Object.entries(savedEnv)) {
-    if (v === undefined) delete process.env[k];
-    else process.env[k] = v;
-  }
-  for (const k of Object.keys(savedEnv)) delete savedEnv[k];
-});
+afterEach(restoreEnv);
 
-// A synthetic PATH: the fake's bin first; on POSIX the executable script's `#!/usr/bin/env node` needs node on it too.
-const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({ PATH: `${bin}${delimiter}${dirname(process.execPath)}`, PATHEXT: ".COM;.EXE;.BAT;.CMD", ...extra });
-
-type AgyFixtureEvent = { event: string; conversation_id?: string; step_update?: { step_index: number; state: string; step_type: string; tool_name?: string; text_delta?: string }; result?: { status: string; conversation_id?: string; error?: string; denied_actions?: unknown[] } };
+type AgyFixtureEvent = {
+  event: string;
+  conversation_id?: string;
+  step_update?: { step_index: number; state: string; step_type: string; conversation_id?: string; tool_name?: string; text_delta?: string };
+  result?: { status: string; conversation_id?: string; num_turns?: number; error?: string; denied_actions?: unknown[] };
+};
 
 /** Splits a fixture into its `#` header lines and parsed events; throws on a bad line. */
 function parseFixture(name: string): { header: string[]; events: AgyFixtureEvent[] } {
@@ -253,7 +229,7 @@ describe("antigravity fixtures (F-111, F-59)", () => {
   it("loop.jsonl: two turns in one process share the conversation id and count num_turns up (F-111)", () => {
     const { events } = parseFixture("loop.jsonl");
     const results = events.filter((e) => e.event === "result").map((e) => e.result!);
-    expect(results.map((r) => (r as { num_turns: number }).num_turns)).toEqual([1, 2]);
+    expect(results.map((r) => r.num_turns)).toEqual([1, 2]);
     expect(new Set(events.map((e) => e.conversation_id ?? e.step_update?.conversation_id ?? e.result?.conversation_id).filter(Boolean)).size).toBe(1);
   });
 
@@ -381,11 +357,11 @@ describe("antigravity preflight against the fake (F-111, N-7, N-10)", () => {
   });
 
   it("found, versioned, login unknown (no status command, §12 rule 3); too old; a configured command that is not agy (F-111, N-7)", async () => {
-    expect(await antigravityPreflight({ env: env() })).toEqual({ installed: true, loggedIn: "unknown", version: "1.2.7", problem: null });
-    expect(await antigravityProfile.preflight({ env: env({ FAKE_AGY_VERSION: "1.1.0" }) })).toEqual({ installed: true, loggedIn: "unknown", version: "1.1.0", problem: antigravityTooOld("1.1.0") });
+    expect(await antigravityPreflight({ env: env(bin) })).toEqual({ installed: true, loggedIn: "unknown", version: "1.2.7", problem: null });
+    expect(await antigravityProfile.preflight({ env: env(bin, { FAKE_AGY_VERSION: "1.1.0" }) })).toEqual({ installed: true, loggedIn: "unknown", version: "1.1.0", problem: antigravityTooOld("1.1.0") });
     const notAgy = join(tmp, "not-agy.js");
     writeFileSync(notAgy, 'console.log("hello"); process.exit(0);\n');
-    const r = await antigravityPreflight({ command: [process.execPath, notAgy], env: env() });
+    const r = await antigravityPreflight({ command: [process.execPath, notAgy], env: env(bin) });
     expect(r).toMatchObject({ installed: true, loggedIn: "unknown", version: null });
     expect(r.problem).toMatch(/agy --version failed/);
   });
@@ -404,7 +380,7 @@ describe("antigravity driver (F-111, F-59, N-7)", () => {
   });
 
   it("passes the F-59 conformance scenario: the session plugin, hooks through the shell, write_task through crt mcp + the internal route, interrupt by process-tree kill and resume by conversation id (F-49, F-50, F-51, F-59, F-111)", async () => {
-    useFake();
+    useFake(bin);
     const id = randomUUID();
     const r = await runConformance({
       profile: antigravityProfile,
@@ -452,7 +428,7 @@ describe("antigravity driver (F-111, F-59, N-7)", () => {
   }, 60_000);
 
   it("after an interrupt the next message resumes the conversation in a new process; a different id ends the session with the N-7 line (F-111)", async () => {
-    useFake({ FAKE_AGY_RESUME_MISMATCH: "1" });
+    useFake(bin, { FAKE_AGY_RESUME_MISMATCH: "1" });
     const { events, driver, waitFor } = start(root, captureDir, shim);
     await waitFor((e) => e.type === "state" && e.state === "idle");
     const init = events.find((e) => e.type === "init") as Extract<SessionEvent, { type: "init" }>;
@@ -470,7 +446,7 @@ describe("antigravity driver (F-111, F-59, N-7)", () => {
   }, 40_000);
 
   it("hooks that did not load stop the process before its first real step and end the session (F-111)", async () => {
-    useFake({ FAKE_AGY_NO_HOOKS: "1" });
+    useFake(bin, { FAKE_AGY_NO_HOOKS: "1" });
     const { events, driver, waitFor } = start(root, captureDir, shim);
     await waitFor((e) => e.type === "state" && e.state === "error");
     expect(events.some((e) => e.type === "init")).toBe(true);
@@ -480,7 +456,7 @@ describe("antigravity driver (F-111, F-59, N-7)", () => {
   }, 30_000);
 
   it("a logged-out CLI surfaces as the N-7 not-logged-in line (F-111, N-7)", async () => {
-    useFake({ FAKE_AGY_AUTH: "logged-out" });
+    useFake(bin, { FAKE_AGY_AUTH: "logged-out" });
     const { events, driver, waitFor } = start(root, captureDir, shim);
     await waitFor((e) => e.type === "state" && e.state === "error");
     expect(events.filter((e) => e.type === "error")).toEqual([{ type: "error", message: ANTIGRAVITY_NOT_LOGGED_IN }]);
@@ -488,7 +464,7 @@ describe("antigravity driver (F-111, F-59, N-7)", () => {
   }, 30_000);
 
   it("agy not on PATH → the session fails at once with the N-7 install line (F-111, N-7)", async () => {
-    process.env.PATH = tmp;
+    setEnv({ PATH: tmp });
     const { events, driver, waitFor } = start(root, captureDir, shim);
     await waitFor((e) => e.type === "state" && e.state === "error");
     expect(events).toEqual([
@@ -501,27 +477,5 @@ describe("antigravity driver (F-111, F-59, N-7)", () => {
 
 /** Start a driver on the fake with a capture as the first message; returns a waiter over its events. */
 function start(root: string, captureDir: string, shimFile: string) {
-  const events: SessionEvent[] = [];
-  const driver = startAntigravitySession({
-    id: randomUUID(),
-    cwd: root,
-    systemPromptAppend: "",
-    first: { text: "hello from the test", images: [{ mediaType: "image/png", path: join(captureDir, "viewport.png"), label: "viewport" }] },
-    decide: () => ({ kind: "allow" }),
-    writeTask: async () => ({ id: "CRT-0001", path: "x" }),
-    mcp: { command: process.execPath, args: [shimFile], env: { CRT_MCP_TOKEN: "t", CRT_MCP_PORT: "1" } },
-    model: null,
-  });
-  driver.onEvent((e) => events.push(e));
-  const waitFor = (pred: (e: SessionEvent) => boolean, from = 0, timeoutMs = 20_000): Promise<void> =>
-    new Promise((resolve, reject) => {
-      const started = Date.now();
-      const tick = () => {
-        if (events.some((e, i) => i >= from && pred(e))) return resolve();
-        if (Date.now() - started > timeoutMs) return reject(new Error(`timed out; events: ${JSON.stringify(events.slice(-5))}`));
-        setTimeout(tick, 20);
-      };
-      tick();
-    });
-  return { events, driver, waitFor };
+  return driverHarness(startAntigravitySession(driverOptions({ cwd: root, captureDir, shim: shimFile })));
 }

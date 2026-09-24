@@ -156,7 +156,7 @@ describe("stub provider variants (F-42, F-46)", () => {
       cwd: root,
       systemPromptAppend: "",
       first: { text },
-      decide: (name) => ({ kind: name === "Read" ? "allow" : "deny" }),
+      decide: (name) => (name === "Read" ? { kind: "allow" } : { kind: "deny", reason: "only Read is allowed here" }),
       writeTask: async () => ({ id: "CRT-0001", path: "x" }),
       mcp: { command: "node", args: [], env: {} },
       model: null,

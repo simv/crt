@@ -29,6 +29,7 @@ import type { ProviderProfile } from "../../src/providers/types.js";
 import type { SessionEvent, StartSessionOptions, UserInput, WriteTaskRequest } from "../../src/session-events.js";
 import { handleInternalRoute, INTERNAL_PREFIX, type SessionRegistry } from "../../src/sessions.js";
 import { createTask, displayPath, parseTask, validateTaskText } from "../../src/tasks.js";
+import { waitForEvent } from "../helpers/fake-cli.js";
 
 export interface ConformanceInput {
   profile: ProviderProfile;
@@ -92,17 +93,7 @@ export async function runConformance(input: ConformanceInput): Promise<Conforman
     events.push(e);
     if (e.type === "init") nativeSessionId = e.nativeSessionId;
   });
-  const waitFor = (pred: (e: SessionEvent) => boolean, from = 0): Promise<number> =>
-    new Promise((resolve, reject) => {
-      const started = Date.now();
-      const tick = () => {
-        const i = events.findIndex((e, idx) => idx >= from && pred(e));
-        if (i !== -1) return resolve(i);
-        if (Date.now() - started > timeoutMs) return reject(new Error(`timed out waiting; events so far: ${JSON.stringify(events.slice(-4))}`));
-        setTimeout(tick, 10);
-      };
-      tick();
-    });
+  const waitFor = (pred: (e: SessionEvent) => boolean, from = 0): Promise<number> => waitForEvent(events, pred, from, timeoutMs);
   const idle = (e: SessionEvent) => e.type === "state" && e.state === "idle";
   const errors = () => events.filter((e) => e.type === "error");
 

@@ -1,92 +1,22 @@
-import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
+import { FIXTURE_ORIGIN, health, scratch, startCrt, stopCrts } from "./helpers.js";
 
 // PRD-setup F-69, F-72, F-73, F-78, F-79 (the M12 half of F-90): the guided start driven through
 // `dist/cli.js` with argv — under `crt proxy`, the v0.3 flow verbatim (PRD-embedded F-92, N-21; embedded.spec.ts
 // covers the embedded ready line) —, from scratch projects of their own (never the shared e2e/.project root,
 // whose crt.mjs log a second server would truncate), each spec spawning its own servers with
-// `CRT_SESSION_STUB=1` and stdout captured. Ports 4480–4489 are this file's; the Playwright web
-// servers hold 4497–4499. Nothing here needs a browser.
+// `CRT_SESSION_STUB=1` and stdout captured. The ports are PORTS.start (e2e/helpers.ts). Nothing
+// here needs a browser.
 
 const here = dirname(fileURLToPath(import.meta.url));
-const CLI = join(here, "..", "dist", "cli.js");
-const FIXTURE = "http://localhost:3999";
+const FIXTURE = FIXTURE_ORIGIN;
 const PKG = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8")) as { version: string; dependencies: Record<string, string> };
 const VERSION = PKG.version;
 const SDK_VERSION = PKG.dependencies["@anthropic-ai/claude-agent-sdk"]!;
-
-interface Crt {
-  child: ChildProcess;
-  lines: string[];
-  exited: Promise<number | null>;
-  /** Resolves with the first stdout line matching `re`, or rejects after `timeoutMs`. */
-  waitFor(re: RegExp, timeoutMs?: number): Promise<string>;
-}
-
-const running: ChildProcess[] = [];
-
-/** A scratch project with a `.git` marker (so findProjectRoot stops there) and `port` in .crt/config.json. */
-function scratch(name: string, port: number): string {
-  const root = join(here, ".project", `start-${name}`);
-  rmSync(root, { recursive: true, force: true });
-  mkdirSync(join(root, ".git"), { recursive: true });
-  mkdirSync(join(root, ".crt"), { recursive: true });
-  writeFileSync(join(root, ".crt", "config.json"), JSON.stringify({ tasksDir: ".crt/tasks", target: null, port }, null, 2) + "\n");
-  return root;
-}
-
-function startCrt(cwd: string, args: string[], env: NodeJS.ProcessEnv = {}): Crt {
-  const child = spawn(process.execPath, [CLI, ...args], { cwd, env: { ...process.env, CRT_SESSION_STUB: "1", ...env }, stdio: ["ignore", "pipe", "pipe"], shell: false, windowsHide: true });
-  running.push(child);
-  const lines: string[] = [];
-  const waiters: Array<{ re: RegExp; resolve: (line: string) => void }> = [];
-  const push = (chunk: Buffer) => {
-    for (const line of chunk.toString("utf8").split(/\r?\n/)) {
-      if (!line) continue;
-      lines.push(line);
-      for (const w of [...waiters]) {
-        if (w.re.test(line)) {
-          waiters.splice(waiters.indexOf(w), 1);
-          w.resolve(line);
-        }
-      }
-    }
-  };
-  child.stdout!.on("data", push);
-  child.stderr!.on("data", push);
-  const exited = new Promise<number | null>((resolve) => child.on("exit", (code) => resolve(code)));
-  return {
-    child,
-    lines,
-    exited,
-    waitFor: (re, timeoutMs = 20_000) =>
-      new Promise<string>((resolve, reject) => {
-        const hit = lines.find((l) => re.test(l));
-        if (hit) return resolve(hit);
-        const timer = setTimeout(() => reject(new Error(`no line matching ${re} within ${timeoutMs} ms; got:\n${lines.join("\n")}`)), timeoutMs);
-        waiters.push({
-          re,
-          resolve: (line) => {
-            clearTimeout(timer);
-            resolve(line);
-          },
-        });
-      }),
-  };
-}
-
-async function health(port: number): Promise<Record<string, unknown> | null> {
-  try {
-    const res = await fetch(`http://localhost:${port}/__crt/health`);
-    return res.ok ? ((await res.json()) as Record<string, unknown>) : null;
-  } catch {
-    return null;
-  }
-}
 
 function listenPlain(port: number): Promise<Server> {
   return new Promise((resolve, reject) => {
@@ -99,16 +29,10 @@ function listenPlain(port: number): Promise<Server> {
   });
 }
 
-test.afterEach(async () => {
-  for (const c of running.splice(0)) {
-    if (c.exitCode === null) c.kill();
-  }
-  // Give the OS a moment to release the ports before the next spec binds them.
-  await new Promise((r) => setTimeout(r, 300));
-});
+test.afterEach(stopCrts);
 
 test("`crt 3999` starts with no prompt and remembers the target; the second run asks nothing and still names 3999 (F-69, F-72, N-15)", async () => {
-  const root = scratch("remember", 4485);
+  const root = scratch("start", "remember", 4485);
   const first = startCrt(root, ["proxy", "3999", "--yes"]);
   const ready = await first.waitFor(/^CRT ready at /);
   // PRD-embedded F-93: the proxy-mode ready line reads `→ <target> (proxy; …)`.
@@ -144,7 +68,7 @@ test("`crt 3999` starts with no prompt and remembers the target; the second run 
 });
 
 test("a second start on the same target and project exits 0 with the reuse line while the first keeps serving (F-73)", async () => {
-  const root = scratch("reuse", 4489);
+  const root = scratch("start", "reuse", 4489);
   const first = startCrt(root, ["proxy", "--target", FIXTURE, "--yes"]);
   await first.waitFor(/^CRT ready at http:\/\/localhost:4489 /);
   const before = await health(4489);
@@ -172,7 +96,7 @@ test("a second start on the same target and project exits 0 with the reuse line 
 });
 
 test("a non-CRT listener on the port makes the next start take the next port and say so (F-73)", async () => {
-  const root = scratch("busy", 4487);
+  const root = scratch("start", "busy", 4487);
   const plain = await listenPlain(4487);
   try {
     const crt = startCrt(root, ["proxy", "--target", FIXTURE, "--yes"]);
@@ -187,11 +111,11 @@ test("a non-CRT listener on the port makes the next start take the next port and
 });
 
 test("an explicit --port is never stepped around, and --replace stops the CRT on the port through the shutdown route (F-73, F-79)", async () => {
-  const root = scratch("replace", 4483);
+  const root = scratch("start", "replace", 4483);
   const first = startCrt(root, ["proxy", "--target", FIXTURE, "--yes"]);
   await first.waitFor(/^CRT ready at http:\/\/localhost:4483 /);
 
-  const other = scratch("replace-other", 4483);
+  const other = scratch("start", "replace-other", 4483);
   const refused = startCrt(other, ["proxy", "--target", FIXTURE, "--yes", "--port", "4483"]);
   expect(await refused.exited).toBe(1);
   expect(refused.lines.find((l) => l.startsWith("crt: port 4483"))).toMatch(/^crt: port 4483 is already in use by CRT .* \(→ http:\/\/localhost:3999, project .*\) — stop the other process, run `crt --replace`, or pass --port <n>$/);
@@ -211,7 +135,7 @@ test("an explicit --port is never stepped around, and --replace stops the CRT on
 });
 
 test("crt --version, crt help and an unknown command (F-69)", async () => {
-  const root = scratch("grammar", 4481);
+  const root = scratch("start", "grammar", 4481);
   const version = startCrt(root, ["--version"]);
   expect(await version.exited).toBe(0);
   expect(version.lines).toEqual([`crt ${VERSION} (agent sdk ${SDK_VERSION})`]);
@@ -228,7 +152,7 @@ test("crt --version, crt help and an unknown command (F-69)", async () => {
 });
 
 test("an un-initialised project: `crt` off a terminal refuses with the F-99 line, `crt tasks` is not an error, `crt --yes` sets it up and starts (F-99, F-100)", async () => {
-  const root = scratch("uninit", 4480);
+  const root = scratch("start", "uninit", 4480);
   rmSync(join(root, ".crt"), { recursive: true, force: true });
   const refused = startCrt(root, ["--no-open", "--port", "4480"]);
   expect(await refused.exited).toBe(1);

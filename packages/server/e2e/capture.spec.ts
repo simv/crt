@@ -2,48 +2,14 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { type CaptureBundle, validateCaptureBundle } from "../src/capture-schema.js";
-import { CRT_ORIGIN, FIXTURE_ORIGIN } from "../playwright.config.js";
+import { CRT_ORIGIN } from "../playwright.config.js";
+import { FIXTURE_ORIGIN, shadow } from "./helpers.js";
 
 // M2 (task CRT-0002 Ask 8): the fixture's /app and /react pages are loaded on the app's own origin
 // (baseURL) with the overlay coming from the embedded `crt serve` through the loader tag
 // (PRD-embedded F-110, M18), and the overlay is driven through its `window.__crt` hooks plus real
 // pointer/keyboard input. Everything here runs on the same machine as the server, so written
 // captures are read from disk.
-
-type Hooks = {
-  annotations(): Array<{ n: number; kind: string; note: string; label: string | null; detached: boolean }>;
-  selectorFor(sel: string): string;
-  xpathFor(sel: string): string;
-  componentsFor(sel: string): {
-    framework: string;
-    components: Array<{ name: string; kind: string }>;
-    source: { file: string; line: number | null; column: number | null; via: string } | null;
-  };
-  framework(): { name: string; bundler: string; route: string | null; hints: string[] };
-  consoleEntries(): Array<{ level: string; message: string; stack: string | null }>;
-  networkEntries(): Array<{ method: string; url: string; status: number | null; error: string | null; via: string }>;
-  embeddedMode(): boolean;
-  isOpen(): boolean;
-  toggle(force?: boolean): void;
-  setTool(t: "select" | "box" | "pin" | null): void;
-  currentTool(): string | null;
-  hoverAt(x: number, y: number): unknown;
-  addSelect(sel: string): number;
-  addBox(r: { x: number; y: number; width: number; height: number }): number;
-  addPin(x: number, y: number): number;
-  setNote(n: number, note: string): void;
-  remove(n: number): void;
-  clear(): void;
-  capture(): Promise<{ bundle: CaptureBundle; imageNames: string[] }>;
-  send(): Promise<{ id: string; dir: string; files: string[] }>;
-};
-declare global {
-  interface Window {
-    __crt: Hooks;
-  }
-}
-
-const shadow = (page: Page, sel: string) => page.locator("#crt-host").locator(sel);
 
 async function projectRoot(page: Page): Promise<string> {
   const res = await page.request.get(`${CRT_ORIGIN}/__crt/health`);

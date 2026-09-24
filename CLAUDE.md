@@ -11,7 +11,7 @@ Entry points: `packages/server/src/cli.ts` → `serve.ts` (resolves the mode —
 ## Commands
 
 - `npm ci` — install (npm workspaces, Node ≥ 20)
-- `npm run check` — typecheck + unit tests + build (what CI runs; `lint` is a no-op — no package has a lint script yet)
+- `npm run check` — typecheck + lint + unit tests + build (what CI runs; `lint` typechecks the unit tests, the e2e specs and the configs with `packages/server/tsconfig.test.json`: Vitest and Playwright strip types without checking them)
 - CI skips `check` and `e2e` for docs-only changes (`.github/workflows/ci.yml` `changes` job: `docs/PRD*.md`, every file under `docs/spikes/`, `docs/design/` or `.crt/tasks/`, and `.crt/README.md`, `CLAUDE.md`, `SECURITY.md`, `.claude/agents/*.md`); `README.md`, `plugin/**`, `docs/brand/`, `docs/images/` and the eight reference pages `docs/*.md` count as code because the build ships or tests read them (`test/docs.test.ts`, `brand.test.ts`, `docs-images.test.ts`). `e2e` is skipped at the job level; `check` skips its steps instead, because a matrix job skipped at the job level reports under the unexpanded name and the ruleset's required `check (<os>)` contexts never arrive.
 - `npm test` — Vitest unit tests (`packages/server/test`)
 - `npm run e2e` — Playwright smoke (`packages/server/e2e`): the fixture app on :3999 is the app under test (`baseURL`) and carries the loader tag for a real embedded `crt serve` on :4499 (`FIXTURE_CRT_ORIGIN`; `?crt=<origin>` picks the sandboxed/codex servers per page); `proxy.spec.ts` runs against a dedicated `crt proxy` on :4496 (PRD-embedded F-110, M18). Needs `npm run build` first and `npx playwright install chromium` once. Runs with `CRT_SESSION_STUB=1` from a scratch project, so no Claude login and nothing lands in this repo's `.crt/`.
@@ -28,6 +28,7 @@ Entry points: `packages/server/src/cli.ts` → `serve.ts` (resolves the mode —
 - `CRT_SESSION_STUB=1` selects the `stub` provider (`providers/stub.ts`, scripted intake, no login) ahead of every other resolution step. Unit tests and e2e exercise the chat path this way.
 - Intake instructions have one source, `plugin/skills/intake/SKILL.md`; edit the skill, never `dist/intake.md`.
 - Overlay pure logic is unit-tested from `packages/server/test` by importing `../../overlay/src/*` directly (e.g. `owner-stack.test.ts`).
+- Test plumbing is shared, never copied: `test/helpers/fake-cli.ts` (fake agent CLIs on an isolated PATH, env restore, the `crt mcp` shim, `driverHarness`), `test/helpers/http.ts` (`listen0`, `apiAt`, `fakeProvider`), `e2e/helpers.ts` (the `PORTS` registry, the `window.__crt` type, `shadow`, `scratch`/`startCrt`/`stopCrts`/`health`). A `.mjs` a test imports gets a `.d.mts` next to it.
 - Overlay is framework-free, renders inside Shadow DOM, no globals except `window.__crt` for debugging.
 - Overlay colours come from `packages/overlay/src/tokens.ts`; the landing page repeats them and a test pins the two equal (PRD-polish F-112).
 - The browser entries (`packages/overlay/src/{loader,react}.ts`) and `packages/server/src/integrations/` import nothing from the server runtime (`init.ts`/`project.ts` excepted) and are dev-only by construction (PRD-embedded N-18): every browser-facing body sits behind `process.env.NODE_ENV !== "production"` in the positive form, and `exports` routes the `production` condition to the no-op modules.

@@ -110,7 +110,7 @@ describe("first intake message (F-24)", () => {
     expect(msg.text).toContain(`Developer's message: "the whole page feels slow after applying a promo"`);
     expect(msg.text).toContain("Annotations (0):");
     expect(msg.text).toContain("(none — the developer is asking about the page as a whole");
-    expect(msg.images.map((i) => i.label)).toEqual(["viewport"]);
+    expect(msg.images?.map((i) => i.label)).toEqual(["viewport"]);
     expect(summarizeCapture(post.bundle)).toBe("the whole page feels slow after applying a promo");
   });
 

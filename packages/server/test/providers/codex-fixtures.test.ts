@@ -65,8 +65,8 @@ describe("codex fixtures (F-53, M6)", () => {
   it("stale login surfaces as error + turn.failed, not in `login status` (N-7)", () => {
     const { events } = parseFixture("first-turn-auth-failed.jsonl");
     expect(types(events)).toEqual(["thread.started", "turn.started", "error", "turn.failed"]);
-    const failed = events.find((e) => e.type === "turn.failed") as { error: { message: string } };
-    expect(failed.error.message).toMatch(/log out and sign in again/);
+    const failed = events.find((e) => e.type === "turn.failed")?.error as { message: string } | undefined;
+    expect(failed?.message).toMatch(/log out and sign in again/);
   });
 
   it("exec resume re-emits thread.started with the same thread_id (F-53 resume assertion)", () => {
@@ -117,7 +117,7 @@ describe("codex fixtures (F-53, M6)", () => {
     const events = parseFixture("first-turn.jsonl").events;
     const messages = items(events, "item.completed").filter((i) => i.type === "agent_message");
     expect(messages.length).toBeGreaterThan(0);
-    expect(typeof messages[0].text).toBe("string");
+    expect(typeof messages[0]?.text).toBe("string");
     expect(types(events).filter((t) => /delta|item\.updated/.test(t))).toEqual([]);
     // command_execution and mcp_tool_call get item.started first; agent_message does not
     expect(items(events, "item.started").map((i) => i.type)).toEqual(["mcp_tool_call", "command_execution"]);

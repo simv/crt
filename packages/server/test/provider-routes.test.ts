@@ -1,17 +1,17 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startFixture, type Fixture } from "../e2e/fixture/server.mjs";
 import { writeCapture } from "../src/captures.js";
 import { readConfig } from "../src/init.js";
-import { startStubSession, stubCapabilities } from "../src/providers/stub.js";
-import type { PreflightResult, ProviderProfile } from "../src/providers/types.js";
+import { stubCapabilities } from "../src/providers/stub.js";
+import type { PreflightResult } from "../src/providers/types.js";
 import { createProxyServer } from "../src/proxy.js";
 import { ProviderRegistry } from "../src/session.js";
 import type { SessionEvent, StartSessionOptions } from "../src/session-events.js";
 import { SessionRegistry } from "../src/sessions.js";
+import { apiAt, fakeProvider, listen0 } from "./helpers/http.js";
 import { samplePost } from "./helpers/sample-capture.js";
 
 // F-57 routes and their N-8 allowlist, against fake profiles with scripted preflights: `alpha`
@@ -19,7 +19,7 @@ import { samplePost } from "./helpers/sample-capture.js";
 // show PUT replacing the flag (F-43 step 2) without a restart.
 
 let fixture: Fixture;
-let proxy: Server;
+let server: Awaited<ReturnType<typeof listen0>>;
 let crt: string;
 let root: string;
 let providers: ProviderRegistry;
@@ -27,27 +27,8 @@ let sessions: SessionRegistry;
 let preflights = 0;
 const started: StartSessionOptions[] = [];
 
-function fake(id: string, result: PreflightResult): ProviderProfile {
-  return {
-    id,
-    displayName: id.toUpperCase(),
-    agentName: `${id} CLI`,
-    markers: { private: [`.${id}/`], shared: ["AGENTS.md"] },
-    launchEnv: [],
-    hints: { install: `install ${id}`, login: `${id} login` },
-    capabilities: stubCapabilities("default"),
-    telemetryOptOut: [],
-    preflight: async () => {
-      preflights++;
-      return result;
-    },
-    resumeCommand: (n) => `${id} resume ${n}`,
-    start: (opts) => {
-      started.push(opts);
-      return startStubSession(opts);
-    },
-  };
-}
+/** A fake profile whose preflights are counted and whose session options are kept. */
+const fake = (id: string, result: PreflightResult) => fakeProvider(id, result, { preflight: () => preflights++, start: (opts) => started.push(opts) });
 
 const alpha = fake("alpha", { installed: true, loggedIn: true, version: "1.0.0", problem: null });
 const beta = fake("beta", { installed: false, loggedIn: "unknown", version: null, problem: "beta not found on PATH — install beta" });
@@ -60,29 +41,19 @@ beforeAll(async () => {
   providers = new ProviderRegistry({ root, env: {}, config: readConfig(root), flag: "alpha", profiles: [alpha, beta] });
   await providers.refresh();
   sessions = new SessionRegistry({ projectRoot: root, tasksDir: join(root, ".crt", "tasks"), intakePrompt: "INTAKE", providers, permissionTimeoutMs: 200 });
-  proxy = createProxyServer({ target: fixture.url, projectRoot: root, overlayPath: join(root, "overlay.js"), sessions, providers });
-  await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
-  const port = (proxy.address() as { port: number }).port;
-  sessions.mcpPort = port;
-  crt = `http://localhost:${port}`;
+  server = await listen0(createProxyServer({ target: fixture.url, projectRoot: root, overlayPath: join(root, "overlay.js"), sessions, providers }));
+  sessions.mcpPort = server.port;
+  crt = server.origin;
 });
 
 afterAll(async () => {
   sessions.closeAll();
-  proxy.closeAllConnections();
-  await new Promise<void>((r) => proxy.close(() => r()));
+  await server.close();
   await fixture.close();
   rmSync(root, { recursive: true, force: true });
 });
 
-async function api(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<{ status: number; json: Record<string, unknown> }> {
-  const res = await fetch(crt + path, {
-    method,
-    headers: { ...(body === undefined ? {} : { "content-type": "application/json" }), ...headers },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  return { status: res.status, json: (await res.json().catch(() => ({}))) as Record<string, unknown> };
-}
+const api = apiAt(() => crt);
 
 describe("GET /__crt/providers (F-45, F-57)", () => {
   it("returns the F-57 payload — active, decision, one row per listed profile — and never the stub without CRT_SESSION_STUB (F-42, F-57)", async () => {
@@ -137,13 +108,8 @@ describe("PUT /__crt/config (F-43, F-57, N-8)", () => {
     const reg = new ProviderRegistry({ root, env: {}, config: readConfig(root), flag: "alpha", profiles: [alpha, gamma] });
     await reg.refresh();
     const sess = new SessionRegistry({ projectRoot: root, tasksDir: join(root, ".crt", "tasks"), intakePrompt: "INTAKE", providers: reg });
-    const server = createProxyServer({ target: fixture.url, projectRoot: root, overlayPath: join(root, "overlay.js"), sessions: sess, providers: reg });
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-    const base = `http://localhost:${(server.address() as { port: number }).port}`;
-    const call = async (method: string, path: string, body?: unknown) => {
-      const res = await fetch(base + path, { method, headers: body === undefined ? {} : { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
-      return { status: res.status, json: (await res.json()) as Record<string, unknown> };
-    };
+    const other = await listen0(createProxyServer({ target: fixture.url, projectRoot: root, overlayPath: join(root, "overlay.js"), sessions: sess, providers: reg }));
+    const call = apiAt(() => other.origin);
     try {
       expect((await call("GET", "/__crt/health")).json).toMatchObject({ ok: true, provider: "alpha" });
       const put = await call("PUT", "/__crt/config", { provider: "gamma", models: { gamma: "gamma-mini" } });
@@ -167,8 +133,7 @@ describe("PUT /__crt/config (F-43, F-57, N-8)", () => {
       expect(reg.modelFor("gamma")).toBe("gamma-mini");
     } finally {
       sess.closeAll();
-      server.closeAllConnections();
-      await new Promise<void>((r) => server.close(() => r()));
+      await other.close();
       rmSync(join(root, ".crt", "config.local.json"), { force: true });
     }
   });

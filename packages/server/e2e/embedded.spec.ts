@@ -1,12 +1,12 @@
 import { build } from "esbuild";
-import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import type { SessionEvent } from "../src/session-events.js";
 import { validateTaskText, writeIndex } from "../src/tasks.js";
-import { CRT_ORIGIN, FIXTURE_ORIGIN } from "../playwright.config.js";
+import { CRT_ORIGIN } from "../playwright.config.js";
+import { FIXTURE_ORIGIN, health, scratch, shadow, startCrt, stopCrts } from "./helpers.js";
 
 // PRD-embedded M15 (the server/overlay half of F-110): embedded mode end to end.
 //   1. The cross-origin loop on the shared embedded server (CRT_ORIGIN; since M18 every browser
@@ -21,108 +21,14 @@ import { CRT_ORIGIN, FIXTURE_ORIGIN } from "../playwright.config.js";
 //      /, the F-93 ready and reuse lines, the F-94 line when CRT "opened" (CRT_BROWSER, a no-op
 //      opener) an app page that never loads the loader; and, with the ES module loader bundled
 //      into a fixture page by esbuild here (what an app's bundler does), the pill after the server
-//      stops and the overlay back on focus once it runs again (F-96 step 6). Ports 4460–4469 are this file's.
+//      stops and the overlay back on focus once it runs again (F-96 step 6). The ports are PORTS.embedded (e2e/helpers.ts).
 
 const here = dirname(fileURLToPath(import.meta.url));
-const CLI = join(here, "..", "dist", "cli.js");
 const LOADER_SRC = join(here, "..", "..", "overlay", "src", "loader.ts");
 const FIXTURE = FIXTURE_ORIGIN;
 const NEVER_LOADED = "crt: opened http://localhost:3999 but the page never loaded the CRT loader — add the integration (`crt init` prints the snippet, /crt:init applies it), or run `crt proxy`";
 
-type Snapshot = { sessionId: string | null; state: string | null; taskId: string | null; events: SessionEvent[] };
-type Hooks = {
-  embeddedMode(): boolean;
-  crtOrigin(): string;
-  addSelect(sel: string): number;
-  setNote(n: number, note: string): void;
-  send(opts?: { n?: number }): Promise<{ id: string; dir: string; files: string[] }>;
-  consoleEntries(): Array<{ level: string; message: string }>;
-  threads(): Array<{ sessionId: string | null; state: string }>;
-  loader?: { origin: string; retry(): void };
-  chat: { snapshot(): Snapshot; discard(): Promise<void> };
-};
-declare global {
-  interface Window {
-    __crt: Hooks;
-  }
-}
-
-const shadow = (page: Page, sel: string) => page.locator("#crt-host").locator(sel);
-
-interface Crt {
-  child: ChildProcess;
-  lines: string[];
-  exited: Promise<number | null>;
-  waitFor(re: RegExp, timeoutMs?: number): Promise<string>;
-}
-
-const running: ChildProcess[] = [];
-
-/** A scratch project with a `.git` marker and `port` in .crt/config.json (no `mode`: embedded is the default, F-91). */
-function scratch(name: string, port: number): string {
-  const root = join(here, ".project", `embedded-${name}`);
-  rmSync(root, { recursive: true, force: true });
-  mkdirSync(join(root, ".git"), { recursive: true });
-  mkdirSync(join(root, ".crt"), { recursive: true });
-  writeFileSync(join(root, ".crt", "config.json"), JSON.stringify({ tasksDir: ".crt/tasks", target: null, port }, null, 2) + "\n");
-  return root;
-}
-
-function startCrt(cwd: string, args: string[], env: NodeJS.ProcessEnv = {}): Crt {
-  const child = spawn(process.execPath, [CLI, ...args], { cwd, env: { ...process.env, CRT_SESSION_STUB: "1", ...env }, stdio: ["ignore", "pipe", "pipe"], shell: false, windowsHide: true });
-  running.push(child);
-  const lines: string[] = [];
-  const waiters: Array<{ re: RegExp; resolve: (line: string) => void }> = [];
-  const push = (chunk: Buffer) => {
-    for (const line of chunk.toString("utf8").split(/\r?\n/)) {
-      if (!line) continue;
-      lines.push(line);
-      for (const w of [...waiters]) {
-        if (w.re.test(line)) {
-          waiters.splice(waiters.indexOf(w), 1);
-          w.resolve(line);
-        }
-      }
-    }
-  };
-  child.stdout!.on("data", push);
-  child.stderr!.on("data", push);
-  const exited = new Promise<number | null>((resolve) => child.on("exit", (code) => resolve(code)));
-  return {
-    child,
-    lines,
-    exited,
-    waitFor: (re, timeoutMs = 20_000) =>
-      new Promise<string>((resolve, reject) => {
-        const hit = lines.find((l) => re.test(l));
-        if (hit) return resolve(hit);
-        const timer = setTimeout(() => reject(new Error(`no line matching ${re} within ${timeoutMs} ms; got:\n${lines.join("\n")}`)), timeoutMs);
-        waiters.push({
-          re,
-          resolve: (line) => {
-            clearTimeout(timer);
-            resolve(line);
-          },
-        });
-      }),
-  };
-}
-
-async function health(port: number): Promise<Record<string, unknown> | null> {
-  try {
-    const res = await fetch(`http://localhost:${port}/__crt/health`);
-    return res.ok ? ((await res.json()) as Record<string, unknown>) : null;
-  } catch {
-    return null;
-  }
-}
-
-test.afterEach(async () => {
-  for (const c of running.splice(0)) {
-    if (c.exitCode === null) c.kill();
-  }
-  await new Promise((r) => setTimeout(r, 300));
-});
+test.afterEach(stopCrts);
 
 test.describe("embedded mode on the shared server (F-95, F-96)", () => {
   test.afterEach(async ({ page }) => {
@@ -222,7 +128,7 @@ test.describe("an embedded server of its own (F-91, F-93, F-94, F-96)", () => {
   test.setTimeout(90_000);
 
   test("health says embedded, / is the landing page, the ready and reuse lines, and the line once the opened page never loads the loader (F-91, F-93, F-94)", async ({ page }) => {
-    const root = scratch("landing", 4461);
+    const root = scratch("embedded", "landing", 4461);
     // CRT_BROWSER: "open" the app with a command that does nothing (node exits on a URL argument) — no real browser.
     const crt = startCrt(root, ["--target", FIXTURE, "--yes", "--open"], { CRT_BROWSER: process.execPath });
     const ready = await crt.waitFor(/^CRT ready at /);
@@ -281,7 +187,7 @@ test.describe("an embedded server of its own (F-91, F-93, F-94, F-96)", () => {
     const bundle = built.outputFiles![0]!.text;
     await page.route(`${FIXTURE}/embedded-bundle.js`, (route) => route.fulfill({ status: 200, contentType: "text/javascript; charset=utf-8", body: bundle }));
 
-    const root = scratch("pill", 4462);
+    const root = scratch("embedded", "pill", 4462);
     const crt = startCrt(root, ["--yes", "--no-open"]);
     const ready = await crt.waitFor(/^CRT ready at /);
     // No app known (3999 is not a probed port): the F-91 line, no `for <app>`, nothing opened.
