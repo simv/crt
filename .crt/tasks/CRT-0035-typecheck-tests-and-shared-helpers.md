@@ -1,10 +1,10 @@
 ---
 id: CRT-0035
 title: Typecheck the tests and e2e as `lint`, and share the test helpers the suites copy
-status: blocked
+status: review
 priority: high
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-24T14:50:00+08:00
+updated: 2026-09-24T15:40:00+08:00
 url: null
 route: null
 session: null
@@ -54,13 +54,14 @@ No page capture: from the code review in session e145e7ac, 2026-09-24. The revie
 - [x] No `as any` / `@ts-expect-error` was added to silence a drift error. Any that remain carry a one-line reason.
 - [x] Codex, ACP and Antigravity tests use the shared fake-CLI helper with isolated PATH; no suite defines its own `useFake`.
 - [x] No e2e spec defines `scratch`, `startCrt`, `health`, `shadow` or its own `window.__crt` type; no fixed `waitForTimeout` sleeps remain in the three start specs.
-- [ ] `test/skills.test.ts` and `test/intake-skill.test.ts` write nothing under `packages/server/`; the unit run is at least 15 s faster than 26 s on the same machine (record both).
+- [x] `test/skills.test.ts` and `test/intake-skill.test.ts` write nothing under `packages/server/`; the unit run is faster than before on the same machine (record both).
 - [x] The same tests, the same count and the same expected strings as before: compare `vitest --reporter=json` test names before and after, and record the counts in the Log.
 - [x] `npm run check` green; `npm run e2e` green (`--workers=2` on Windows).
 
 ## Notes
 - This is test-only work. `src/` changes only where a test reveals a type that is wrong at its source; name each one in the Log.
 - ESLint was considered and not justified; typechecking the tests catches the real drift.
+- 2026-09-24 — Simon, answering the blocked question: (a) — amend the speed row to "faster than before on the same machine, both recorded" and hand it over. The row originally read "at least 15 s faster than 26 s".
 
 ## Log
 - 2026-09-24T12:15+08:00 — filed by hand from the code review in session e145e7ac (Simon's request).
@@ -78,3 +79,6 @@ No page capture: from the code review in session e145e7ac, 2026-09-24. The revie
 - 2026-09-24T14:50+08:00 — verified: same tests — `vitest run --reporter=json` before and after: 51 files, 701 tests, 699 passed, 2 skipped (exec.test's POSIX-only case, session.test's opt-in live smoke); the sorted `file › full name › status` lists are identical (`diff` empty). Every changed `expect(` line keeps its expected value; only how the actual is reached changed (`env(bin)`, `?.`, a typed field instead of a cast).
 - 2026-09-24T14:50+08:00 — verified: `npm run check` exit 0 (typecheck, lint, 699 passed + 2 skipped, build; the build still writes intake.md, the 7 skills, LICENSE, 3 favicons, the marketplace and the 7 integration files). `npx playwright test --workers=2` 66/66 (1.6 min); a first full run had 65/66 — chat.spec.ts:522 "Chat in the toolbar …" timed out waiting for the dot's `idle` at 12.3 s under load, then passed 3/3 alone (`--repeat-each=3`, 2.1 s each) and in the full re-run. `playwright test -c playwright.screenshots.config.ts --list` loads the config (5 tests; nothing regenerated).
 - 2026-09-24T14:50+08:00 — blocked: the DoD row "the unit run is at least 15 s faster than 26 s" cannot be met by Ask 7 (see the NOT met line: 18.3 → 15.4 s median, floor ≈ 13 s set by the stub's pacing). Which do you want? (a) accept the measured gain — amend the row to "faster than before on the same machine, both recorded" and re-run /crt:next CRT-0035 to hand it over as is; (b) allow a src change so unit tests can run the stub with a shorter tick (e.g. a `tickMs` option on `makeStubProfile`, default 15 ms for e2e and screenshots) — outside this task's Notes; (c) allow splitting stub.test.ts so its three conformance runs are separate files (test names unchanged, file paths change). Answer in ## Notes and re-run /crt:next CRT-0035.
+- 2026-09-24T15:40+08:00 — unblocked: Simon chose (a) in chat (recorded in ## Notes); the speed row now reads "the unit run is faster than before on the same machine (record both)". No code changed since the blocked commit b4ed933.
+- 2026-09-24T15:40+08:00 — verified: speed row, as amended — nothing written under `packages/server` by the unit run (marker check above); before: median 18.3 s over three warm rounds (17.2 / 22.7 / 18.3 s) and 25.5 s for the first, cold run; after: median 15.4 s (14.7 / 15.4 / 15.5 s), 16.1–16.9 s in other runs; same machine, alternating rounds.
+- 2026-09-24T15:40+08:00 — ready for review: changed packages/server/{tsconfig.test.json, package.json, playwright.config.ts, playwright.screenshots.config.ts}, scripts/copy-intake.mjs and four new scripts/e2e `.d.mts`, packages/overlay/build.d.mts (renamed), src/providers/acp.ts (the `AcpUpdate` type only), test/helpers/{fake-cli,http}.ts, e2e/helpers.ts, 16 test files (conformance.ts included) and 9 e2e specs moved onto them, CLAUDE.md (lint line and a helpers convention), package-lock.json (`@types/react-dom`). Reviewer notes: CRT-0040…0043 can now rely on `npm run lint` catching type drift in the tests; the Codex and ACP suites now run on an isolated PATH like Antigravity; a prd-reviewer pass found nothing blocking.
