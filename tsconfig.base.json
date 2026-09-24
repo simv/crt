@@ -11,6 +11,8 @@
     "declaration": false,
     "sourceMap": true,
     "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
   }
 }

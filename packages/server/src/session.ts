@@ -21,7 +21,7 @@ import { adHocAcpProfile } from "./providers/acp.js";
 import { antigravityProfile } from "./providers/antigravity.js";
 import { claudeProfile } from "./providers/claude.js";
 import { codexProfile } from "./providers/codex.js";
-import { type Decision, DEFAULT_PROVIDER, detectProvider, formatDecision, scanMarkers } from "./providers/detect.js";
+import { type Decision, detectProvider, formatDecision, scanMarkers } from "./providers/detect.js";
 import { geminiProfile } from "./providers/gemini.js";
 import { stubProfile } from "./providers/stub.js";
 import { type LoggedIn, type PreflightResult, preflightPasses, preflightState, type ProviderProfile, type ProviderState } from "./providers/types.js";

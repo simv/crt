@@ -15,15 +15,17 @@ concurrency:
 
 jobs:
   # Docs-only changes skip the test jobs (Simon, 2026-09-21): a PR or push whose every file is
-  # documentation nothing in the build or the tests reads — docs/PRD*.md, docs/spikes/, docs/brand/,
-  # docs/design/, docs/images/, .crt/tasks/, .crt/README.md, CLAUDE.md, SECURITY.md,
+  # documentation nothing in the build or the tests reads — docs/PRD*.md, docs/spikes/,
+  # docs/design/, .crt/tasks/, .crt/README.md, CLAUDE.md, SECURITY.md,
   # .claude/agents/*.md — sets `code=false`, and `check` / `e2e` below are
   # skipped: `e2e` by its job-level `if:` (a skipped job reports "Skipped", which the main
   # ruleset's required status checks accept as passing; a workflow-level `paths-ignore` would
   # leave them "Expected" and block the merge), `check` step by step — a matrix job skipped at
   # the job level reports under the unexpanded name `check (${{ matrix.os }})` (seen on PR #64),
   # so its required contexts `check (ubuntu-latest)` / `check (windows-latest)` would never
-  # arrive; with the steps skipped instead, each leg reports Success under its real name in seconds. README.md, plugin/**
+  # arrive; with the steps skipped instead, each leg reports Success under its real name in seconds. README.md, plugin/**,
+  # docs/brand/ (copy-intake.mjs ships the favicons in dist/; brand.test reads it) and docs/images/
+  # (docs-images.test, docs.test), CRT-0034,
   # and the eight reference pages docs/*.md (install, integration, cli, providers, task-format,
   # how-it-works, troubleshooting, develop — M23) are NOT docs here: test/docs.test.ts and the skill
   # tests read them. Anything unknown, a first push or an API failure counts as code (fail safe).
@@ -56,7 +58,7 @@ jobs:
           while IFS= read -r f; do
             [ -z "$f" ] && continue
             case "$f" in
-              docs/PRD*.md|docs/spikes/*|docs/brand/*|docs/design/*|docs/images/*|.crt/tasks/*|.crt/README.md|CLAUDE.md|SECURITY.md|.claude/agents/*.md) ;;
+              docs/PRD*.md|docs/spikes/*|docs/design/*|.crt/tasks/*|.crt/README.md|CLAUDE.md|SECURITY.md|.claude/agents/*.md) ;;
               *) code=true ;;
             esac
           done <<< "$files"
@@ -97,14 +99,17 @@ jobs:
           node -e "JSON.parse(require('fs').readFileSync('.claude-plugin/marketplace.json','utf8'))"
           node -e "JSON.parse(require('fs').readFileSync('plugin/.claude-plugin/plugin.json','utf8'))"
           node -e "JSON.parse(require('fs').readFileSync('plugin/hooks/hooks.json','utf8'))"
-      - if: needs.changes.outputs.code == 'true'
+      # Ubuntu leg only, one pinned CLI (CRT-0034): the manifests are the same on both OSes.
+      - if: needs.changes.outputs.code == 'true' && matrix.os == 'ubuntu-latest'
         name: claude plugin validate (F-36…F-41; the bundled marketplace, PRD-setup F-85)
         shell: bash
+        env:
+          CLAUDE_CODE: '@anthropic-ai/claude-code@2.1.281'
         run: |
-          npx -y @anthropic-ai/claude-code@latest plugin validate ./plugin
-          npx -y @anthropic-ai/claude-code@latest plugin validate .
-          npx -y @anthropic-ai/claude-code@latest plugin validate ./packages/server/dist/plugin-marketplace
-          npx -y @anthropic-ai/claude-code@latest plugin validate ./packages/server/dist/plugin-marketplace/plugin
+          npx -y "$CLAUDE_CODE" plugin validate ./plugin
+          npx -y "$CLAUDE_CODE" plugin validate .
+          npx -y "$CLAUDE_CODE" plugin validate ./packages/server/dist/plugin-marketplace
+          npx -y "$CLAUDE_CODE" plugin validate ./packages/server/dist/plugin-marketplace/plugin
 
   e2e:
     # Ubuntu only (Simon, 2026-09-16): the Windows e2e (~5 min, mostly the browser install) was dropped;
@@ -112,7 +117,8 @@ jobs:
     # The job name is what the main ruleset requires: "e2e (ubuntu)" is a required status check.
     name: e2e (ubuntu)
     runs-on: ubuntu-latest
-    needs: [changes, check]
+    # needs only `changes` (CRT-0034): e2e runs its own npm ci + build, so it starts alongside `check`.
+    needs: [changes]
     if: needs.changes.outputs.code == 'true'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -122,7 +128,16 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - id: playwright
+        name: playwright version
+        shell: bash
+        run: |
+          v=$(node -p "require('@playwright/test/package.json').version")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
       - name: install playwright browsers
         run: npx --workspace packages/server playwright install --with-deps chromium
-        if: hashFiles('packages/server/playwright.config.ts') != ''
       - run: npm run e2e --if-present
