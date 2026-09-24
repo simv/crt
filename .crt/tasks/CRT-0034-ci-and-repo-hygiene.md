@@ -1,10 +1,10 @@
 ---
 id: CRT-0034
 title: CI and repo hygiene — shipped assets are not docs-only, no live model call in npm test, faster e2e job
-status: review
+status: done
 priority: high
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-24T13:08:00+08:00
+updated: 2026-09-24T14:13:00+08:00
 url: null
 route: null
 session: null
@@ -68,3 +68,4 @@ No page capture: from the code review in session e145e7ac on Simon's request, 20
 - 2026-09-24T13:08+08:00 — verified: CI on #89 (run 35958115683) — changes, check (ubuntu-latest), check (windows-latest), e2e (ubuntu) all pass under their exact names; e2e started 05:01:32Z, before either check leg (05:01:34Z/35Z); plugin validate ran on ubuntu only with @anthropic-ai/claude-code@2.1.281
 - 2026-09-24T13:08+08:00 — verified: `npm run check` green (51 files, 699 passed, 2 skipped); the only test diff is the session.test.ts gate and its comment — no expected string changed
 - 2026-09-24T13:08+08:00 — ready for review: changed .github/workflows/ci.yml, CLAUDE.md, .gitignore, package.json (root prebuild), package-lock.json, packages/overlay/package.json, tsconfig.base.json, packages/server/src/provider-routes.ts, packages/server/src/session.ts, packages/server/test/session.test.ts. Pinned claude-code 2.1.281 (latest on npm today) and actions/cache v4.3.0 by SHA to match the other v4 actions. Worked in the sibling worktree review-tool-crt-0034; the claim line's stamp was corrected to the real claim time. PR https://github.com/simv/crt/pull/89
+- 2026-09-24T14:13+08:00 — done; closed in https://github.com/simv/crt/pull/89
