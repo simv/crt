@@ -1,0 +1,41 @@
+---
+id: CRT-0044
+title: /crt:next waits for the PR's CI and, when the project opts in, closes and merges (F-123)
+status: in_progress
+priority: high
+created: 2026-09-24T15:51:00+08:00
+updated: 2026-09-24T15:51:00+08:00
+url: null
+route: null
+session: null
+tags: [workflow, plugin, skills, f-123, f-37, f-122, prd-chat]
+files: [plugin/skills/next/SKILL.md, README.md, CLAUDE.md, .crt/config.json, docs/PRD.md, docs/PRD-chat.md, packages/server/test/next-skill.test.ts]
+---
+
+## Summary
+`/crt:next` ends at "open the PR, reply with three lines, do not merge" (PRD F-37, PRD-chat F-122). The worker never looks at the PR's checks. A green CI goes unnoticed, a red one goes unfixed, and the task sits in `review` until someone comes back. On 2026-09-24 CRT-0035's PR #90 had been green for a while and was closed and merged only when Simon asked why the work was not finished. Simon: "lets add it to the skill so other users of the tool will benefit from the improvement". After `gh pr create`, the worker now waits for the checks in the same turn and fixes a failure its change caused. When the project opts in with `"worker": { "merge": true }` in `.crt/config.json`, it then closes the task the F-122 way and merges the PR. Without the key it stops at `review` with CI green, and merging stays the developer's call. `docs/PRD-chat.md` F-123; PRD F-37 and F-122's "`/crt:next` still never merges" amended.
+
+## Context
+`plugin/skills/next/SKILL.md` step 6 opens the PR ("Do not merge it and do not enable auto-merge") and replies with three lines; its Rules say "never force-push, rebase, merge or auto-merge". `plugin/skills/done/SKILL.md` (F-122) already holds the close-out: `done` + `— done; closed in <PR URL>` as the branch's last commit, push, then a bare `gh pr merge <n> --squash --delete-branch`; a refused merge leaves the commit on the branch. `gh pr checks <n> --watch --interval <s>` blocks until every check has finished and exits non-zero on a failure. Right after a push it can answer "no checks reported" before the run registers. `gh run view <id> --log-failed` shows a failed job's log, and `gh run rerun <id> --failed` re-runs it. Run from a worktree, `gh pr merge --delete-branch` merges on GitHub and then fails locally ("'main' is already used by worktree"), as it did for #90. `readConfig` (`packages/server/src/init.ts`) picks known keys and ignores the rest, so a key only the skill reads needs no server change. README › The loop ends "Merging is yours." Tests that read the skills: `test/skill-pin.test.ts`, `test/skills.test.ts` (Codex rewrite: no `${CLAUDE_` token, no `AskUserQuestion`), `test/plugin-marketplace.test.ts`; `claude plugin validate ./plugin` in CI.
+
+## Evidence
+No page capture: Simon's question and request in session 6dea7f5e-3832-4f29-8d7a-f3bf9b1230a8, 2026-09-24, after CRT-0035 (#90). CI there was 7/7 green well before the session checked.
+
+## Ask
+1. `plugin/skills/next/SKILL.md`: after the PR opens, a **Wait for CI** step. Wait in the same turn with `gh pr checks <n> --watch`, re-running it while the run has not registered; no checks at all means nothing to wait for. Fix a failure the change caused (at most two rounds, the fix logged in its own commit) and re-run an unrelated one once. A check still red, or still running after 30 minutes, is named in the Log and the reply, and the task stays `review`. Never end the turn while checks run. Then a **Finish** step, only when `.crt/config.local.json` or `.crt/config.json` has `"worker": { "merge": true }` (the local file wins). Close as `/crt:done` does: `done` with `— done; closed in <PR URL>` as the last commit, push, and wait for its checks. Merge with a bare `gh pr merge` (squash, or the method `CLAUDE.md` names), confirm the merge with `gh pr view --json state` when the local half fails, and return to the default branch or remove the worktree. A refused merge leaves the done commit and reports the command. The reply's status line says `review — CI green`, `review — CI red: <check>` or `done — merged`. The Rules allow the merge only in that step, and auto-merge never.
+2. `docs/PRD-chat.md`: F-123 under §6.3 Workflow, the §8 note that it is applied directly, §9 rows for PRD F-37 and F-122's "`/crt:next` still never merges", the status line and the ID range. `docs/PRD.md` F-37 gains the inline note.
+3. README › The loop: the paragraph after the commands says the worker waits for CI and names the key. `CLAUDE.md` › Work tracking says the same for this repo. This repo's `.crt/config.json` gets `"worker": { "merge": true }`.
+4. A unit test that pins the skill's F-123 text and the README's key (the `serve-skill.test.ts` pattern).
+5. Work this task by the new flow: wait for CI, close, merge.
+
+## Definition of Done
+- [ ] The next skill waits for CI in the same turn (`gh pr checks <n> --watch`, the unregistered-run retry, no checks = nothing to wait for), fixes what the change broke (≤ 2 rounds), re-runs an unrelated failure once, and reports a red or still-running check with the task left in `review`; `claude plugin validate ./plugin` green.
+- [ ] With `"worker": { "merge": true }` the skill closes (`done` + `— done; closed in <PR URL>` as the last commit, its checks waited for) and merges with a bare command, handling a refused merge and the worktree case. Without the key it stops at `review` and never merges; auto-merge is never enabled.
+- [ ] PRD-chat F-123 (§6.3, §8, §9, status line, ID range), the PRD F-37 note, README › The loop, `CLAUDE.md` › Work tracking and this repo's `.crt/config.json` agree. The new test pins the skill text and the README key; `npm run check` green (skill-pin, skills, plugin-marketplace, docs tests included); README ≤ 200 lines.
+- [ ] This task runs the flow itself: its PR's CI is waited for in the session that opened it, and the task is closed and merged without the developer asking.
+
+## Notes
+Default off because merging someone else's repo without their review is not the worker's call. Many projects require a human approval, and GitHub refuses the merge then anyway. The key is per project so a team decides it once. `config.local.json` lets one developer turn it on only for themselves. The server never reads it, and `crt init` does not write it. `/crt:done` stays the developer's close-out when the key is absent. The skills' `claude-review-tool@0.7` pin is unchanged: the behaviour ships with the next release, so an installed 0.7.0 plugin still stops at the PR.
+
+## Log
+- 2026-09-24T15:51+08:00 — filed and claimed by hand by session 6dea7f5e-3832-4f29-8d7a-f3bf9b1230a8 on Simon's request, branch crt/CRT-0044-worker-waits-for-ci (worktree .claude/worktrees/CRT-0044 off origin/main bc6ab8b); the skill, docs and PRD edits are made in the same session.
