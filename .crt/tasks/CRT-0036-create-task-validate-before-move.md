@@ -1,10 +1,10 @@
 ---
 id: CRT-0036
 title: write_task loses the capture when a field contains a `## ` heading — validate before moving assets
-status: review
+status: done
 priority: high
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-24T16:38:26+08:00
+updated: 2026-09-24T16:50:30+08:00
 url: null
 route: null
 session: null
@@ -59,3 +59,5 @@ No page capture: from the code review in session e145e7ac, 2026-09-24. Reproduce
 - 2026-09-24T16:38+08:00 — verified: `npx vitest run test/tasks.test.ts test/sessions.test.ts test/mcp-stdio.test.ts` 46/46, with the golden v0.1 task, the §5.3 identical-file test and the `crt mcp` schema test unchanged.
 - 2026-09-24T16:38+08:00 — verified: `npm run check` exit 0 (52 files, 708 passed, 2 skipped). `npx playwright test --workers=2` in `packages/server`: 65/66. The one failure is environmental: `embedded.spec.ts:177` expects no dev server on the probed ports, and this machine has other processes listening on 3000, 3001 and 8080, which were not stopped. That spec covers the guided start and the loader, which this change does not touch. The CI e2e job (ubuntu) is the clean run and is checked before close.
 - 2026-09-24T16:38+08:00 — ready for review: changed `packages/server/src/tasks.ts`, `packages/server/src/write-task.ts` (field descriptions only), `packages/server/test/tasks.test.ts`. Known limit (prd-reviewer): `wx` makes the slugged file name exclusive, not the id, so two servers writing different titles under one id in the same instant still both succeed. Closing that needs an id-level reservation, which is outside this Ask; noted in the `createTask` doc comment. Also seen: agent text containing CRLF still fails the F-32 check ("file uses CRLF line endings"). After this change it fails before anything moves, so the agent can retry.
+- 2026-09-24T16:50+08:00 — CI on 23f2b8b: all seven checks passed, including `e2e (ubuntu)` (the clean e2e run for the DoD) and `check` on ubuntu and windows.
+- 2026-09-24T16:50+08:00 — done; closed in https://github.com/simv/crt/pull/92 (CI green on 23f2b8b)
