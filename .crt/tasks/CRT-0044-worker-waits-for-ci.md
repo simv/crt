@@ -1,10 +1,10 @@
 ---
 id: CRT-0044
 title: /crt:next waits for the PR's CI and, when the project opts in, closes and merges (F-123)
-status: review
+status: done
 priority: high
 created: 2026-09-24T15:51:00+08:00
-updated: 2026-09-24T15:57:00+08:00
+updated: 2026-09-24T16:00:00+08:00
 url: null
 route: null
 session: null
@@ -32,7 +32,7 @@ No page capture: Simon's question and request in session 6dea7f5e-3832-4f29-8d7a
 - [x] The next skill waits for CI in the same turn (`gh pr checks <n> --watch`, the unregistered-run retry, no checks = nothing to wait for), fixes what the change broke (≤ 2 rounds), re-runs an unrelated failure once, and reports a red or still-running check with the task left in `review`; `claude plugin validate ./plugin` green.
 - [x] With `"worker": { "merge": true }` the skill closes (`done` + `— done; closed in <PR URL>` as the last commit, its checks waited for) and merges with a bare command, handling a refused merge and the worktree case. Without the key it stops at `review` and never merges; auto-merge is never enabled.
 - [x] PRD-chat F-123 (§6.3, §8, §9, status line, ID range), the PRD F-37 note, README › The loop, `CLAUDE.md` › Work tracking and this repo's `.crt/config.json` agree. The new test pins the skill text and the README key; `npm run check` green (skill-pin, skills, plugin-marketplace, docs tests included); README ≤ 200 lines.
-- [ ] This task runs the flow itself: its PR's CI is waited for in the session that opened it, and the task is closed and merged without the developer asking.
+- [x] This task runs the flow itself: its PR's CI is waited for in the session that opened it, and the task is closed and merged without the developer asking.
 
 ## Notes
 Default off because merging someone else's repo without their review is not the worker's call. Many projects require a human approval, and GitHub refuses the merge then anyway. The key is per project so a team decides it once. `config.local.json` lets one developer turn it on only for themselves. The server never reads it, and `crt init` does not write it. `/crt:done` stays the developer's close-out when the key is absent. The skills' `claude-review-tool@0.7` pin is unchanged: the behaviour ships with the next release, so an installed 0.7.0 plugin still stops at the PR.
@@ -43,3 +43,5 @@ Default off because merging someone else's repo without their review is not the 
 - 2026-09-24T15:57+08:00 — verified: opt-in finish — step 7 reads `worker.merge` from `.crt/config.local.json` then `.crt/config.json` (the first with the key decides); without it the worker replies `status: review — CI green` and leaves the merge to `/crt:done`. Step 8 closes: `done` + `— done; closed in <PR URL> (CI green on <short sha>)`, validate, index, `chore(crt): close <ID>` as the last commit, push, and that commit's checks waited for. Then a bare `gh pr merge <number> --squash --delete-branch` or the project's method; `CHANGES_REQUESTED`/`CONFLICTING` stop and `BEHIND` merges the base in, never rebased. `gh pr view --json state` covers the worktree case, a refused merge leaves the commit, and the default branch or worktree is cleaned up after. The Rules allow a merge only in step 8 and never auto-merge; Blocked is renumbered 9. `test/next-skill.test.ts` row 3 pins the order done → checks → merge.
 - 2026-09-24T15:57+08:00 — verified: docs agree — PRD-chat F-123 in §6.3, the §8 note, four §9 rows (PRD F-37, F-122's "still never merges", the skill's step 6 and Rules, README and CLAUDE.md), the status line, the Amends row (F-37, the next skill) and the ID range F-119…F-123. The PRD F-37 inline note and PRD.md's Amended-by entry, `docs/develop.md`'s PRD list, README › The loop (the command comment and paragraph naming the key and the local override), `CLAUDE.md` › Work tracking (including the by-hand flow waiting for checks) and `.crt/config.json` `"worker": { "merge": true }` all say the same. `test/skills.test.ts`'s verbatim-rewrite row now names `## 9. Blocked` (renumbered, intended). `npm run check` exit 0: typecheck, lint, 52 files / 703 passed / 2 skipped (4 new), build. `claude plugin validate .` and `claude plugin validate packages/server/dist/plugin-marketplace` pass. README 198 lines.
 - 2026-09-24T15:57+08:00 — ready for review: changed plugin/skills/next/SKILL.md, packages/server/test/{next-skill,skills}.test.ts, README.md, CLAUDE.md, .crt/config.json, docs/PRD-chat.md, docs/PRD.md, docs/develop.md. The last DoD row is this task's own run of the flow: its CI is waited for next, and the close-out and merge follow in this session.
+- 2026-09-24T16:00+08:00 — verified: the flow itself — this session opened #91 and waited for its checks in the same turn with `gh pr checks 91 --watch --interval 15`: 7/7 green on 42f8980 (check ubuntu 51 s, windows 1m27s, e2e 1m31s, CodeQL). `gh pr view 91` then showed MERGEABLE / CLEAN, no review decision required.
+- 2026-09-24T16:00+08:00 — done; closed in https://github.com/simv/crt/pull/91 (CI green on 42f8980)
