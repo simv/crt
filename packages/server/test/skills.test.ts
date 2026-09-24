@@ -58,7 +58,7 @@ describe("crt skills install (F-58)", () => {
     expect(out).toContain("Project root: `the project root (your working directory)`. Your session ID: `your session id`.");
     expect(out).toContain("Never resort to asking the user, never end your turn on a question");
     expect(out).toContain("session your session id, branch crt/<ID>-<slug>");
-    expect(out).toContain("## 7. Blocked (anything unticked, or you cannot proceed)");
+    expect(out).toContain("## 9. Blocked (anything unticked, or you cannot proceed)");
     expect(out.startsWith("---\nname: next\ndescription: ")).toBe(true);
     expect(out).toContain('argument-hint: "[CRT-ID]"\n---\n\n' + INSTALLED_PARAGRAPH + "\n\nYou are the CRT worker");
     // The intake skill has nothing to rewrite besides the paragraph (F-55 already made it neutral).
