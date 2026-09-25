@@ -19,13 +19,15 @@
  *   • The F-75 "overlay loaded" line names the requesting page's origin (Origin, else Referer).
  *   • WebSocket upgrades are refused (nothing to forward to).
  *
- * Proxy mode (`mode: "proxy"`, `crt proxy`, F-92) — unchanged from v0.3 (N-21):
+ * Proxy mode (`mode: "proxy"`, `crt proxy`, F-92) — unchanged from v0.3 (N-21) but for two fixes (CRT-0037):
  *   • Everything not under /__crt/ is forwarded to the target with Host rewritten and
  *     X-Forwarded-* added; bodies stream both ways.
  *   • text/html responses are buffered, decompressed, injected with the overlay tag,
- *     and re-served uncompressed with a correct Content-Length (F-2).
+ *     and re-served uncompressed with a correct Content-Length (F-2). A body its
+ *     Content-Encoding does not decode, or a page over MAX_HTML_BODY (streamed through
+ *     from the cap on), is served as sent without the overlay, and the terminal says so once.
  *   • WebSocket upgrades are replayed over a raw TCP/TLS socket and piped untouched,
- *     so Next.js / Vite HMR keep working (F-3).
+ *     so Next.js / Vite HMR keep working (F-3); one under /__crt/ is refused with 404, as in embedded mode (F-4).
  *   • /__crt/overlay.js, /__crt/early.js, /__crt/health, POST /__crt/captures (F-13, F-23), the
  *     /__crt/sessions routes (sessions.ts, F-24…F-30), /__crt/providers and /__crt/config
  *     (provider-routes.ts, F-57) are served here; anything else under /__crt/ is a 404 and never
@@ -146,6 +148,11 @@ const BRAND_ASSETS = new Map<string, { file: string; type: string }>([
   [`${CRT_PREFIX}/favicon-16.png`, { file: "favicon-16.png", type: "image/png" }],
 ]);
 
+/** F-4: a request or upgrade CRT answers itself; it never reaches the target. */
+function isCrtPath(url: string): boolean {
+  return url === CRT_PREFIX || url.startsWith(CRT_PREFIX + "/");
+}
+
 /** The server plus the one call embedded mode needs from serve.ts (F-94). */
 export interface CrtServer extends Server {
   /** F-94: CRT just opened the browser on `url`; start the "never loaded the loader" timer (embedded mode only). */
@@ -184,6 +191,8 @@ function landingPage(req: IncomingMessage, opts: ProxyOptions, state: RouteState
 }
 /** A capture is a JSON document with a few base64 PNGs; 64 MB is far beyond any real page. */
 const MAX_CAPTURE_BODY = 64 * 1024 * 1024;
+/** F-2: the most HTML the proxy buffers to inject into; a larger page streams through uninjected. */
+export const MAX_HTML_BODY = 16 * 1024 * 1024;
 
 /** Headers that describe the current hop, not the message; never forwarded (RFC 7230 §6.1). */
 const HOP_BY_HOP = new Set([
@@ -207,7 +216,7 @@ export function createProxyServer(opts: ProxyOptions): CrtServer {
     lastInjected: "/",
     timer: null,
     loaderTimer: null,
-    warned: { missing: false, nonHtml: false, csp: false, loader: false },
+    warned: { missing: false, nonHtml: false, csp: false, loader: false, decode: false, large: false },
     // F-113: built here, computes nothing until the first request (N-24).
     doctor: new DoctorRoute({ projectRoot: opts.projectRoot, mode, target: opts.target, version: opts.version ?? "0.0.0", providers: opts.providers, env: opts.env }),
   };
@@ -244,7 +253,7 @@ export function createProxyServer(opts: ProxyOptions): CrtServer {
 
   const server = createServer((req, res) => {
     const url = req.url ?? "/";
-    if (url === CRT_PREFIX || url.startsWith(CRT_PREFIX + "/")) {
+    if (isCrtPath(url)) {
       void handleCrtRoute(url, req, res, opts, state);
       return;
     }
@@ -257,7 +266,8 @@ export function createProxyServer(opts: ProxyOptions): CrtServer {
   });
 
   server.on("upgrade", (req, socket, head) => {
-    if (!proxy) {
+    // Nothing to forward to in embedded mode, and /__crt/ is never the target's (F-4).
+    if (!proxy || isCrtPath(req.url ?? "/")) {
       socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
       return;
     }
@@ -351,18 +361,48 @@ function proxyHandlers(
           return;
         }
         const chunks: Buffer[] = [];
-        up.on("data", (c: Buffer) => chunks.push(c));
-        up.on("end", () => {
+        let size = 0;
+        const buffer = (c: Buffer) => {
+          chunks.push(c);
+          size += c.length;
+          if (size <= MAX_HTML_BODY) return;
+          // Too big to buffer: send what is here, then stream the rest through as sent, uninjected.
+          up.off("data", buffer);
+          up.off("end", finish);
+          if (!state.warned.large) {
+            state.warned.large = true;
+            log(`crt: GET ${url} is an HTML page over ${MAX_HTML_BODY / (1024 * 1024)} MB — streamed it through without the overlay`);
+          }
+          res.writeHead(status, outHeaders);
+          for (const b of chunks) res.write(b);
+          chunks.length = 0;
+          up.pipe(res);
+        };
+        const finish = () => {
           const raw = Buffer.concat(chunks);
-          const decoded = decodeBody(raw, up.headers["content-encoding"]);
-          if (decoded === null) {
-            // Unknown encoding: serve it untouched rather than corrupt it.
+          let html: string;
+          let body: Buffer;
+          try {
+            const decoded = decodeBody(raw, up.headers["content-encoding"]);
+            if (decoded === null) {
+              // Unknown encoding: serve it untouched rather than corrupt it.
+              res.writeHead(status, outHeaders);
+              res.end(raw);
+              return;
+            }
+            // latin1 round-trips every byte, so injection is safe for any charset.
+            html = decoded.toString("latin1");
+            body = Buffer.from(injectOverlayTag(html), "latin1");
+          } catch (err) {
+            // Corrupt, truncated or mislabelled: serve it untouched too. Thrown here, it would end the whole server.
+            if (!state.warned.decode) {
+              state.warned.decode = true;
+              log(`crt: GET ${url} is HTML labelled content-encoding: ${up.headers["content-encoding"]} that does not decode (${(err as Error).message}) — served it as sent, without the overlay`);
+            }
             res.writeHead(status, outHeaders);
             res.end(raw);
             return;
           }
-          // latin1 round-trips every byte, so injection is safe for any charset.
-          const body = Buffer.from(injectOverlayTag(decoded.toString("latin1")), "latin1");
           state.overlay.injected++;
           state.lastInjected = url;
           armOverlayTimer();
@@ -370,7 +410,7 @@ function proxyHandlers(
           outHeaders["content-length"] = String(body.length);
           const csp = outHeaders["content-security-policy"];
           if (typeof csp === "string") outHeaders["content-security-policy"] = relaxCsp(csp);
-          const unrelaxable = unrelaxableCsp(typeof csp === "string" ? csp : null, decoded.toString("latin1"));
+          const unrelaxable = unrelaxableCsp(typeof csp === "string" ? csp : null, html);
           if (unrelaxable) {
             // F-80 (Should): relaxCsp added 'self', but this policy ignores it; say so once.
             state.overlay.cspWarning = unrelaxable.policy;
@@ -381,7 +421,9 @@ function proxyHandlers(
           }
           res.writeHead(status, outHeaders);
           res.end(body);
-        });
+        };
+        up.on("data", buffer);
+        up.on("end", finish);
       },
     );
     upstream.on("error", (err: NodeJS.ErrnoException) => {
@@ -489,8 +531,8 @@ interface RouteState {
   timer: NodeJS.Timeout | null;
   /** F-94: the one "never loaded the loader" timer, armed when CRT opens the app. */
   loaderTimer: NodeJS.Timeout | null;
-  /** F-80/F-94: each line prints once per server. */
-  warned: { missing: boolean; nonHtml: boolean; csp: boolean; loader: boolean };
+  /** F-80/F-94, and F-2's undecodable and oversized pages: each line prints once per server. */
+  warned: { missing: boolean; nonHtml: boolean; csp: boolean; loader: boolean; decode: boolean; large: boolean };
   /** F-113: the doctor route's caches, one set per server. */
   doctor: DoctorRoute;
 }

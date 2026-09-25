@@ -1,13 +1,15 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { request as httpRequest, type IncomingHttpHeaders, type Server } from "node:http";
+import { createServer, request as httpRequest, type IncomingHttpHeaders, type Server } from "node:http";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Duplex } from "node:stream";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { encodeFrame, readFrame, startFixture, type Fixture } from "../e2e/fixture/server.mjs";
 import { INJECT_TAGS, OVERLAY_TAG } from "../src/inject.js";
-import { createProxyServer, requestingOrigin } from "../src/proxy.js";
+import { createProxyServer, MAX_HTML_BODY, requestingOrigin } from "../src/proxy.js";
+import { listen0 } from "./helpers/http.js";
 import { samplePost } from "./helpers/sample-capture.js";
 
 let fixture: Fixture;
@@ -368,33 +370,35 @@ describe("WebSocket passthrough (F-3)", () => {
   });
 });
 
-describe("overlay-fetch timer (PRD-setup F-80)", () => {
-  /** A proxy of its own per case: the timer and the once-per-server lines are per server by design. */
-  async function ownProxy(): Promise<{ lines: string[]; get: (path: string, headers?: Record<string, string>) => Promise<Raw>; health: () => Promise<{ overlay: Record<string, unknown> }>; close: () => Promise<void> }> {
-    const lines: string[] = [];
-    const server = createProxyServer({ target: fixture.url, projectRoot: tmp, overlayPath: join(tmp, "overlay.js"), log: (l) => lines.push(l), overlayTimeoutMs: 60 });
-    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-    const origin = `http://localhost:${(server.address() as { port: number }).port}`;
-    const get = (path: string, headers: Record<string, string> = {}) =>
-      new Promise<Raw>((resolve, reject) => {
-        const req = httpRequest(origin + path, { headers }, (res) => {
-          const chunks: Buffer[] = [];
-          res.on("data", (c: Buffer) => chunks.push(c));
-          res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks) }));
-        });
-        req.on("error", reject);
-        req.end();
+/** A proxy of its own per case (the F-80 timer and the once-per-server lines are per server by design); the e2e fixture unless `target` names another app. */
+async function ownProxy(target = fixture.url): Promise<{ lines: string[]; origin: string; get: (path: string, headers?: Record<string, string>) => Promise<Raw>; health: () => Promise<{ overlay: Record<string, unknown> }>; close: () => Promise<void> }> {
+  const lines: string[] = [];
+  const server = createProxyServer({ target, projectRoot: tmp, overlayPath: join(tmp, "overlay.js"), log: (l) => lines.push(l), overlayTimeoutMs: 60 });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const origin = `http://localhost:${(server.address() as { port: number }).port}`;
+  const get = (path: string, headers: Record<string, string> = {}) =>
+    new Promise<Raw>((resolve, reject) => {
+      const req = httpRequest(origin + path, { headers }, (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks) }));
       });
-    return {
-      lines,
-      get,
-      health: async () => JSON.parse((await get("/__crt/health")).body.toString()) as { overlay: Record<string, unknown> },
-      close: async () => {
-        server.closeAllConnections();
-        await new Promise<void>((r) => server.close(() => r()));
-      },
-    };
-  }
+      req.on("error", reject);
+      req.end();
+    });
+  return {
+    lines,
+    origin,
+    get,
+    health: async () => JSON.parse((await get("/__crt/health")).body.toString()) as { overlay: Record<string, unknown> },
+    close: async () => {
+      server.closeAllConnections();
+      await new Promise<void>((r) => server.close(() => r()));
+    },
+  };
+}
+
+describe("overlay-fetch timer (PRD-setup F-80)", () => {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const MISSING = /^crt: injected the overlay into GET \/\S* but the browser never fetched \/__crt\/overlay\.js — a Content-Security-Policy or a JS-rendered shell is blocking it; see docs\/troubleshooting\.md › Overlay does not appear$/;
 
@@ -469,6 +473,106 @@ describe("overlay-fetch timer (PRD-setup F-80)", () => {
       expect((await q.health()).overlay).toMatchObject({ cspWarning: `<meta http-equiv="Content-Security-Policy" content="script-src 'none'">` });
     } finally {
       await q.close();
+    }
+  });
+});
+
+describe("proxy robustness (F-2, F-3, F-4)", () => {
+  /** A target of its own: HTML under a content-encoding it is not in, a page above the buffer cap, and an upgrade handler that records every path it is asked for. */
+  const PAGE = "<!doctype html><html><head><title>t</title></head><body>plain bytes</body></html>";
+  let big: Buffer;
+  const upgrades: string[] = [];
+  let target: Awaited<ReturnType<typeof listen0>>;
+
+  beforeAll(async () => {
+    big = Buffer.concat([Buffer.from("<!doctype html><html><head></head><body>"), Buffer.alloc(MAX_HTML_BODY + 1024 * 1024, "x"), Buffer.from("</body></html>")]);
+    const server = createServer((req, res) => {
+      const enc = /^\/bad-(gzip|br|deflate)$/.exec(req.url ?? "/");
+      if (enc) {
+        // The bytes are plain HTML; only the label says otherwise.
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-encoding": enc[1], "content-length": String(Buffer.byteLength(PAGE)) });
+        res.end(PAGE);
+      } else if (req.url === "/big") {
+        res.writeHead(200, { "content-type": "text/html", "content-length": String(big.length) });
+        res.end(big);
+      } else {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(PAGE);
+      }
+    });
+    server.on("upgrade", (req, socket: Duplex) => {
+      upgrades.push(req.url ?? "");
+      socket.end("HTTP/1.1 418 I'm a teapot\r\nConnection: close\r\n\r\n");
+    });
+    target = await listen0(server);
+  });
+  afterAll(async () => {
+    await target.close();
+  });
+
+  /** The first bytes CRT answers a WebSocket upgrade request for `path` with. */
+  async function upgradeAnswer(origin: string, path: string): Promise<string> {
+    const socket = connect({ host: "127.0.0.1", port: Number(new URL(origin).port) });
+    await new Promise<void>((r) => socket.once("connect", r));
+    socket.write(`GET ${path} HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: abc\r\nSec-WebSocket-Version: 13\r\n\r\n`);
+    const answer = await new Promise<string>((r) => socket.once("data", (c: Buffer) => r(c.toString())));
+    socket.destroy();
+    return answer;
+  }
+
+  it("serves HTML whose content-encoding does not decode as sent, says so once, and keeps serving (F-2)", async () => {
+    const p = await ownProxy(target.origin);
+    try {
+      for (const enc of ["gzip", "br", "deflate"]) {
+        const r = await p.get(`/bad-${enc}`, { "accept-encoding": enc });
+        expect(r.status, enc).toBe(200);
+        expect(r.headers["content-encoding"], enc).toBe(enc);
+        expect(r.headers["content-length"], enc).toBe(String(Buffer.byteLength(PAGE)));
+        expect(r.body.toString(), enc).toBe(PAGE);
+      }
+      expect(p.lines).toHaveLength(1);
+      expect(p.lines[0]).toMatch(/^crt: GET \/bad-gzip is HTML labelled content-encoding: gzip that does not decode \(incorrect header check\) — served it as sent, without the overlay$/);
+      // The server is still up: the next page is proxied and injected as usual.
+      const ok = await p.get("/page");
+      expect(ok.status).toBe(200);
+      expect(ok.body.toString()).toContain(`${OVERLAY_TAG}</head>`);
+      expect((await p.health()).overlay).toMatchObject({ injected: 1 });
+    } finally {
+      await p.close();
+    }
+  });
+
+  it("streams an HTML page above the 16 MB cap through complete and uninjected, and says so once (F-2)", async () => {
+    expect(MAX_HTML_BODY).toBe(16 * 1024 * 1024);
+    const p = await ownProxy(target.origin);
+    try {
+      for (let i = 0; i < 2; i++) {
+        const r = await p.get("/big");
+        expect(r.status).toBe(200);
+        expect(r.headers["content-length"]).toBe(String(big.length));
+        expect(r.body.length).toBe(big.length);
+        expect(r.body.equals(big)).toBe(true);
+      }
+      expect(p.lines).toEqual(["crt: GET /big is an HTML page over 16 MB — streamed it through without the overlay"]);
+      expect((await p.get("/page")).body.toString()).toContain(`${OVERLAY_TAG}</head>`);
+      expect((await p.health()).overlay).toMatchObject({ injected: 1 });
+    } finally {
+      await p.close();
+    }
+  });
+
+  it("answers a WebSocket upgrade under /__crt/ with 404 and never forwards it to the target (F-3, F-4)", async () => {
+    const p = await ownProxy(target.origin);
+    try {
+      for (const path of ["/__crt/anything", "/__crt", "/__crt/sessions/abc/ws"]) {
+        expect(await upgradeAnswer(p.origin, path), path).toMatch(/^HTTP\/1\.1 404 /);
+      }
+      expect(upgrades).toEqual([]);
+      // Every other path still reaches the target's upgrade handler (F-3).
+      expect(await upgradeAnswer(p.origin, "/_next/webpack-hmr")).toMatch(/^HTTP\/1\.1 418 /);
+      expect(upgrades).toEqual(["/_next/webpack-hmr"]);
+    } finally {
+      await p.close();
     }
   });
 });
