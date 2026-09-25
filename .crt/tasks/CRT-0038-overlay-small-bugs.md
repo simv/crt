@@ -1,10 +1,10 @@
 ---
 id: CRT-0038
 title: Overlay bugs — duplicate pulse keyframes, the status auto-hide timer, and CRT's own failures in the page's captured logs
-status: backlog
+status: in_progress
 priority: normal
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-24T12:15:00+08:00
+updated: 2026-09-25T12:19:00+08:00
 url: null
 route: null
 session: null
@@ -44,3 +44,4 @@ Three independent fixes, one PR. Land before CRT-0039 and CRT-0043, which touch 
 
 ## Log
 - 2026-09-24T12:15+08:00 — filed by hand from the code review in session e145e7ac (Simon's request).
+- 2026-09-25T12:19+08:00 — claimed by /crt:next, session a10e8114-8d06-4f6d-863f-f9f8fb496104, branch crt/CRT-0038-overlay-small-bugs (worked in the worktree .claude/worktrees/CRT-0038, off origin/main f56d300)
