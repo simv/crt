@@ -31,6 +31,10 @@
 //   GET  /embedded-bundled  the /app playground with <script src="/embedded-bundle.js"> first in
 //                       <head>: the ESM loader bundled by the embedded spec (Playwright fulfils that
 //                       URL), so the pill exists without a server (F-96 step 6)
+//   GET  /fonts         a heading in a font whose @font-face comes from a cross-origin stylesheet
+//                       (the other loopback host) sent without CORS headers: the page renders it,
+//                       CRT's rasteriser cannot fetch it (F-21, CRT-0038)
+//   GET  /fonts.css     that stylesheet: one @font-face over local() fonts, no Access-Control-Allow-Origin
 //   GET  /react         React 18 dev build (UMD from node_modules) rendering a small component tree
 //                       with __source set, for the fiber-walk spec (F-18)
 //   GET  /shop          the trial app's shop page (tool-validation) on the same React dev build: the
@@ -115,6 +119,25 @@ const APP_PAGE = `<!doctype html>
   </script>
 </body>
 </html>
+`;
+
+const FONTS_PAGE = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>CRT fixture fonts</title>
+  <link rel="stylesheet" href="__FONTS_CSS__">
+  <style>h1 { font-family: "CrtFixtureFont", sans-serif; }</style>
+</head>
+<body>
+  <h1 id="heading">A heading in a cross-origin font</h1>
+</body>
+</html>
+`;
+
+// local() only, so the page needs no font file: Windows has Arial, the Linux CI runner Liberation
+// Sans or DejaVu Sans, macOS Helvetica.
+const FONTS_CSS = `@font-face { font-family: "CrtFixtureFont"; src: local("Arial"), local("Liberation Sans"), local("DejaVu Sans"), local("Helvetica"); }
 `;
 
 const REACT_PAGE = `<!doctype html>
@@ -399,6 +422,14 @@ export function startFixture(opts = {}) {
         return html(withLoader(PAGE));
       case "/app":
         return html(withLoader(APP_PAGE));
+      case "/fonts": {
+        // The stylesheet lives on the other loopback host, so it is cross-origin whichever one the page is on.
+        const other = String(req.headers.host ?? "").startsWith("127.0.0.1") ? "localhost" : "127.0.0.1";
+        return html(withLoader(FONTS_PAGE.replace("__FONTS_CSS__", `http://${other}:${server.address().port}/fonts.css`)));
+      }
+      case "/fonts.css":
+        res.writeHead(200, { "content-type": "text/css", "content-length": String(Buffer.byteLength(FONTS_CSS)) });
+        return res.end(FONTS_CSS);
       case "/react":
         return html(withLoader(REACT_PAGE));
       case "/shop":

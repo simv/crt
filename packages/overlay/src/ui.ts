@@ -177,8 +177,8 @@ export const OVERLAY_CSS = `${WELCOME_CSS}
   .num-badge { position: fixed; pointer-events: auto; cursor: pointer; width: 22px; height: 22px; border-radius: 11px;
                background: var(--st, ${ACCENT}); color: #fff; font-weight: 700; font-size: 12px; line-height: 22px; text-align: center;
                box-shadow: 0 2px 6px rgba(0,0,0,.3); transform: translate(-50%, -50%); }
-  .num-badge[data-state="starting"], .num-badge[data-state="running"], .num-badge[data-state="waiting"] { animation: crt-pulse 1.2s ease-in-out infinite; }
-  @keyframes crt-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--st) 30%, transparent); } }
+  .num-badge[data-state="starting"], .num-badge[data-state="running"], .num-badge[data-state="waiting"] { animation: crt-badge-pulse 1.2s ease-in-out infinite; }
+  @keyframes crt-badge-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--st) 30%, transparent); } }
   .mark-state { position: fixed; pointer-events: auto; cursor: pointer; transform: translateY(-50%); box-shadow: 0 2px 6px rgba(0,0,0,.2);
                 max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
   .hint { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); pointer-events: none; padding: 6px 12px;
@@ -301,6 +301,8 @@ export class OverlayUI {
   private readonly sessions: HTMLElement;
   private readonly providersEl: HTMLElement;
   private readonly status: HTMLElement;
+  /** The pending auto-hide of the current status message, if it has one. */
+  private statusTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly layer: HTMLElement;
   private readonly hover: HTMLElement;
   private readonly hoverLabel: HTMLElement;
@@ -1332,7 +1334,7 @@ export class OverlayUI {
       }
       if (btn.dataset.action === "clear") {
         this.store.clear();
-        this.status.hidden = true;
+        this.hideStatus();
       } else if (btn.dataset.action === "chat") {
         this.togglePageChat();
       } else if (btn.dataset.action === "sessions") {
@@ -1523,11 +1525,19 @@ export class OverlayUI {
   }
 
   private showStatus(html: string, error = false, autoHide = false): void {
+    // An earlier message's auto-hide timer must not hide this one.
+    clearTimeout(this.statusTimer);
     this.status.innerHTML = html;
     this.status.classList.toggle("error", error);
     this.status.hidden = false;
     if (!this.open) this.toggle(true);
-    if (autoHide) setTimeout(() => (this.status.hidden = true), 15_000);
+    this.statusTimer = autoHide ? setTimeout(() => this.hideStatus(), 15_000) : undefined;
+  }
+
+  private hideStatus(): void {
+    clearTimeout(this.statusTimer);
+    this.statusTimer = undefined;
+    this.status.hidden = true;
   }
 
   // ---- tools ----------------------------------------------------------------------------------

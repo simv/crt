@@ -606,6 +606,11 @@ export class ChatPanel {
     this.append(el);
   }
 
+  /** A request from a click handler failed (network error): say so in the chat, never as the page's unhandled rejection (F-20). */
+  private unreachable(what: string, err: unknown): void {
+    this.system(`Could not ${what}: ${err instanceof Error ? err.message : String(err)}`, true);
+  }
+
   private renderState(): void {
     const s = this.state ?? "starting";
     this.stateEl.dataset.state = s;
@@ -664,7 +669,7 @@ export class ChatPanel {
       if (!btn) return;
       const perm = btn.closest<HTMLElement>(".perm");
       if (perm && btn.dataset.behavior) {
-        void this.respond(perm.dataset.pid!, btn.dataset.behavior as "allow" | "deny");
+        this.respond(perm.dataset.pid!, btn.dataset.behavior as "allow" | "deny").catch((err: unknown) => this.unreachable("answer the permission request", err));
         return;
       }
       switch (btn.dataset.chat) {
@@ -676,7 +681,7 @@ export class ChatPanel {
           void this.send(ACCEPT_REPLY);
           break;
         case "interrupt":
-          void this.interrupt();
+          this.interrupt().catch((err: unknown) => this.unreachable("interrupt the turn", err));
           break;
         case "new":
           void this.discard();

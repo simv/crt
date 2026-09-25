@@ -6,7 +6,8 @@
  *
  * Bundled into both `early.js` and `overlay.js` exactly like console-hook.ts: the buffer lives on
  * `window.__crt.__network`, so the second copy adopts the first copy's hooks. Requests to CRT's own
- * `/__crt/` routes are never recorded.
+ * `/__crt/` routes are never recorded, and neither are fetch/XHR failures that settle while CRT's
+ * screenshot pass runs (`pauseNetworkLog`): its font and image fetches are not the page's.
  */
 import type { NetworkEntry } from "../../server/src/capture-schema.js";
 
@@ -17,6 +18,8 @@ const MAX_ERROR = 500;
 interface NetworkState {
   entries: NetworkEntry[];
   installed: boolean;
+  /** Suppression depth: > 0 while CRT's own requests run. Optional because an older copy's state lacks it. */
+  paused?: number;
 }
 
 interface XhrMeta {
@@ -39,6 +42,7 @@ function push(entry: NetworkEntry): void {
 }
 
 function record(via: NetworkEntry["via"], method: string, url: string, status: number | null, error: unknown, started: number | null): void {
+  if (state().paused) return;
   push({
     method: method.toUpperCase(),
     url: String(url).slice(0, MAX_URL),
@@ -152,4 +156,18 @@ export function networkEntries(): NetworkEntry[] {
 
 export function clearNetworkEntries(): void {
   state().entries.length = 0;
+}
+
+/**
+ * Enter a stretch of CRT's own requests: fetch/XHR failures that settle before the matching
+ * `resumeNetworkLog()` are not recorded (F-21). Nests; call `resumeNetworkLog()` in a `finally`.
+ */
+export function pauseNetworkLog(): void {
+  const st = state();
+  st.paused = (st.paused ?? 0) + 1;
+}
+
+export function resumeNetworkLog(): void {
+  const st = state();
+  st.paused = Math.max(0, (st.paused ?? 0) - 1);
 }

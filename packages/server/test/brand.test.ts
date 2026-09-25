@@ -171,7 +171,19 @@ describe("the tokens feed the overlay's CSS (PRD-polish F-112, decision 7)", () 
       [EXPERIMENTAL[1]]: 2,
       "#fff": 25,
     });
-    expect(OVERLAY_CSS).toHaveLength(21084); // 20104 before F-119's .fold rows (CRT-0030), 20892 before F-120's .proposal .lead rows (CRT-0031)
+    // 20104 before F-119's .fold rows (CRT-0030), 20892 before F-120's .proposal .lead rows (CRT-0031),
+    // 21084 before the badges' animation became crt-badge-pulse (CRT-0038, twice + "badge-").
+    expect(OVERLAY_CSS).toHaveLength(21096);
+  });
+
+  it("defines each @keyframes name once, and every animation names one of them — the launcher's checking dot pulses (F-81, CRT-0038)", () => {
+    const names = Array.from(OVERLAY_CSS.matchAll(/@keyframes\s+([\w-]+)/g), (m) => m[1]!);
+    expect(names.length).toBeGreaterThan(0);
+    expect(names.filter((n, i) => names.indexOf(n) !== i), "duplicate @keyframes").toEqual([]);
+    const used = Array.from(OVERLAY_CSS.matchAll(/animation:\s*([\w-]+)/g), (m) => m[1]!);
+    for (const name of used) expect(names, `animation ${name}`).toContain(name);
+    expect(OVERLAY_CSS).toMatch(/\.launcher\[data-health="checking"\] \.health \{ animation: crt-pulse /);
+    expect(OVERLAY_CSS).toMatch(/@keyframes crt-pulse \{ 0%, 100% \{ opacity: \.35; \}/);
   });
 
   it("the tokens are the review's values and the brand files carry the same ones (F-112, §5.1)", () => {

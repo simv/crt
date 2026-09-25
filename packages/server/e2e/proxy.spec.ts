@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import { CRT_PROXY_ORIGIN } from "../playwright.config.js";
+import { shadow } from "./helpers.js";
 
 // Everything here goes through `crt proxy` in front of the fixture — the dedicated proxy-mode
 // server in playwright.config.ts (PRD-embedded F-92, N-21: the v0.3 shape, unchanged). The primary
@@ -110,4 +111,39 @@ test("GET /__crt/ is the landing page in proxy mode too, while / stays the app (
   // / is still the app, injected.
   await page.goto("/");
   await expect(page.locator("#crt-host .launcher")).toBeVisible();
+});
+
+// Here, not in chat.spec.ts: the injected overlay is same-origin, so a promise it leaves rejected
+// reaches the page's `unhandledrejection` hook. The loader's cross-origin tag in embedded mode
+// mutes its script's rejections, and the browser never reports them there.
+test("a Deny or Stop whose request fails says so in the chat and adds no unhandled rejection to the page's console log (F-20, F-26, F-29, CRT-0038)", async ({ page }) => {
+  await page.goto("/app");
+  await page.evaluate(() => {
+    window.__crt.addSelect("#heading");
+    window.__crt.setNote(1, "wrong heading");
+  });
+  await page.evaluate(() => window.__crt.send());
+  await expect(shadow(page, ".perm")).toBeVisible();
+  const rejections = () => page.evaluate(() => window.__crt.consoleEntries().filter((e) => e.level === "unhandledrejection").map((e) => e.message));
+  const before = await rejections(); // the fixture's own "fixture: rejected"
+  expect(before).toEqual([expect.stringContaining("fixture: rejected")]);
+  const answers = /\/__crt\/sessions\/[^/]+\/(permission|interrupt)$/;
+  await page.route(answers, (route) => route.abort());
+  try {
+    for (const button of [".perm button.deny", "[data-chat=interrupt]"]) {
+      const failed = page.waitForEvent("requestfailed", (r) => answers.test(r.url()));
+      await shadow(page, button).click();
+      await failed;
+    }
+    // unhandledrejection is dispatched after the task that rejected: give it one more task.
+    await page.evaluate(() => new Promise((r) => setTimeout(r, 50)));
+    expect(await rejections()).toEqual(before);
+    const errors = shadow(page, ".sys.error");
+    await expect(errors).toHaveCount(2);
+    await expect(errors.nth(0)).toHaveText(/^Could not answer the permission request: /);
+    await expect(errors.nth(1)).toHaveText(/^Could not interrupt the turn: /);
+  } finally {
+    await page.unroute(answers);
+    await page.evaluate(() => window.__crt.chat.discard());
+  }
 });

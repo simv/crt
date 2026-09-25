@@ -12,6 +12,7 @@
  */
 import { domToCanvas } from "modern-screenshot";
 import type { Rect } from "../../server/src/capture-schema.js";
+import { pauseNetworkLog, resumeNetworkLog } from "./network-hook.js";
 import { isOverlayNode } from "./selector.js";
 import { ACCENT } from "./tokens.js";
 
@@ -40,11 +41,16 @@ const FIXED_ATTR = "data-crt-fixed";
 export async function takeScreenshots(markers: MarkerSpec[]): Promise<ScreenshotResult> {
   const result: ScreenshotResult = { images: {}, viewport: null, annotated: null, crops: new Map(), error: null };
   let clean: HTMLCanvasElement;
+  // The rasteriser's own fetches (fonts, images) go through the page's hooked fetch; their
+  // failures are CRT's, not the page's, and must not reach the next capture (F-21).
+  pauseNetworkLog();
   try {
     clean = await rasteriseViewport();
   } catch (err) {
     result.error = `rasterisation failed: ${err instanceof Error ? err.message : String(err)}`;
     return result;
+  } finally {
+    resumeNetworkLog();
   }
   const dpr = clean.width / window.innerWidth || 1;
   result.images["viewport.png"] = toBase64(clean);

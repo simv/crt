@@ -105,6 +105,28 @@ test.describe("failed network requests (F-21)", () => {
     // F-95: the overlay came from the loader on the app's origin, not from injection.
     expect(await page.evaluate(() => window.__crt.embeddedMode())).toBe(true);
   });
+
+  test("the rasteriser's own failed fetch of a CORS-blocked font sheet stays out of the next capture; a page failure in between is still recorded (F-21, CRT-0038)", async ({ page }) => {
+    await page.goto("/fonts");
+    // The page did render the font, so the rasteriser goes after its cross-origin sheet (screenshot.ts inlineCrossOriginFonts).
+    await expect
+      .poll(() => page.evaluate(() => Array.from(document.fonts).some((f) => f.family.replace(/"/g, "") === "CrtFixtureFont" && f.status === "loaded")))
+      .toBe(true);
+    const sheet = await page.evaluate(() => document.querySelector<HTMLLinkElement>("link[rel=stylesheet]")!.href);
+    expect(new URL(sheet).origin).not.toBe(new URL(page.url()).origin);
+    const fontEntries = (entries: Array<{ url: string }>) => entries.filter((e) => e.url.includes("/fonts.css"));
+
+    await page.evaluate(() => window.__crt.addSelect("#heading"));
+    const first = await page.evaluate(() => window.__crt.capture());
+    expect(first.bundle.screenshots.error).toBeNull();
+    expect(fontEntries(await page.evaluate(() => window.__crt.networkEntries()))).toEqual([]);
+
+    await page.evaluate(() => fetch("/api/after-first-capture").catch(() => undefined));
+    const { bundle } = await page.evaluate(() => window.__crt.capture());
+    expect(validateCaptureBundle(bundle)).toEqual([]);
+    expect(fontEntries(bundle.network)).toEqual([]);
+    expect(bundle.network).toEqual(expect.arrayContaining([expect.objectContaining({ via: "fetch", url: "/api/after-first-capture", status: 404 })]));
+  });
 });
 
 test.describe("launcher and tools (F-7…F-12)", () => {
@@ -357,6 +379,42 @@ test.describe("capture and send (F-13, F-15…F-20, F-22, F-23)", () => {
     });
     const { bundle } = await page.evaluate(() => window.__crt.capture());
     expect(bundle.annotations[0]!.element).toMatchObject({ selector: "#footer-note", detached: true, text: "Bottom of the page." });
+  });
+
+  test("an error status stays up when an earlier status's auto-hide comes due, and a later auto-hiding status still hides (F-13, CRT-0038)", async ({ page }) => {
+    await page.clock.install();
+    await page.goto("/app");
+    await page.evaluate(() => {
+      const h = window.__crt;
+      h.addSelect("#heading");
+      h.setNote(1, "first");
+      h.addSelect("[data-testid=card-1] .price");
+      h.setNote(2, "second");
+    });
+    const status = shadow(page, ".status");
+    const dirs: string[] = [];
+    try {
+      // A Send: "Capture saved" hides itself 15 s later.
+      dirs.push((await page.evaluate(() => window.__crt.send({ n: 1 }))).dir);
+      await expect(status).toContainText("Capture saved");
+      // Within those 15 s, a Send that fails: an error status, which does not hide itself.
+      await page.route("**/__crt/captures", (route) => route.abort());
+      await expect(page.evaluate(() => window.__crt.send({ n: 2 }))).rejects.toThrow();
+      await page.unroute("**/__crt/captures");
+      await expect(status).toHaveClass(/error/);
+      await expect(status).toContainText("Send failed");
+      // 16 s after the first status: the error is still there.
+      await page.clock.fastForward(16_000);
+      await expect(status).toBeVisible();
+      await expect(status).toContainText("Send failed");
+      // The retried Send's "Capture saved" still hides itself.
+      dirs.push((await page.evaluate(() => window.__crt.send({ n: 2 }))).dir);
+      await expect(status).toContainText("Capture saved");
+      await page.clock.fastForward(16_000);
+      await expect(status).toBeHidden();
+    } finally {
+      for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("Send with nothing to send is refused", async ({ page }) => {
