@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
+import { ACCEPT_LINE } from "../../overlay/src/proposal.js";
 import { FIRST_MESSAGE_HEADING } from "../src/intake-message.js";
 import { INTERNAL_WRITE_TASK_PATH, STALE_TOKEN_LINE } from "../src/mcp-stdio.js";
 import { ACP_CAPABILITIES, ACP_EXPERIMENTAL } from "../src/providers/acp.js";
@@ -423,6 +424,92 @@ test.describe("chat panel (F-24, F-25, F-26, F-28, F-29)", () => {
     await expect(shadow(page, ".num-badge")).toHaveCount(0);
     const res = await page.request.get(`${CRT_ORIGIN}/__crt/sessions/${before.sessionId}`);
     expect(((await res.json()) as { session: { state: string } }).session.state).toBe("ended");
+  });
+});
+
+test.describe("streaming (N-3, CRT-0039)", () => {
+  test("a 20 KB proposal streamed word by word renders exactly as it does in one piece, once per frame rather than once per word, and still folds (F-25, F-120, N-30)", async ({ page }) => {
+    // Sessions named `fake-…` get an EventSource this test feeds by hand; every other one is real.
+    await page.addInitScript(() => {
+      type Listener = ((e: MessageEvent<string>) => void) | null;
+      const Real = window.EventSource;
+      const feeds = new Map<string, { onmessage: Listener }>();
+      let seq = 0;
+      class Fake extends EventTarget {
+        readyState = 1;
+        onmessage: Listener = null;
+        onerror: (() => void) | null = null;
+        constructor(url: string) {
+          super();
+          feeds.set(/\/sessions\/([^/]+)\/events/.exec(url)![1]!, this);
+        }
+        close(): void {
+          this.readyState = 2;
+        }
+      }
+      const Switch = function (url: string | URL, init?: EventSourceInit) {
+        return /\/sessions\/fake-/.test(String(url)) ? new Fake(String(url)) : new Real(url, init);
+      };
+      Object.assign(Switch, { CONNECTING: 0, OPEN: 1, CLOSED: 2 });
+      (window as unknown as { EventSource: unknown }).EventSource = Switch;
+      (window as unknown as { __feed: (id: string, events: object[]) => void }).__feed = (id, events) => {
+        const feed = feeds.get(id)!;
+        for (const e of events) feed.onmessage?.(new MessageEvent("message", { data: JSON.stringify(e), lastEventId: String(++seq) }));
+      };
+    });
+    await page.goto("/app");
+    const items = Array.from({ length: 240 }, (_, i) => `- [ ] Item ${i + 1}: the cart total applies the **promo** discount, with \`tax\` rounded per line`);
+    const text = ["Tests pass today, so the fix needs a new one.", "", "Proposed definition of done:", ...items, "", ACCEPT_LINE].join("\n");
+    expect(text.length).toBeGreaterThanOrEqual(20_000);
+
+    const out = await page.evaluate(async (text) => {
+      const feed = (window as unknown as { __feed: (id: string, events: object[]) => void }).__feed;
+      const root = document.getElementById("crt-host")!.shadowRoot!;
+      const frame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+      const bubble = (mid: string) => root.querySelector<HTMLElement>(`.msg.assistant[data-mid="${mid}"]`)!;
+      window.__crt.chat.open("fake-whole");
+      window.__crt.chat.open("fake-stream"); // the one on show
+      let renders = 0; // markdown renders into the streamed bubble: one childList record per innerHTML
+      new MutationObserver((records) => {
+        for (const r of records) if (r.type === "childList" && (r.target as HTMLElement).dataset?.mid === "m-stream") renders++;
+      }).observe(root, { subtree: true, childList: true });
+      feed("fake-whole", [{ type: "state", state: "running" }, { type: "assistant_start", messageId: "m-whole" }, { type: "text", messageId: "m-whole", text }]);
+      feed("fake-stream", [{ type: "state", state: "running" }, { type: "assistant_start", messageId: "m-stream" }]);
+      const pieces = text.split(/(?<=\s)/); // word by word, as the stub and the agents stream
+      for (let i = 0; i < pieces.length; i += 25) {
+        feed("fake-stream", pieces.slice(i, i + 25).map((p) => ({ type: "text", messageId: "m-stream", text: p })));
+        await new Promise((r) => setTimeout(r, 0));
+      }
+      await frame();
+      await frame();
+      const streamed = { html: bubble("m-stream").innerHTML, text: bubble("m-stream").textContent };
+      const whole = { html: bubble("m-whole").innerHTML, text: bubble("m-whole").textContent };
+      const rendered = renders;
+      const end = (id: string, mid: string) => feed(id, [{ type: "assistant_end", messageId: mid }, { type: "state", state: "idle" }]);
+      end("fake-whole", "m-whole");
+      end("fake-stream", "m-stream");
+      return { deltas: pieces.length, renders: rendered, streamed, whole, folded: [bubble("m-stream").innerHTML, bubble("m-whole").innerHTML] };
+    }, text);
+
+    expect(out.deltas).toBeGreaterThan(3000);
+    expect(out.streamed.text).toContain("Item 240:");
+    expect(out.streamed).toEqual(out.whole);
+    expect(out.renders).toBeGreaterThan(0);
+    expect(out.renders).toBeLessThan(out.deltas / 10);
+    expect(out.folded[0]).toBe(out.folded[1]);
+
+    // N-30: the streamed proposal folds to its restatement and item count, and the pill opens the whole checklist.
+    const proposal = shadow(page, '.msg.assistant[data-mid="m-stream"]');
+    await expect(proposal).toHaveClass(/proposal/);
+    await expect(proposal.locator(".lead")).toHaveText("Tests pass today, so the fix needs a new one.");
+    const pill = proposal.locator(".fold-pill");
+    await expect(pill).toHaveText("▸ Definition of done · 240 items");
+    await expect(proposal).not.toContainText("Accept as-is");
+    await pill.click();
+    await expect(proposal.locator(".fold-body")).toBeVisible();
+    await expect(proposal.locator(".fold-body li.task")).toHaveCount(240);
+    await expect(proposal.locator(".fold-body li.task").last()).toHaveText("Item 240: the cart total applies the promo discount, with tax rounded per line");
+    await expect(shadow(page, ".chat-accept").last()).toBeVisible();
   });
 });
 

@@ -1,7 +1,7 @@
 /**
  * Chat panel (PRD F-14, F-25, F-26, F-28, F-29, F-30; PRD-providers F-46, F-47, F-56; F-66):
  * streams an intake session's events over SSE, renders assistant text as it arrives
- * (markdown-ish), shows tool calls as collapsed lines, permission requests as Allow / Deny
+ * (markdown-ish, at most once per frame per message, N-3), shows tool calls as collapsed lines, permission requests as Allow / Deny
  * cards, and takes multi-turn input. One instance per thread (F-66): the overlay mounts a panel
  * inside each annotation's popover (or a docked one for a page-level chat), remembers which
  * session each belongs to, and re-attaches them after a reload; the panel itself keeps nothing in
@@ -172,6 +172,11 @@ export class ChatPanel {
   private taskId: string | null = null;
   private events: SessionEvent[] = [];
   private texts = new Map<string, string>();
+  /** N-3: each assistant bubble by message id, so a text delta never queries the log. */
+  private bubbles = new Map<string, HTMLElement>();
+  /** N-3: messages whose text grew since their bubble was last rendered; `textFrame` renders them once per frame. */
+  private dirty = new Set<string>();
+  private textFrame = 0;
   /** The most recent assistant message id; its text decides whether the Accept bar shows (F-27). */
   private lastMessageId: string | null = null;
   /** Placeholder shown between assistant_start and the first visible output (model thinking). */
@@ -242,6 +247,11 @@ export class ChatPanel {
 
   snapshot(): ChatSnapshot {
     return { sessionId: this.sessionId, state: this.state, taskId: this.taskId, provider: this.init?.provider ?? null, quiet: this.quiet, events: this.events.slice() };
+  }
+
+  /** F-67: what a marker shows, without copying the event log (N-3, CRT-0039). */
+  status(): { state: SessionState | null; taskId: string | null } {
+    return { state: this.state, taskId: this.taskId };
   }
 
   isOpen(): boolean {
@@ -336,7 +346,7 @@ export class ChatPanel {
       this.state = "starting";
       this.taskId = null;
       this.events = [];
-      this.texts.clear();
+      this.clearTexts();
       this.lastSeq = 0;
       this.log.replaceChildren();
       this.thinking = null;
@@ -359,6 +369,7 @@ export class ChatPanel {
   /** Stop listening and drop the DOM (the owner forgot this thread; the server session is untouched). */
   dispose(): void {
     this.detach();
+    this.clearTexts();
     this.el.remove();
   }
 
@@ -404,7 +415,7 @@ export class ChatPanel {
     this.taskId = null;
     this.quiet = false;
     this.events = [];
-    this.texts.clear();
+    this.clearTexts();
     this.lastMessageId = null;
     this.acceptEl.hidden = true;
     this.log.replaceChildren();
@@ -453,6 +464,8 @@ export class ChatPanel {
 
   private handle(event: SessionEvent): void {
     this.events.push(event);
+    // N-3: text deltas render on the next frame; every other event finds its bubbles up to date.
+    if (event.type !== "text") this.renderTexts();
     switch (event.type) {
       case "state":
         this.state = event.state;
@@ -487,19 +500,15 @@ export class ChatPanel {
         break;
       case "text": {
         this.hideThinking();
-        const text = (this.texts.get(event.messageId) ?? "") + event.text;
-        this.texts.set(event.messageId, text);
+        this.texts.set(event.messageId, (this.texts.get(event.messageId) ?? "") + event.text);
         this.lastMessageId = event.messageId;
-        let el = this.log.querySelector<HTMLElement>(`.msg.assistant[data-mid="${cssEscape(event.messageId)}"]`);
-        if (!el) el = this.append(assistantBubble(event.messageId));
-        el.classList.remove("proposal");
-        el.removeAttribute("data-open");
-        el.innerHTML = renderMarkdown(text);
-        this.scrollToEnd();
+        if (!this.bubbles.has(event.messageId)) this.bubbles.set(event.messageId, this.append(assistantBubble(event.messageId)));
+        this.dirty.add(event.messageId);
+        this.textFrame ||= requestAnimationFrame(() => this.renderTexts());
         break;
       }
       case "assistant_end":
-        this.log.querySelector(`.msg.assistant[data-mid="${cssEscape(event.messageId)}"]`)?.classList.remove("streaming");
+        this.bubbles.get(event.messageId)?.classList.remove("streaming");
         this.foldProposal(event.messageId);
         break;
       case "tool_use":
@@ -559,7 +568,7 @@ export class ChatPanel {
    * line. Idempotent; the full text stays in `this.texts`, which the Accept bar reads.
    */
   private foldProposal(messageId: string): void {
-    const el = this.log.querySelector<HTMLElement>(`.msg.assistant[data-mid="${cssEscape(messageId)}"]`);
+    const el = this.bubbles.get(messageId);
     const text = this.texts.get(messageId) ?? "";
     if (!el || el.classList.contains("proposal") || !endsWithAcceptLine(text)) return;
     const { lead, items, body } = summarizeProposal(text);
@@ -571,6 +580,30 @@ export class ChatPanel {
     const pill = f.querySelector("button")!;
     pill.addEventListener("click", () => el.toggleAttribute("data-open", pill.getAttribute("aria-expanded") === "true"));
     el.appendChild(f);
+  }
+
+  /** N-3: render each bubble whose text grew since the last pass, once, with one scroll. */
+  private renderTexts(): void {
+    cancelAnimationFrame(this.textFrame);
+    this.textFrame = 0;
+    if (!this.dirty.size) return;
+    for (const id of this.dirty) {
+      const el = this.bubbles.get(id);
+      if (!el) continue;
+      el.classList.remove("proposal");
+      el.removeAttribute("data-open");
+      el.innerHTML = renderMarkdown(this.texts.get(id) ?? "");
+    }
+    this.dirty.clear();
+    this.scrollToEnd();
+  }
+
+  private clearTexts(): void {
+    cancelAnimationFrame(this.textFrame);
+    this.textFrame = 0;
+    this.texts.clear();
+    this.bubbles.clear();
+    this.dirty.clear();
   }
 
   /** F-14: stop following quietly and bring the developer in. */

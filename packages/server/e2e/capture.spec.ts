@@ -281,6 +281,123 @@ test.describe("launcher and tools (F-7…F-12)", () => {
   });
 });
 
+test.describe("overlay hot paths (N-3, CRT-0039)", () => {
+  /** A marker's box against its element's: the outline covers the element, the badge centres on its top-left corner. */
+  async function glued(page: Page, n: number, target: string): Promise<boolean> {
+    const [mark, badge, el] = await Promise.all([
+      shadow(page, `.mark[data-n="${n}"]`).boundingBox(),
+      shadow(page, `.num-badge[data-n="${n}"]`).boundingBox(),
+      page.locator(target).boundingBox(),
+    ]);
+    if (!mark || !badge || !el) return false;
+    const near = (a: number, b: number) => Math.abs(a - b) < 1.5;
+    return (
+      near(mark.x, el.x) && near(mark.y, el.y) && near(mark.width, el.width) && near(mark.height, el.height) &&
+      near(badge.x + badge.width / 2, el.x) && near(badge.y + badge.height / 2, el.y)
+    );
+  }
+
+  test("with 3 annotations and the toolbar closed, the overlay requests no animation frame over 1 s idle (N-3)", async ({ page }) => {
+    // Count requestAnimationFrame calls whose caller is the overlay bundle (the page's own would not count).
+    await page.addInitScript(() => {
+      const w = window as unknown as { __crtFrames: number };
+      const raf = window.requestAnimationFrame.bind(window);
+      w.__crtFrames = 0;
+      window.requestAnimationFrame = (cb) => {
+        if ((new Error().stack ?? "").includes("/__crt/overlay.js")) w.__crtFrames++;
+        return raf(cb);
+      };
+    });
+    await page.goto("/app");
+    await page.evaluate(() => {
+      const h = window.__crt;
+      h.addSelect("#heading");
+      h.addSelect("[data-testid=card-2] .price");
+      h.addPin(200, 400);
+    });
+    await expect(shadow(page, ".num-badge")).toHaveCount(3);
+    await expect.poll(() => glued(page, 2, "[data-testid=card-2] .price")).toBe(true);
+    expect(await page.evaluate(() => window.__crt.isOpen())).toBe(false);
+    const frames = () => page.evaluate(() => (window as unknown as { __crtFrames: number }).__crtFrames);
+    expect(await frames()).toBeGreaterThan(0); // the counter sees the overlay's frames: placing the new markers took one
+    await page.evaluate(() => ((window as unknown as { __crtFrames: number }).__crtFrames = 0));
+    await page.waitForTimeout(1000);
+    expect(await frames()).toBe(0);
+  });
+
+  test("markers follow a resized element, the content it pushes down, and a scroll; the open popover follows too (F-65)", async ({ page }) => {
+    await page.goto("/app");
+    await page.evaluate(() => {
+      window.__crt.addSelect("#heading");
+      window.__crt.addSelect("[data-testid=card-2] .price");
+    });
+    const price = "[data-testid=card-2] .price";
+    await expect.poll(() => glued(page, 1, "#heading")).toBe(true);
+    await expect.poll(() => glued(page, 2, price)).toBe(true);
+    // Toolbar closed, so no per-frame loop: the ResizeObservers move the heading's marker and the price's below it.
+    await page.evaluate(() => (document.getElementById("heading")!.style.height = "140px"));
+    await expect.poll(() => glued(page, 1, "#heading")).toBe(true);
+    await expect.poll(() => glued(page, 2, price)).toBe(true);
+    // The scroll listener.
+    await page.evaluate(() => window.scrollBy(0, 150));
+    await expect.poll(() => glued(page, 2, price)).toBe(true);
+    await expect.poll(() => glued(page, 1, "#heading")).toBe(true);
+    // The popover opens beside its element and stays there through a scroll and a resize of the element.
+    await page.evaluate(() => window.__crt.togglePop(2, true));
+    const pop = shadow(page, '.pop[data-n="2"]');
+    await expect(pop).toBeVisible();
+    const beside = async () => {
+      const [p, el] = await Promise.all([pop.boundingBox(), page.locator(price).boundingBox()]);
+      return !!p && !!el && p.x > el.x + el.width && Math.abs(p.y - el.y) < 3;
+    };
+    await expect.poll(beside).toBe(true);
+    // Further down the page, so the element rises and its popover stays clear of the dock's clamp (CRT-0029): it must track the element exactly.
+    await page.evaluate(() => window.scrollBy(0, 100));
+    await expect.poll(beside).toBe(true);
+    await expect.poll(() => glued(page, 2, price)).toBe(true);
+    await page.evaluate((sel) => {
+      const el = document.querySelector<HTMLElement>(sel)!;
+      el.style.display = "inline-block";
+      el.style.padding = "20px 40px";
+    }, price);
+    await expect.poll(() => glued(page, 2, price)).toBe(true);
+    await expect.poll(beside).toBe(true);
+    // With the popover closed (no loop), an anchored element leaving the page still dims its marker (F-12 detached).
+    await page.evaluate(() => window.__crt.togglePop(2, false));
+    await page.evaluate(() => document.getElementById("heading")!.remove());
+    await expect(shadow(page, '.mark[data-n="1"]')).toHaveClass(/detached/);
+    await expect(shadow(page, '.mark[data-n="2"]')).not.toHaveClass(/detached/);
+  });
+
+  test("a note typed just before a reload is kept: its debounced write is flushed on pagehide (F-12)", async ({ page }) => {
+    await page.clock.install();
+    await page.goto("/app");
+    await page.evaluate(() => {
+      window.__crt.addSelect("#heading");
+      window.__crt.togglePop(1, true);
+    });
+    // Time stands still from here, so the debounced write cannot come due before the reload.
+    await page.clock.pauseAt(Date.now() + 60_000);
+    await shadow(page, '.pop[data-n="1"] textarea').pressSequentially("the heading wraps");
+    expect((await page.evaluate(() => window.__crt.annotations()))[0]!.note).toBe("the heading wraps");
+    expect(await page.evaluate(() => sessionStorage.getItem("crt.annotations.v1"))).not.toContain("the heading wraps");
+    await page.reload();
+    await expect(shadow(page, ".num-badge")).toHaveCount(1);
+    expect((await page.evaluate(() => window.__crt.annotations()))[0]!.note).toBe("the heading wraps");
+  });
+
+  test("the hover label names the component the capture names first, on the React 18 page (F-8, F-18)", async ({ page }) => {
+    await page.goto("/react");
+    await expect(page.locator("article.card")).toHaveCount(2);
+    await page.evaluate(() => window.__crt.setTool("select"));
+    const box = (await page.locator("article.card:nth-of-type(2) .price").boundingBox())!;
+    await page.evaluate(({ x, y }) => window.__crt.hoverAt(x, y), { x: box.x + box.width / 2, y: box.y + box.height / 2 });
+    const first = await page.evaluate(() => window.__crt.componentsFor("article.card:nth-of-type(2) .price").components[0]!.name);
+    expect(first).toBe("Price");
+    await expect(shadow(page, ".hover-label b")).toHaveText(first);
+  });
+});
+
 test.describe("capture and send (F-13, F-15…F-20, F-22, F-23)", () => {
   test("Send writes capture.json (valid) and PNGs into .crt/captures/<id>/ with element and console details", async ({
     page,

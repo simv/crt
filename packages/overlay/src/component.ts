@@ -222,9 +222,70 @@ export function detectComponents(el: Element): ComponentDetection {
   }
 }
 
-/** Human label for the hover tooltip: nearest component name, if any. */
+/**
+ * Human label for the hover tooltip: the name `detectComponents(el).components[0]` would report,
+ * found the cheap way (N-3, CRT-0039). It stops at the first named owner and never looks up a
+ * source, so a hover never reads a React 19 `_debugStack.stack` (reading it makes V8 format the
+ * trace); Send keeps the full `detectComponents`.
+ */
 export function nearestComponentName(el: Element): string | null {
-  return detectComponents(el).components[0]?.name ?? null;
+  try {
+    const react = nearestReactName(el);
+    return react !== undefined ? react : nearestVueName(el);
+  } catch {
+    return null;
+  }
+}
+
+/** `detectReact`'s first component: undefined when no node carries a fiber (Vue is tried next), null when one does but nothing is named. */
+function nearestReactName(el: Element): string | null | undefined {
+  let node: Element | null = el;
+  let fiber: Fiber | null = null;
+  while (node && !fiber) {
+    fiber = fiberOf(node);
+    node = node.parentElement;
+  }
+  if (!fiber) return undefined;
+  const seen = new Set<unknown>();
+  for (let owner = fiber._debugOwner; owner && !seen.has(owner); ) {
+    seen.add(owner);
+    if (isServerInfo(owner)) {
+      if (owner.name) return owner.name;
+      owner = owner.owner;
+    } else {
+      const named = nameOfType(owner.elementType ?? owner.type) ?? nameOfType(owner.type);
+      if (named) return named.name;
+      owner = owner._debugOwner;
+    }
+  }
+  for (let f: Fiber | null = fiber; f; f = f.return) {
+    const named = nameOfType(f.elementType ?? f.type) ?? nameOfType(f.type);
+    if (named) return named.name;
+  }
+  return null;
+}
+
+/** `detectVue`'s first component, without the chain. */
+function nearestVueName(el: Element): string | null {
+  for (let node: Element | null = el; node; node = node.parentElement) {
+    const v3 = (node as unknown as { __vueParentComponent?: VueInstance }).__vueParentComponent;
+    if (v3) {
+      for (let c: VueInstance | null | undefined = v3; c; c = c.parent) {
+        const name = c.type?.name || c.type?.__name;
+        if (name) return name;
+      }
+      return null;
+    }
+    const v2 = (node as unknown as { __vue__?: Vue2Instance }).__vue__;
+    if (v2) {
+      for (let c: Vue2Instance | null | undefined = v2; c; c = c.$parent) {
+        const name = c.$options?.name || c.$options?._componentTag;
+        if (name) return name;
+      }
+      return null;
+    }
+  }
+  return null;
 }
 
 /** F-22: framework and bundler hints from globals and the DOM. */
