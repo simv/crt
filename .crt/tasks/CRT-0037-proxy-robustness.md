@@ -1,10 +1,10 @@
 ---
 id: CRT-0037
 title: Proxy mode — a bad compressed HTML body must not crash the server, and /__crt/ upgrades must not reach the target
-status: backlog
+status: in_progress
 priority: high
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-24T12:15:00+08:00
+updated: 2026-09-25T11:58:43+08:00
 url: null
 route: null
 session: null
@@ -46,3 +46,4 @@ No page capture: from the code review in session e145e7ac, 2026-09-24. Both path
 
 ## Log
 - 2026-09-24T12:15+08:00 — filed by hand from the code review in session e145e7ac (Simon's request).
+- 2026-09-25T11:58+08:00 — claimed by /crt:next, session 3a2c4416-d4fc-4b78-8f36-73c23d9e3b6d, branch crt/CRT-0037-proxy-robustness
