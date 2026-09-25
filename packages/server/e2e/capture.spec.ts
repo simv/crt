@@ -297,7 +297,7 @@ test.describe("overlay hot paths (N-3, CRT-0039)", () => {
     );
   }
 
-  test("with 3 annotations and the toolbar closed, the overlay requests no animation frame over 1 s idle", async ({ page }) => {
+  test("with 3 annotations and the toolbar closed, the overlay requests no animation frame over 1 s idle (N-3)", async ({ page }) => {
     // Count requestAnimationFrame calls whose caller is the overlay bundle (the page's own would not count).
     await page.addInitScript(() => {
       const w = window as unknown as { __crtFrames: number };
@@ -362,6 +362,11 @@ test.describe("overlay hot paths (N-3, CRT-0039)", () => {
     }, price);
     await expect.poll(() => glued(page, 2, price)).toBe(true);
     await expect.poll(beside).toBe(true);
+    // With the popover closed (no loop), an anchored element leaving the page still dims its marker (F-12 detached).
+    await page.evaluate(() => window.__crt.togglePop(2, false));
+    await page.evaluate(() => document.getElementById("heading")!.remove());
+    await expect(shadow(page, '.mark[data-n="1"]')).toHaveClass(/detached/);
+    await expect(shadow(page, '.mark[data-n="2"]')).not.toHaveClass(/detached/);
   });
 
   test("a note typed just before a reload is kept: its debounced write is flushed on pagehide (F-12)", async ({ page }) => {
