@@ -1,10 +1,10 @@
 ---
 id: CRT-0037
 title: Proxy mode — a bad compressed HTML body must not crash the server, and /__crt/ upgrades must not reach the target
-status: review
+status: done
 priority: high
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-25T12:10:40+08:00
+updated: 2026-09-25T12:13:36+08:00
 url: null
 route: null
 session: null
@@ -57,3 +57,4 @@ No page capture: from the code review in session e145e7ac, 2026-09-24. Both path
 - 2026-09-25T12:10+08:00 — verified: `npm run check` exit 0 (52 files, 711 passed, 2 skipped). `npm run e2e` exit 0, 66 passed at the default worker count, and 66 passed with `npx playwright test --workers=2`.
 - 2026-09-25T12:10+08:00 — verified (extra, real CLI): `crt proxy 3977 --port 4477` from a scratch project, against a scratch upstream. `/bad-gzip` served twice as sent and the server stayed up. The 17 MB chunked page came through byte-exact (17825846 bytes, no overlay tag). Upgrades to `/__crt/anything` and `/__crt` got 404; the upstream logged only `/_next/webpack-hmr`. The terminal printed each new `crt:` line once.
 - 2026-09-25T12:10+08:00 — ready for review: changed `packages/server/src/proxy.ts` (the inject branch, `MAX_HTML_BODY`, `isCrtPath`, the upgrade check, two `warned` flags, header comment) and `packages/server/test/proxy.test.ts` (new block, hoisted `ownProxy`). The `handleCrtRoute` if-chain is untouched (Notes, CRT-0042).
+- 2026-09-25T12:13+08:00 — done; closed in https://github.com/simv/crt/pull/93 (CI green on cb78adc)
