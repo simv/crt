@@ -10,6 +10,10 @@
  *
  * F-66/F-67: sending no longer removes an annotation. It keeps its marker and records the intake
  * session it was sent to (`sessionId`), which is persisted too, so a reload re-attaches the thread.
+ *
+ * N-3 (CRT-0039): a note edit is persisted on a trailing debounce (`PERSIST_DEBOUNCE_MS`), not per
+ * keystroke; `flush()` writes a pending one now, and runs on `pagehide` so a reload keeps it. Every
+ * other change is persisted at once.
  */
 import type { ElementInfo, Rect } from "../../server/src/capture-schema.js";
 import { describeElement } from "./element.js";
@@ -43,15 +47,20 @@ type Persisted = Omit<Annotation, "element" | "elements"> & { elements: ElementI
 
 const STORAGE_KEY = "crt.annotations.v1";
 const MAX_BOX_ELEMENTS = 10; // F-9
+/** N-3: how long a note edit waits before it is written to sessionStorage. */
+export const PERSIST_DEBOUNCE_MS = 250;
 
 export type Listener = (annotations: Annotation[]) => void;
 
 export class AnnotationStore {
   private items: Annotation[] = [];
   private listeners = new Set<Listener>();
+  /** The pending debounced write of a note edit, if any. */
+  private persistTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor() {
     this.restore();
+    window.addEventListener("pagehide", () => this.flush());
   }
 
   all(): Annotation[] {
@@ -122,7 +131,15 @@ export class AnnotationStore {
     const a = this.get(n);
     if (!a || a.note === note) return;
     a.note = note;
-    this.changed();
+    clearTimeout(this.persistTimer);
+    this.persistTimer = setTimeout(() => this.flush(), PERSIST_DEBOUNCE_MS);
+    this.notify();
+  }
+
+  /** Write a pending note edit to sessionStorage now (before a Send, on `pagehide`). */
+  flush(): void {
+    if (this.persistTimer === undefined) return;
+    this.persist();
   }
 
   /** F-66: bind (or, with null, unbind) annotations to the session they were sent to. */
@@ -184,10 +201,16 @@ export class AnnotationStore {
 
   private changed(): void {
     this.persist();
+    this.notify();
+  }
+
+  private notify(): void {
     for (const fn of this.listeners) fn(this.all());
   }
 
   private persist(): void {
+    clearTimeout(this.persistTimer);
+    this.persistTimer = undefined;
     try {
       if (!this.items.length) {
         sessionStorage.removeItem(STORAGE_KEY);

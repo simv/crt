@@ -24,6 +24,12 @@
  * Arrival (PRD-setup F-81, F-82): the launcher carries a health dot with a tooltip (health.ts —
  * one fetch at mount, on `visibilitychange` and after any failed CRT request, never a timer) and
  * on a project's first visit a welcome card sits above the launcher (welcome.ts).
+ *
+ * Idle cost (N-3, CRT-0039): nothing runs per frame while the page is idle. Markers follow their
+ * elements from a capture-phase scroll listener, `resize` and a ResizeObserver (one positioning
+ * pass on the next frame each time); the per-frame loop runs only while a popover is open or the
+ * launcher is being dragged. A pass reads every rectangle before it writes, and writes only what
+ * changed. Hover hit-tests once per frame, and markers are patched in place, never rebuilt.
  */
 import type { ProviderRow, ProvidersPayload, SessionInfo, SessionState } from "../../server/src/session-events.js";
 import { type Annotation, AnnotationStore, toViewportRect } from "./annotations.js";
@@ -247,6 +253,14 @@ export interface ThreadSummary {
   open: boolean;
 }
 
+/** One annotation's marker elements, patched in place (N-3); `at` is the anchor rectangle they were last placed at. */
+interface MarkerEls {
+  mark: HTMLElement;
+  badge: HTMLButtonElement;
+  pill: HTMLButtonElement;
+  at: string;
+}
+
 export interface SendOptions {
   /** F-65: the annotation to send; the most recent unsent one when omitted. */
   n?: number;
@@ -268,7 +282,19 @@ export class OverlayUI {
   private candidate: Element | null = null;
   private candidateLocked = false;
   private dragStart: { x: number; y: number } | null = null;
-  private raf = 0;
+  /** N-3: the per-frame positioning loop (a popover open, a launcher drag), else 0. */
+  private loopFrame = 0;
+  /** N-3: the one positioning pass scheduled for the next frame, else 0. */
+  private posFrame = 0;
+  /** N-3: the Select tool's pending hit test and the pointer position it will use. */
+  private hoverFrame = 0;
+  private hoverPoint: { x: number; y: number } | null = null;
+  private draggingLauncher = false;
+  private readonly markerEls = new Map<string, MarkerEls>();
+  /** N-3: the anchored elements (and the document) a resize repositions the markers for. */
+  private readonly resizeObserver: ResizeObserver | null =
+    typeof ResizeObserver === "function" ? new ResizeObserver(() => this.schedulePosition()) : null;
+  private readonly observed = new Set<Element>();
   private launcherPos = { right: EDGE, bottom: EDGE };
 
   /** F-56: the last `GET /__crt/providers` payload; null until the server has answered once. */
@@ -372,6 +398,7 @@ export class OverlayUI {
     this.wireLauncher();
     this.wireToolbar();
     this.wirePops();
+    this.wireMarkers();
     this.wireLayer();
     this.wireKeyboard();
     this.store.subscribe(() => this.render());
@@ -408,6 +435,9 @@ export class OverlayUI {
     this.candidate = null;
     this.candidateLocked = false;
     this.dragStart = null;
+    cancelAnimationFrame(this.hoverFrame);
+    this.hoverFrame = 0;
+    this.hoverPoint = null;
     this.layer.hidden = tool === null;
     this.hover.style.display = "none";
     this.hoverLabel.style.display = "none";
@@ -463,6 +493,7 @@ export class OverlayUI {
       ids = [primary.id, ...(opts.include ? this.store.unsent().filter((a) => a.id !== primary.id).map((a) => a.id) : [])];
       if (quick && !ids.every((id) => this.store.byId(id)?.note.trim())) throw new Error("quick note needs a note on every annotation");
     }
+    this.store.flush(); // N-3: a note typed just now is persisted before the send
     this.busy = true;
     this.setTool(null);
     this.sessions.hidden = true;
@@ -543,7 +574,7 @@ export class OverlayUI {
   /** Every live thread, oldest first (tests). */
   threadSummaries(): ThreadSummary[] {
     return this.threads.map((t) => {
-      const snap = t.chat.snapshot();
+      const snap = t.chat.status();
       return {
         sessionId: t.sessionId,
         annotationIds: t.annotationIds.slice(),
@@ -715,7 +746,7 @@ export class OverlayUI {
     pop.hidden = false;
     if (!this.open) this.toggle(true);
     this.positionAll();
-    this.ensureTick();
+    this.updateLoop();
     this.rememberOpen(this.threads.find((t) => t.pop === pop)?.sessionId ?? null);
   }
 
@@ -726,6 +757,7 @@ export class OverlayUI {
       this.rememberOpen(null);
     }
     if (this.providersOpen && pop.contains(this.providersOpen)) this.closeProviders();
+    this.updateLoop();
   }
 
   private rememberOpen(sessionId: string | null): void {
@@ -1248,8 +1280,11 @@ export class OverlayUI {
     this.placeLauncher();
     window.addEventListener("resize", () => {
       this.placeLauncher();
-      this.positionAll();
+      this.schedulePosition();
     });
+    // N-3: a scroll of the page or of any scroller in it (scroll does not bubble; capture sees it) moves the markers.
+    document.addEventListener("scroll", () => this.schedulePosition(), { capture: true, passive: true });
+    this.resizeObserver?.observe(document.documentElement); // content growing above an anchor moves it
   }
 
   private placeLauncher(): void {
@@ -1265,16 +1300,26 @@ export class OverlayUI {
 
   /** F-68: page-level popovers sit above the dock, in the launcher's corner. */
   private positionDocked(): void {
-    const bottom = this.launcherPos.bottom + this.launcher.offsetHeight + 8 + (this.dock.hidden ? 0 : this.dock.offsetHeight + 8);
+    this.placeDocked(this.dockedBottom());
+  }
+
+  /** Where docked popovers end: above the launcher, and above the dock while it is open (a layout read). */
+  private dockedBottom(): number {
+    return this.launcherPos.bottom + this.launcher.offsetHeight + 8 + (this.dock.hidden ? 0 : this.dock.offsetHeight + 8);
+  }
+
+  /** The write half of `positionDocked` (N-3: `positionAll` reads `dockedBottom` with its other reads). */
+  private placeDocked(bottom: number): void {
+    const right = `${this.launcherPos.right}px`;
     for (const pop of Array.from(this.pops.querySelectorAll<HTMLElement>(".pop.page"))) {
-      pop.style.right = `${this.launcherPos.right}px`;
-      pop.style.bottom = `${bottom}px`;
-      pop.style.maxHeight = `${Math.max(120, window.innerHeight - bottom - 8)}px`;
+      setStyle(pop, "right", right);
+      setStyle(pop, "bottom", `${bottom}px`);
+      setStyle(pop, "maxHeight", `${Math.max(120, window.innerHeight - bottom - 8)}px`);
     }
     if (this.welcomeEl) {
       // F-82: the card sits where a page-level popover would, so it never covers the launcher or the dock.
-      this.welcomeEl.style.right = `${this.launcherPos.right}px`;
-      this.welcomeEl.style.bottom = `${bottom}px`;
+      setStyle(this.welcomeEl, "right", right);
+      setStyle(this.welcomeEl, "bottom", `${bottom}px`);
     }
   }
 
@@ -1292,13 +1337,19 @@ export class OverlayUI {
       const dx = e.clientX - start.x;
       const dy = e.clientY - start.y;
       if (!dragged && Math.hypot(dx, dy) < 4) return;
-      dragged = true;
+      if (!dragged) {
+        dragged = true;
+        this.draggingLauncher = true;
+        this.updateLoop();
+      }
       this.launcherPos = { right: start.right - dx, bottom: start.bottom - dy };
       this.placeLauncher();
     });
     const finish = (e: PointerEvent) => {
       if (!start) return;
       start = null;
+      this.draggingLauncher = false;
+      this.updateLoop();
       if (this.launcher.hasPointerCapture(e.pointerId)) this.launcher.releasePointerCapture(e.pointerId);
       if (dragged) {
         try {
@@ -1380,9 +1431,9 @@ export class OverlayUI {
     const chatBtn = this.toolbar.querySelector("[data-action=chat]") as HTMLButtonElement;
     chatBtn.classList.toggle("active", !this.pagePop.hidden);
     // F-68: the latest page-level thread's state as a dot on the Chat button.
-    const latestPage = this.threads.filter((t) => !t.annotationIds.length).at(-1);
+    const latestPage = this.threads.filter((t) => !t.annotationIds.length).at(-1)?.chat.status();
     const dot = chatBtn.querySelector(".dot") as HTMLElement;
-    const pageState = latestPage ? threadState(latestPage.chat.snapshot().state, latestPage.chat.snapshot().taskId) : null;
+    const pageState = latestPage ? threadState(latestPage.state, latestPage.taskId) : null;
     dot.hidden = !pageState;
     if (pageState) dot.dataset.state = pageState;
     else delete dot.dataset.state;
@@ -1390,56 +1441,101 @@ export class OverlayUI {
 
     this.renderPops(items);
     this.renderMarkers(items);
-    this.ensureTick();
+    this.updateLoop();
   }
 
+  /**
+   * F-67: one mark, number badge and state pill per annotation, patched in place (N-3: a keystroke
+   * in a note re-renders, so nothing is rebuilt and no listener is added — `wireMarkers` delegates
+   * the clicks). They are placed on the next frame.
+   */
   private renderMarkers(items: Annotation[]): void {
-    const frag = document.createDocumentFragment();
-    for (const a of items) {
-      const thread = a.sessionId ? this.threads.find((t) => t.sessionId === a.sessionId) : undefined;
-      const snap = thread?.chat.snapshot();
-      const state = snap ? threadState(snap.state, snap.taskId) : null;
-      const mark = document.createElement("div");
-      mark.className = `mark ${a.kind}`;
-      mark.dataset.n = String(a.n);
-      const badge = document.createElement("button");
-      badge.type = "button";
-      badge.className = "num-badge";
-      badge.dataset.n = String(a.n);
-      badge.textContent = String(a.n);
-      badge.title = a.note || `Annotation ${a.n}`;
-      badge.addEventListener("click", () => this.togglePop(a.n));
-      const pill = document.createElement("button");
-      pill.type = "button";
-      pill.className = "pill mark-state";
-      pill.dataset.n = String(a.n);
-      pill.hidden = !state;
-      if (state) {
-        mark.dataset.state = state;
-        badge.dataset.state = state;
-        pill.dataset.state = state;
-        pill.textContent = snap?.taskId ?? STATE_LABEL[state];
-        pill.title = `Annotation ${a.n}: ${STATE_LABEL[state]} — click to open the chat`;
-        pill.addEventListener("click", () => this.togglePop(a.n));
-      }
-      frag.append(mark, badge, pill);
+    const live = new Set(items.map((a) => a.id));
+    for (const [id, m] of this.markerEls) {
+      if (live.has(id)) continue;
+      m.mark.remove();
+      m.badge.remove();
+      m.pill.remove();
+      this.markerEls.delete(id);
     }
-    this.markers.replaceChildren(frag);
-    this.positionAll();
+    for (const a of items) {
+      let m = this.markerEls.get(a.id);
+      if (!m) {
+        m = newMarker(a);
+        this.markers.append(m.mark, m.badge, m.pill);
+        this.markerEls.set(a.id, m);
+      }
+      const thread = a.sessionId ? this.threads.find((t) => t.sessionId === a.sessionId) : undefined;
+      const status = thread?.chat.status();
+      const state = status ? threadState(status.state, status.taskId) : null;
+      const n = String(a.n);
+      for (const el of [m.mark, m.badge, m.pill]) {
+        if (el.dataset.n !== n) el.dataset.n = n;
+        if (state && el.dataset.state !== state) el.dataset.state = state;
+        else if (!state && el.dataset.state !== undefined) delete el.dataset.state;
+      }
+      setText(m.badge, n);
+      setTitle(m.badge, a.note || `Annotation ${a.n}`);
+      if (m.pill.hidden !== !state) m.pill.hidden = !state;
+      if (state) {
+        setText(m.pill, status?.taskId ?? STATE_LABEL[state]);
+        setTitle(m.pill, `Annotation ${a.n}: ${STATE_LABEL[state]} — click to open the chat`);
+      }
+    }
+    this.observeAnchors(items);
+    this.schedulePosition();
   }
 
-  /** Keep markers and the open popover glued to their elements while the page scrolls or reflows. */
-  private tick = (): void => {
+  /** N-3: one click listener for every badge and state pill. */
+  private wireMarkers(): void {
+    this.markers.addEventListener("click", (e) => {
+      const hit = (e.target as Element).closest<HTMLElement>(".num-badge, .mark-state");
+      if (hit?.dataset.n) this.togglePop(Number(hit.dataset.n));
+    });
+  }
+
+  /** N-3: a Select annotation's element resizing moves its marker; the ResizeObserver watches exactly those. */
+  private observeAnchors(items: Annotation[]): void {
+    const ro = this.resizeObserver;
+    if (!ro) return;
+    const wanted = new Set<Element>();
+    for (const a of items) if (a.kind === "select" && a.element && a.element !== document.documentElement) wanted.add(a.element);
+    for (const el of this.observed) {
+      if (wanted.has(el)) continue;
+      ro.unobserve(el);
+      this.observed.delete(el);
+    }
+    for (const el of wanted) {
+      if (this.observed.has(el)) continue;
+      ro.observe(el);
+      this.observed.add(el);
+    }
+  }
+
+  /** N-3: one positioning pass on the next frame (none while the loop runs, which places everything anyway). */
+  private schedulePosition(): void {
+    if (this.posFrame || this.loopFrame) return;
+    this.posFrame = requestAnimationFrame(() => {
+      this.posFrame = 0;
+      this.positionAll();
+    });
+  }
+
+  private loop = (): void => {
     this.positionAll();
-    this.raf = requestAnimationFrame(this.tick);
+    this.loopFrame = requestAnimationFrame(this.loop);
   };
 
-  private ensureTick(): void {
-    const needed = this.store.count() > 0 || this.openPop !== null;
-    if (needed && !this.raf) this.tick();
-    if (!needed && this.raf) {
-      cancelAnimationFrame(this.raf);
-      this.raf = 0;
+  /** N-3: every frame only while a popover is open (its chat grows as it streams) or the launcher is being dragged. */
+  private updateLoop(): void {
+    const needed = (this.open && this.openPop !== null && !this.openPop.hidden) || this.draggingLauncher;
+    if (needed && !this.loopFrame) {
+      cancelAnimationFrame(this.posFrame);
+      this.posFrame = 0;
+      this.loopFrame = requestAnimationFrame(this.loop);
+    } else if (!needed && this.loopFrame) {
+      cancelAnimationFrame(this.loopFrame);
+      this.loopFrame = 0;
     }
   }
 
@@ -1456,49 +1552,39 @@ export class OverlayUI {
     return { rect, detached };
   }
 
+  /**
+   * Keep the markers and the open popover glued to their elements. N-3: every layout read (anchor
+   * rectangles, the popover's size, the dock) happens before the first style write, and a marker is
+   * written only when its anchor rectangle changed since it was last placed.
+   */
   private positionAll(): void {
-    const items = this.store.all();
-    const marks = this.markers.querySelectorAll<HTMLElement>(".mark");
-    const badges = this.markers.querySelectorAll<HTMLElement>(".num-badge");
-    const pills = this.markers.querySelectorAll<HTMLElement>(".mark-state");
-    items.forEach((a, i) => {
-      const mark = marks[i];
-      const badge = badges[i];
-      const pill = pills[i];
-      if (!mark || !badge || !pill) return;
-      const { rect, detached } = this.anchorRect(a);
-      mark.classList.toggle("detached", detached);
-      let bx: number;
-      let by: number;
-      if (a.kind === "pin") {
-        mark.style.left = `${rect.x - 7}px`;
-        mark.style.top = `${rect.y - 7}px`;
-        bx = rect.x + 16;
-        by = rect.y - 14;
-      } else {
-        mark.style.left = `${rect.x}px`;
-        mark.style.top = `${rect.y}px`;
-        mark.style.width = `${rect.width}px`;
-        mark.style.height = `${rect.height}px`;
-        bx = rect.x;
-        by = rect.y;
+    // Read.
+    const anchors = this.store.all().map((a) => ({ a, ...this.anchorRect(a) }));
+    const open = this.openPop;
+    const pop = open && !open.hidden && !open.classList.contains("page") && open.dataset.id ? open : null;
+    const popAnchor = pop ? this.threadOrOwnId(pop) : undefined;
+    const popSize = pop ? { width: pop.offsetWidth, height: pop.offsetHeight } : null;
+    const viewport = pop ? this.popoverViewport() : null;
+    const dockedBottom = this.dockedBottom();
+    // Write.
+    for (const { a, rect, detached } of anchors) {
+      const m = this.markerEls.get(a.id);
+      if (!m) continue;
+      const at = `${rect.x},${rect.y},${rect.width},${rect.height},${detached}`;
+      if (m.at !== at) {
+        m.at = at;
+        placeMarker(m, a.kind, rect, detached);
       }
-      badge.style.left = `${bx}px`;
-      badge.style.top = `${by}px`;
-      pill.style.left = `${bx + 14}px`;
-      pill.style.top = `${by}px`;
       // F-65: the open popover follows its annotation.
-      const pop = this.openPop;
-      if (pop && !pop.hidden && !pop.classList.contains("page") && pop.dataset.id && this.threadOrOwnId(pop) === a.id) {
-        const size = { width: pop.offsetWidth, height: pop.offsetHeight };
+      if (pop && popSize && viewport && popAnchor === a.id) {
         const anchor = a.kind === "pin" ? { x: rect.x, y: rect.y, width: 1, height: 1 } : rect;
-        const p = placePopover(anchor, size, this.popoverViewport());
-        pop.style.left = `${p.x}px`;
-        pop.style.top = `${p.y}px`;
-        pop.dataset.side = p.side;
+        const p = placePopover(anchor, popSize, viewport);
+        setStyle(pop, "left", `${p.x}px`);
+        setStyle(pop, "top", `${p.y}px`);
+        if (pop.dataset.side !== p.side) pop.dataset.side = p.side;
       }
-    });
-    this.positionDocked();
+    }
+    this.placeDocked(dockedBottom);
   }
 
   /**
@@ -1547,6 +1633,17 @@ export class OverlayUI {
     return el && el !== document.documentElement ? el : null;
   }
 
+  /** N-3: the Select tool's hit test for the last pointer position; the outline and label change only with the element under it. */
+  private hoverNow(): void {
+    cancelAnimationFrame(this.hoverFrame);
+    this.hoverFrame = 0;
+    const p = this.hoverPoint;
+    this.hoverPoint = null;
+    if (!p || this.tool !== "select" || this.candidateLocked) return;
+    const el = this.elementAt(p.x, p.y);
+    if (el !== this.candidate) this.setCandidate(el);
+  }
+
   private setCandidate(el: Element | null): void {
     this.candidate = el;
     if (!el) {
@@ -1579,7 +1676,9 @@ export class OverlayUI {
           if (Math.hypot(e.movementX, e.movementY) < 3) return;
           this.candidateLocked = false;
         }
-        this.setCandidate(this.elementAt(e.clientX, e.clientY));
+        // N-3: one hit test per frame, at the latest pointer position.
+        this.hoverPoint = { x: e.clientX, y: e.clientY };
+        this.hoverFrame ||= requestAnimationFrame(() => this.hoverNow());
       } else if (this.tool === "box" && this.dragStart) {
         const r = normalise(this.dragStart, { x: e.clientX, y: e.clientY });
         Object.assign(this.drag.style, {
@@ -1603,6 +1702,7 @@ export class OverlayUI {
       if (e.button !== 0) return;
       e.preventDefault();
       if (this.tool === "select") {
+        this.hoverNow(); // a move still waiting for its frame decides what the click selects
         const el = this.candidate ?? this.elementAt(e.clientX, e.clientY);
         if (el) this.commitSelect(el);
       } else if (this.tool === "pin") {
@@ -1615,6 +1715,7 @@ export class OverlayUI {
       }
     });
     this.layer.addEventListener("pointerleave", () => {
+      this.hoverPoint = null;
       if (this.tool === "select" && !this.candidateLocked) this.setCandidate(null);
     });
     this.layer.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -1766,6 +1867,57 @@ export function describeAnnotation(a: Annotation): string {
     return `Box ${Math.round(a.pageRect.width)}×${Math.round(a.pageRect.height)} · ${a.elements.length} element${a.elements.length === 1 ? "" : "s"} (${what})`;
   }
   return `Pin at ${Math.round(a.pageRect.x)}, ${Math.round(a.pageRect.y)}`;
+}
+
+/** A marker's three elements (F-67), unplaced; `renderMarkers` fills in the rest. */
+function newMarker(a: Annotation): MarkerEls {
+  const mark = document.createElement("div");
+  mark.className = `mark ${a.kind}`;
+  const badge = document.createElement("button");
+  badge.type = "button";
+  badge.className = "num-badge";
+  const pill = document.createElement("button");
+  pill.type = "button";
+  pill.className = "pill mark-state";
+  pill.hidden = true;
+  return { mark, badge, pill, at: "" };
+}
+
+/** Write a marker's position for its anchor rectangle: a pin's dot centres on the point, the badge and pill sit at the top-left corner. */
+function placeMarker(m: MarkerEls, kind: Annotation["kind"], rect: { x: number; y: number; width: number; height: number }, detached: boolean): void {
+  m.mark.classList.toggle("detached", detached);
+  let bx: number;
+  let by: number;
+  if (kind === "pin") {
+    m.mark.style.left = `${rect.x - 7}px`;
+    m.mark.style.top = `${rect.y - 7}px`;
+    bx = rect.x + 16;
+    by = rect.y - 14;
+  } else {
+    m.mark.style.left = `${rect.x}px`;
+    m.mark.style.top = `${rect.y}px`;
+    m.mark.style.width = `${rect.width}px`;
+    m.mark.style.height = `${rect.height}px`;
+    bx = rect.x;
+    by = rect.y;
+  }
+  m.badge.style.left = `${bx}px`;
+  m.badge.style.top = `${by}px`;
+  m.pill.style.left = `${bx + 14}px`;
+  m.pill.style.top = `${by}px`;
+}
+
+/** N-3: DOM writes that skip an unchanged value (inline style reads never force layout). */
+function setStyle(el: HTMLElement, prop: "left" | "top" | "right" | "bottom" | "maxHeight", value: string): void {
+  if (el.style[prop] !== value) el.style[prop] = value;
+}
+
+function setText(el: HTMLElement, text: string): void {
+  if (el.textContent !== text) el.textContent = text;
+}
+
+function setTitle(el: HTMLElement, title: string): void {
+  if (el.title !== title) el.title = title;
 }
 
 function normalise(a: { x: number; y: number }, b: { x: number; y: number }) {
