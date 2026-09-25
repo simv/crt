@@ -1,10 +1,10 @@
 ---
 id: CRT-0038
 title: Overlay bugs — duplicate pulse keyframes, the status auto-hide timer, and CRT's own failures in the page's captured logs
-status: review
+status: done
 priority: normal
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-25T12:33:00+08:00
+updated: 2026-09-25T12:43:00+08:00
 url: null
 route: null
 session: null
@@ -54,3 +54,5 @@ Three independent fixes, one PR. Land before CRT-0039 and CRT-0043, which touch 
 - 2026-09-25T12:33+08:00 — verified: respond/interrupt — `e2e/proxy.spec.ts` "a Deny or Stop whose request fails says so in the chat and adds no unhandled rejection to the page's console log (F-20, F-26, F-29, CRT-0038)" passes: the rejection list is unchanged, and the chat shows "Could not answer the permission request: …" and "Could not interrupt the turn: …". On the unfixed sources it fails with two extra rejections.
 - 2026-09-25T12:33+08:00 — verified: `npm run check` green (52 files, 712 passed, 2 skipped; lint, build). `npx playwright test --workers=2` gave 68/69. The one failure is `embedded.spec.ts` "the ES module loader bundled into a page…", whose F-91 line expects no dev server on the probed ports; another session's Apex admin was up on :3001 (`next start -p 3001`, started 12:28 during the run), and something was briefly on :8080. That is environmental and touches no changed code; the CI e2e job (ubuntu) is the clean run. The prd-reviewer subagent answered PR-READY WITH NOTES. Its one note, a missing requirement ID on the status test title, is fixed (F-13).
 - 2026-09-25T12:33+08:00 — ready for review: changed packages/overlay/src/{ui,chat,network-hook,screenshot}.ts, packages/server/test/brand.test.ts, packages/server/e2e/{capture,proxy}.spec.ts, packages/server/e2e/fixture/server.mjs (new `/fonts`, `/fonts.css`). The font test needs a local Arial / Liberation Sans / DejaVu Sans / Helvetica; its first poll fails loudly if none is there.
+- 2026-09-25T12:43+08:00 — CI: all 7 checks green on decae58. `e2e (ubuntu)` ran 69/69 on the first attempt, the four new tests and `embedded.spec.ts` included, so the local-font fixture works on the Linux runner.
+- 2026-09-25T12:43+08:00 — done; closed in https://github.com/simv/crt/pull/94 (CI green on decae58)
