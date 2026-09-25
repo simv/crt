@@ -1,10 +1,10 @@
 ---
 id: CRT-0039
 title: Overlay hot paths — no per-frame layout thrash while annotations exist, throttled hover, cheap keystrokes and streaming (N-3)
-status: backlog
+status: in_progress
 priority: normal
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-24T12:15:00+08:00
+updated: 2026-09-25T23:57:00+08:00
 url: null
 route: null
 session: null
@@ -46,3 +46,4 @@ Needs a markdown unit test before step 4; CRT-0043 adds `markdown.test.ts`. Eith
 
 ## Log
 - 2026-09-24T12:15+08:00 — filed by hand from the code review in session e145e7ac (Simon's request).
+- 2026-09-25T23:57+08:00 — claimed by /crt:next, session ecf91d1f-6f24-40b1-8d3c-463d5b303498, branch crt/CRT-0039-overlay-hot-paths (worked in the worktree .claude/worktrees/CRT-0039, off origin/main 0c4e02c)
