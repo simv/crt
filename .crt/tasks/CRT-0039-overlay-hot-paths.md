@@ -1,10 +1,10 @@
 ---
 id: CRT-0039
 title: Overlay hot paths — no per-frame layout thrash while annotations exist, throttled hover, cheap keystrokes and streaming (N-3)
-status: review
+status: done
 priority: normal
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-26T00:53:00+08:00
+updated: 2026-09-26T00:57:00+08:00
 url: null
 route: null
 session: null
@@ -55,3 +55,4 @@ Needs a markdown unit test before step 4; CRT-0043 adds `markdown.test.ts`. Eith
 - 2026-09-26T00:53+08:00 — verified: streaming — `e2e/chat.spec.ts` › streaming (N-3) › "a 20 KB proposal streamed word by word renders exactly as it does in one piece…": a scripted EventSource feeds two sessions the same 21 KB proposal (240 checklist items), one in a single delta and one in ~3,900 word deltas across macrotasks; the bubbles' innerHTML and textContent are equal before the fold and after it; the streamed bubble was rendered fewer than deltas/10 times; the pill reads `Definition of done · 240 items` and opens all 240 items. The existing F-120 / N-30 fold tests pass unchanged. `test/markdown.test.ts` (7 tests) pins `renderMarkdown`.
 - 2026-09-26T00:53+08:00 — verified: `npm run check` exit 0 (typecheck, lint, 54 files / 728 unit tests, build); `npm run e2e` 74/74 at the default workers (1.0 min) and 74/74 at `--workers=2`, the four hot-path tests re-run green after the last edit; `npm run screenshots` 5/5: `select.png` and `marker-states.png` byte-identical to the committed files, `arrival.png` differs only in the welcome card's project path and `landing.png` only in its clock readings (both expected, docs/images/README.md). `chat.png` differs in the session id and a 1-CSS-px taller `Capture` pill. A baseline build of origin/main 0c4e02c in a scratch worktree renders that pill exactly as this branch does, so the committed image predates this change. The same baseline leaves the transcript 4–14 px scrolled in 4 of 4 runs (the smooth-scroll flake; flagged as a separate follow-up). Regenerated PNGs not committed. Overlay bundle 38.0 KB gz (N-3 budget 150 KB).
 - 2026-09-26T00:53+08:00 — ready for review: changed packages/overlay/src/{ui,component,annotations,chat}.ts, packages/server/e2e/{capture,chat}.spec.ts, new packages/server/test/{component-name,markdown}.test.ts. Reviewer notes: markers now follow scroll, resize and ResizeObserver entries (the anchor, the document) instead of every frame. An element that moves without resizing and without changing the document's size (a sibling's transform, an absolutely positioned shift) keeps a stale marker until the next scroll/resize or until its popover opens. That is the Ask's design; the prd-reviewer agent flagged it too. `setNote` still notifies listeners on every keystroke (render is now in place and cheap); only the sessionStorage write is debounced. The `crt serve` run in tool-validation pruned 5 captures older than 7 days there (F-23 on server start; gitignored files).
+- 2026-09-26T00:57+08:00 — done; closed in https://github.com/simv/crt/pull/95 (CI green on 01024ea)
