@@ -8,6 +8,7 @@
  */
 import { HEALTH_PATH } from "../../server/src/routes.js";
 import { CRT_ORIGIN, crtUrl } from "./base.js";
+import { safeGetJson, safeSet } from "./storage.js";
 
 /** Per tab: the server this tab first loaded from, to spot a `crt serve` from another session (F-81 Should). */
 export const SERVER_KEY = "crt.server.v1";
@@ -91,13 +92,9 @@ export function crtPort(): string {
 
 /** F-81 Should: remember the first server this tab saw; returns the project root seen before this one. */
 export function rememberServer(h: HealthPayload): string | null {
-  try {
-    const raw = sessionStorage.getItem(SERVER_KEY);
-    const seen = raw ? (JSON.parse(raw) as { projectRoot?: string; startedAt?: string | null }) : null;
-    if (seen && typeof seen.projectRoot === "string") return seen.projectRoot;
-    sessionStorage.setItem(SERVER_KEY, JSON.stringify({ projectRoot: h.projectRoot, startedAt: h.startedAt }));
-  } catch {
-    // sessionStorage unavailable: every server looks like the first one
-  }
+  // Without sessionStorage every server looks like the first one.
+  const seen = safeGetJson("session", SERVER_KEY) as { projectRoot?: unknown } | null;
+  if (typeof seen?.projectRoot === "string") return seen.projectRoot;
+  safeSet("session", SERVER_KEY, JSON.stringify({ projectRoot: h.projectRoot, startedAt: h.startedAt }));
   return null;
 }

@@ -38,12 +38,14 @@ import { CRT_ORIGIN } from "./base.js";
 import { capture } from "./capture.js";
 import { CHAT_CSS, ChatPanel, type QuietOutcome } from "./chat.js";
 import { nearestComponentName } from "./component.js";
+import { clamp, cssEscape, escapeHtml, STATE_LABEL, type ThreadState } from "./dom-util.js";
 import { labelOf } from "./element.js";
 import { CHECKING_TOOLTIP, crtPort, deriveHealth, fetchHealth, type HealthPayload, type HealthState, rememberServer } from "./health.js";
 import { placePopover } from "./popover.js";
 import { canQuickNote, planSend, type SendOptions } from "./send-plan.js";
-import { ACCENT, ACCENT_HOVER, DANGER, ERROR, EXPERIMENTAL, IDLE, INK, OK, PILL, WARN } from "./tokens.js";
+import { ACCENT, ACCENT_HOVER, DANGER, ERROR, EXPERIMENTAL, FAIL, IDLE, INK, OK, PILL, tint, WARN } from "./tokens.js";
 import { isOverlayNode } from "./selector.js";
+import { safeGet, safeGetJson, safeSet } from "./storage.js";
 import { buildWelcome, markWelcomeSeen, shouldShowWelcome, WELCOME_CSS, welcomeCopy, welcomeSeen } from "./welcome.js";
 
 export type Tool = "select" | "box" | "pin";
@@ -58,9 +60,6 @@ const OPEN_KEY = "crt.open.v1";
 const EDGE = 16;
 /** What the toolbar calls the agent before the server has said which one it is. */
 const UNKNOWN_AGENT = "the agent";
-
-/** F-67: what a marker shows for a thread; `task` once the task file exists, else the session state. */
-export type ThreadState = SessionState | "task";
 
 /** The overlay's stylesheet (one string; test/brand.test.ts pins the token sites in it, F-112). */
 export const OVERLAY_CSS = `${WELCOME_CSS}
@@ -117,7 +116,7 @@ export const OVERLAY_CSS = `${WELCOME_CSS}
   .provider:disabled:hover { background: none; }
   .provider .dot { width: 8px; height: 8px; border-radius: 4px; background: #ccc; }
   .provider .dot[data-state="ready"] { background: ${OK}; }
-  .provider .dot[data-state="not on PATH"], .provider .dot[data-state="not logged in"], .provider .dot[data-state="too old"] { background: #c00; }
+  .provider .dot[data-state="not on PATH"], .provider .dot[data-state="not logged in"], .provider .dot[data-state="too old"] { background: ${FAIL}; }
   .provider .dot[data-state="unknown"] { background: ${WARN}; }
   .provider .name small { color: #777; margin-left: 6px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; }
   .provider .name .badge { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: ${EXPERIMENTAL[0]}; color: ${EXPERIMENTAL[1]}; font-size: 10px; font-weight: 600; vertical-align: 1px; }
@@ -158,13 +157,13 @@ export const OVERLAY_CSS = `${WELCOME_CSS}
   .pill[data-state="error"] { background: ${PILL.error[0]}; color: ${PILL.error[1]}; }
   .layer { position: fixed; inset: 0; pointer-events: auto; cursor: crosshair; touch-action: none; }
   .layer[hidden] { display: none; }
-  .hover { position: fixed; pointer-events: none; border: 2px solid ${ACCENT}; background: rgba(255,61,113,.08);
+  .hover { position: fixed; pointer-events: none; border: 2px solid ${ACCENT}; background: ${tint(ACCENT, 0.08)};
            border-radius: 2px; display: none; }
   .hover-label { position: fixed; pointer-events: none; display: none; padding: 3px 7px; border-radius: 6px;
                  background: ${INK}; color: #fff; font-size: 11px; font-family: ui-monospace, Menlo, Consolas, monospace;
                  max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hover-label b { color: #ffd166; font-weight: 600; }
-  .drag { position: fixed; pointer-events: none; border: 2px dashed ${ACCENT}; background: rgba(255,61,113,.08); display: none; }
+  .drag { position: fixed; pointer-events: none; border: 2px dashed ${ACCENT}; background: ${tint(ACCENT, 0.08)}; display: none; }
   /* Markers sit below popovers: an open popover is the topmost thing on the page (F-65); close it to reach a badge under it. */
   .markers { position: fixed; inset: 0; pointer-events: none; }
   .mark { position: fixed; border: 2px solid ${ACCENT}; border-radius: 2px; }
@@ -188,7 +187,7 @@ export const OVERLAY_CSS = `${WELCOME_CSS}
   .mark-state { position: fixed; pointer-events: auto; cursor: pointer; transform: translateY(-50%); box-shadow: 0 2px 6px rgba(0,0,0,.2);
                 max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
   .hint { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); pointer-events: none; padding: 6px 12px;
-          border-radius: 999px; background: rgba(17,17,17,.9); color: #fff; font-size: 12px; }
+          border-radius: 999px; background: ${tint(INK, 0.9)}; color: #fff; font-size: 12px; }
   .hint[hidden] { display: none; }
   /* F-65/F-66: popovers — one per annotation beside its element, page-level ones docked above the toolbar. */
   .pops { position: fixed; inset: 0; pointer-events: none; }
@@ -218,7 +217,7 @@ export const OVERLAY_CSS = `${WELCOME_CSS}
   .pop-foot button.primary:hover { background: ${ACCENT_HOVER}; }
   .pop-foot button:disabled { opacity: .5; cursor: default; }
   .pop-foot button.del { color: #888; }
-  .pop-foot button.del:hover { background: #fee; color: #c00; }
+  .pop-foot button.del:hover { background: #fee; color: ${FAIL}; }
   .pop .providers { width: auto; margin: 0 10px 10px; box-shadow: none; border: 1px solid rgba(0,0,0,.1); }
   .pop.threaded .pop-head, .pop.threaded .compose { display: none; }
   .pop .thread:empty { display: none; }
@@ -489,9 +488,9 @@ export class OverlayUI {
     const warm = startSession(null, start).catch(() => null);
     try {
       const result = await capture(this.store, { ids, ...(note ? { note } : {}) });
-      this.showStatus(`Sending to ${escapeHtml(name)}…`);
+      this.showStatus(`Sending to ${name}…`);
       const sent = await postCapture(result);
-      this.showStatus(`Capture saved: <code>${escapeHtml(sent.dir)}</code>`, false, !quick);
+      this.showStatus(["Capture saved: ", { code: sent.dir }], { autoHide: !quick });
       try {
         const sessionId = (await warm) ?? (await startSession(sent.id, start));
         const thread = this.addThread(sessionId, ids);
@@ -502,17 +501,14 @@ export class OverlayUI {
         if ((await warm) === sessionId) await thread.chat.attachCapture(sessionId, sent.id, { quick });
         else if (quick) thread.chat.follow(sessionId);
         else thread.chat.open(sessionId);
-        if (quick) this.showStatus(`Quick note sent — ${escapeHtml(name)} is writing the task…${openChatLink(sessionId)}`);
+        if (quick) this.showStatus(`Quick note sent — ${name} is writing the task…`, { link: sessionId });
       } catch (err) {
-        this.showStatus(
-          `Capture saved: <code>${escapeHtml(sent.dir)}</code> — but ${escapeHtml(name)} did not start: ${escapeHtml(err instanceof Error ? err.message : String(err))}`,
-          true,
-        );
+        this.showStatus(["Capture saved: ", { code: sent.dir }, ` — but ${name} did not start: ${messageOf(err)}`], { error: true });
       }
       return sent;
     } catch (err) {
       void warm.then((id) => (id ? closeSession(id).catch(() => undefined) : undefined));
-      this.showStatus(`Send failed: ${escapeHtml(err instanceof Error ? err.message : String(err))}`, true);
+      this.showStatus(`Send failed: ${messageOf(err)}`, { error: true });
       throw err;
     } finally {
       this.busy = false;
@@ -528,10 +524,10 @@ export class OverlayUI {
 
   private onQuiet(outcome: QuietOutcome, sessionId: string): void {
     if (outcome.kind === "task") {
-      this.showStatus(`Task <b>${escapeHtml(outcome.id)}</b> written to <code>${escapeHtml(outcome.path)}</code>${openChatLink(sessionId)}`);
+      this.showStatus(["Task ", { b: outcome.id }, " written to ", { code: outcome.path }], { link: sessionId });
     } else {
       const name = this.threads.find((t) => t.sessionId === sessionId)?.chat.agentName() ?? UNKNOWN_AGENT;
-      this.showStatus(`${escapeHtml(name)} needs you: ${escapeHtml(outcome.reason)}`, false, true);
+      this.showStatus(`${name} needs you: ${outcome.reason}`, { autoHide: true });
     }
   }
 
@@ -544,7 +540,7 @@ export class OverlayUI {
       thread.chat.show(true);
       return;
     }
-    this.showStatus(`${escapeHtml(reason)}${openChatLink(thread.sessionId)}`, false, true);
+    this.showStatus(reason, { link: thread.sessionId, autoHide: true });
     this.render();
   }
 
@@ -664,12 +660,7 @@ export class OverlayUI {
       if (a.sessionId) groups.set(a.sessionId, [...(groups.get(a.sessionId) ?? []), a.id]);
     }
     for (const id of this.readPageThreads()) if (!groups.has(id)) groups.set(id, []);
-    let wanted: string | null = null;
-    try {
-      wanted = sessionStorage.getItem(OPEN_KEY);
-    } catch {
-      // ignore
-    }
+    const wanted = safeGet("session", OPEN_KEY);
     await Promise.all(
       [...groups].map(async ([sessionId, ids]) => {
         if (this.threadFor(sessionId)) return;
@@ -687,23 +678,13 @@ export class OverlayUI {
   }
 
   private readPageThreads(): string[] {
-    try {
-      const raw = sessionStorage.getItem(PAGE_THREADS_KEY);
-      const list: unknown = raw ? JSON.parse(raw) : [];
-      return Array.isArray(list) ? list.filter((x): x is string => typeof x === "string") : [];
-    } catch {
-      return [];
-    }
+    const list = safeGetJson("session", PAGE_THREADS_KEY);
+    return Array.isArray(list) ? list.filter((x): x is string => typeof x === "string") : [];
   }
 
   private persistPageThreads(): void {
-    try {
-      const ids = this.threads.filter((t) => !t.annotationIds.length).map((t) => t.sessionId);
-      if (ids.length) sessionStorage.setItem(PAGE_THREADS_KEY, JSON.stringify(ids));
-      else sessionStorage.removeItem(PAGE_THREADS_KEY);
-    } catch {
-      // sessionStorage unavailable: page threads live for this page load only
-    }
+    const ids = this.threads.filter((t) => !t.annotationIds.length).map((t) => t.sessionId);
+    safeSet("session", PAGE_THREADS_KEY, ids.length ? JSON.stringify(ids) : null);
   }
 
   // ---- popovers (F-65, F-68) -------------------------------------------------------------------
@@ -740,12 +721,7 @@ export class OverlayUI {
   }
 
   private rememberOpen(sessionId: string | null): void {
-    try {
-      if (sessionId) sessionStorage.setItem(OPEN_KEY, sessionId);
-      else sessionStorage.removeItem(OPEN_KEY);
-    } catch {
-      // ignore
-    }
+    safeSet("session", OPEN_KEY, sessionId);
   }
 
   closePops(): void {
@@ -987,21 +963,12 @@ export class OverlayUI {
   /** Pick a provider for the next send only (F-56); null clears the pick. Persists per tab. */
   setPendingProvider(id: string | null): void {
     this.pendingProvider = id;
-    try {
-      if (id) sessionStorage.setItem(PROVIDER_KEY, id);
-      else sessionStorage.removeItem(PROVIDER_KEY);
-    } catch {
-      // sessionStorage unavailable: the pick lives for this page load only
-    }
+    safeSet("session", PROVIDER_KEY, id || null);
     this.render();
   }
 
   private restorePendingProvider(): void {
-    try {
-      this.pendingProvider = sessionStorage.getItem(PROVIDER_KEY);
-    } catch {
-      this.pendingProvider = null;
-    }
+    this.pendingProvider = safeGet("session", PROVIDER_KEY);
   }
 
   /** `GET /__crt/providers`, with `?refresh=1` to re-run the server's preflight (F-56, F-57). */
@@ -1082,9 +1049,9 @@ export class OverlayUI {
       try {
         await this.rememberProvider(id);
         this.setPendingProvider(null);
-        this.showStatus(`Remembered: new sessions run on ${escapeHtml(name)} for this project on this machine (<code>.crt/config.local.json</code>)`, false, true);
+        this.showStatus([`Remembered: new sessions run on ${name} for this project on this machine (`, { code: ".crt/config.local.json" }, ")"], { autoHide: true });
       } catch (err) {
-        this.showStatus(`Could not remember ${escapeHtml(name)}: ${escapeHtml(err instanceof Error ? err.message : String(err))}`, true);
+        this.showStatus(`Could not remember ${name}: ${messageOf(err)}`, { error: true });
       }
     } else {
       this.setPendingProvider(id);
@@ -1236,15 +1203,8 @@ export class OverlayUI {
   // ---- launcher --------------------------------------------------------------------------------
 
   private restoreLauncher(): void {
-    try {
-      const raw = localStorage.getItem(LAUNCHER_KEY);
-      if (raw) {
-        const p = JSON.parse(raw) as { right: number; bottom: number };
-        if (Number.isFinite(p.right) && Number.isFinite(p.bottom)) this.launcherPos = p;
-      }
-    } catch {
-      // localStorage unavailable: default corner
-    }
+    const p = safeGetJson("local", LAUNCHER_KEY) as { right?: unknown; bottom?: unknown } | null;
+    if (Number.isFinite(p?.right) && Number.isFinite(p?.bottom)) this.launcherPos = { right: p!.right as number, bottom: p!.bottom as number };
     this.placeLauncher();
     window.addEventListener("resize", () => {
       this.placeLauncher();
@@ -1319,15 +1279,8 @@ export class OverlayUI {
       this.draggingLauncher = false;
       this.updateLoop();
       if (this.launcher.hasPointerCapture(e.pointerId)) this.launcher.releasePointerCapture(e.pointerId);
-      if (dragged) {
-        try {
-          localStorage.setItem(LAUNCHER_KEY, JSON.stringify(this.launcherPos));
-        } catch {
-          // ignore
-        }
-      } else {
-        this.toggle();
-      }
+      if (dragged) safeSet("local", LAUNCHER_KEY, JSON.stringify(this.launcherPos));
+      else this.toggle();
     };
     this.launcher.addEventListener("pointerup", finish);
     this.launcher.addEventListener("pointercancel", finish);
@@ -1573,15 +1526,23 @@ export class OverlayUI {
     return this.threads.find((t) => t.pop === pop)?.annotationIds[0] ?? pop.dataset.id;
   }
 
-  /** Open an annotation's popover and put the caret in its note (or its chat input). */
-  private focusNote(n: number): void {
-    this.togglePop(n, true);
-  }
-
-  private showStatus(html: string, error = false, autoHide = false): void {
+  /**
+   * The status line above the toolbar, built as DOM from text (never HTML): plain parts, `code`
+   * and `b` parts, and with `link` an "open chat" button for that session (F-66).
+   */
+  private showStatus(text: string | StatusPart[], opts: { link?: string; error?: boolean; autoHide?: boolean } = {}): void {
     // An earlier message's auto-hide timer must not hide this one.
     clearTimeout(this.statusTimer);
-    this.status.innerHTML = html;
+    this.status.replaceChildren(...(typeof text === "string" ? [text] : text).map(statusNode));
+    if (opts.link) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.dataset.status = "chat";
+      btn.dataset.session = opts.link;
+      btn.textContent = "open chat";
+      this.status.appendChild(btn);
+    }
+    const { error = false, autoHide = false } = opts;
     this.status.classList.toggle("error", error);
     this.status.hidden = false;
     if (!this.open) this.toggle(true);
@@ -1746,39 +1707,25 @@ export class OverlayUI {
   private commitSelect(el: Element): void {
     const a = this.store.addSelect(el);
     this.setTool(null);
-    this.focusNote(a.n);
+    this.togglePop(a.n, true); // opens its popover with the caret in the note
   }
 
   private commitBox(rect: { x: number; y: number; width: number; height: number }): void {
     const a = this.store.addBox(rect);
     this.setTool(null);
-    this.focusNote(a.n);
+    this.togglePop(a.n, true); // opens its popover with the caret in the note
   }
 
   private commitPin(x: number, y: number): void {
     const a = this.store.addPin(x, y);
     this.setTool(null);
-    this.focusNote(a.n);
+    this.togglePop(a.n, true); // opens its popover with the caret in the note
   }
 }
-
-const STATE_LABEL: Record<ThreadState, string> = {
-  starting: "starting",
-  running: "thinking…",
-  waiting: "needs permission",
-  idle: "your turn",
-  task: "task written",
-  ended: "ended",
-  error: "error",
-};
 
 /** F-67: `task` once the file exists, else the session state (`starting` before the first event). */
 export function threadState(state: SessionState | null, taskId: string | null): ThreadState {
   return taskId ? "task" : (state ?? "starting");
-}
-
-function openChatLink(sessionId: string): string {
-  return `<button type="button" data-status="chat" data-session="${escapeHtml(sessionId)}">open chat</button>`;
 }
 
 /** F-45's state column, derived from the F-57 row the way `preflightState` does on the server. */
@@ -1811,6 +1758,20 @@ function providerRow(p: ProviderRow, active: boolean): HTMLButtonElement {
     (btn.querySelector(".name") as HTMLElement).appendChild(badge);
   }
   return btn;
+}
+
+/** One piece of a status line: text, or text shown as code or in bold. */
+type StatusPart = string | { code: string } | { b: string };
+
+function statusNode(part: StatusPart): Node {
+  if (typeof part === "string") return document.createTextNode(part);
+  const el = document.createElement("code" in part ? "code" : "b");
+  el.textContent = "code" in part ? part.code : part.b;
+  return el;
+}
+
+function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function pathOf(url: string): string {
@@ -1895,16 +1856,4 @@ function normalise(a: { x: number; y: number }, b: { x: number; y: number }) {
     width: Math.abs(a.x - b.x),
     height: Math.abs(a.y - b.y),
   };
-}
-
-function clamp(n: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, n));
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-}
-
-function cssEscape(s: string): string {
-  return typeof CSS !== "undefined" && CSS.escape ? CSS.escape(s) : s.replace(/["\\]/g, "\\$&");
 }

@@ -19,8 +19,9 @@
  */
 import type { IntakeSummary, SessionEvent, SessionState } from "../../server/src/session-events.js";
 import { answerPermission, attachSessionCapture, closeSession, interruptSession, sendSessionMessage, sessionEventsUrl } from "./api.js";
+import { cssEscape, escapeHtml, STATE_LABEL } from "./dom-util.js";
 import { ACCEPT_LINE, ACCEPT_REPLY, endsWithAcceptLine, summarizeProposal } from "./proposal.js";
-import { ACCENT } from "./tokens.js";
+import { ACCENT, ERROR, EXPERIMENTAL, FAIL, INK, OK, PILL } from "./tokens.js";
 
 /** What the panel calls the agent before its `init` event has arrived. */
 const UNKNOWN_AGENT = "the agent";
@@ -29,6 +30,11 @@ export type InitEvent = Extract<SessionEvent, { type: "init" }>;
 
 export { ACCEPT_LINE, ACCEPT_REPLY, endsWithAcceptLine };
 
+/**
+ * The chat panel's stylesheet, appended to the overlay's (colours from tokens.ts, F-112). The head
+ * draws `idle` in the task green (`PILL.task`) while the marker pill draws it in `PILL.idle` blue:
+ * kept as it was — which one is right is an open design question (CRT-0043).
+ */
 export const CHAT_CSS = `
   .chat { display: flex; flex-direction: column; width: 100%; height: min(60vh, 560px); border-radius: 12px; background: #fff;
           overflow: hidden; }
@@ -39,10 +45,10 @@ export const CHAT_CSS = `
   .chat-head .agent { color: #555; }
   .chat-head .agent:empty { display: none; }
   .chat-head .state { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #eee; color: #555; }
-  .chat-head .state[data-state="running"], .chat-head .state[data-state="starting"] { background: #fff3cd; color: #7a5a00; }
+  .chat-head .state[data-state="running"], .chat-head .state[data-state="starting"] { background: ${PILL.running[0]}; color: ${PILL.running[1]}; }
   .chat-head .state[data-state="waiting"] { background: ${ACCENT}; color: #fff; }
-  .chat-head .state[data-state="idle"] { background: #d9f5e3; color: #0a5b2b; }
-  .chat-head .state[data-state="error"] { background: #fde2e2; color: #8b0000; }
+  .chat-head .state[data-state="idle"] { background: ${PILL.task[0]}; color: ${PILL.task[1]}; }
+  .chat-head .state[data-state="error"] { background: ${PILL.error[0]}; color: ${PILL.error[1]}; }
   .chat-head .spacer { flex: 1; }
   .chat-head button { padding: 4px 8px; border-radius: 6px; font-size: 12px; }
   .chat-head button:hover { background: #eee; }
@@ -50,7 +56,7 @@ export const CHAT_CSS = `
   .chat-head button[hidden] { display: none; }
   .chat-log { flex: 1; overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; scroll-behavior: smooth; }
   .msg { max-width: 92%; padding: 8px 10px; border-radius: 10px; line-height: 1.45; word-wrap: break-word; overflow-wrap: anywhere; }
-  .msg.user { align-self: flex-end; background: #111; color: #fff; white-space: pre-wrap; }
+  .msg.user { align-self: flex-end; background: ${INK}; color: #fff; white-space: pre-wrap; }
   .msg.user .imgs { display: block; margin-top: 4px; font-size: 11px; opacity: .75; }
   .fold { display: block; margin-top: 6px; white-space: normal; }
   .fold-pill { display: inline-flex; align-items: center; padding: 2px 9px; border: 0; border-radius: 999px; font: inherit; font-size: 11px; line-height: 1.5; color: inherit; cursor: pointer; }
@@ -80,7 +86,7 @@ export const CHAT_CSS = `
   .tool summary::before { content: "▸"; color: #999; } .tool[open] summary::before { content: "▾"; }
   .tool summary:hover { background: #f3f3f5; }
   .tool .dot { width: 6px; height: 6px; border-radius: 3px; background: #ccc; flex: none; }
-  .tool.done .dot { background: #2e9e5b; } .tool.error .dot { background: #c00; }
+  .tool.done .dot { background: ${OK}; } .tool.error .dot { background: ${FAIL}; }
   .tool .out { padding: 4px 4px 4px 18px; white-space: pre-wrap; color: #777; }
   .perm { align-self: stretch; border: 1px solid ${ACCENT}; border-radius: 10px; padding: 8px 10px; background: #fff5f8; }
   .perm .t { font-weight: 600; margin-bottom: 4px; }
@@ -88,20 +94,20 @@ export const CHAT_CSS = `
               font-size: 12px; white-space: pre-wrap; max-height: 120px; overflow: auto; }
   .perm .btns { display: flex; gap: 6px; }
   .perm button { padding: 5px 12px; border-radius: 8px; font-weight: 600; }
-  .perm button.allow { background: #111; color: #fff; }
+  .perm button.allow { background: ${INK}; color: #fff; }
   .perm button.deny { background: #eee; }
   .perm .done { font-size: 12px; color: #555; }
   .perm.resolved { border-color: rgba(0,0,0,.12); background: #fafafa; }
   .sys { align-self: center; font-size: 11px; color: #888; text-align: center; }
   .thinking { align-self: flex-start; font-size: 12px; color: #888; padding: 2px 10px; }
   .thinking::after { content: "…"; animation: crt-blink 1s steps(2) infinite; }
-  .sys.error { color: #b00020; font-weight: 600; align-self: stretch; text-align: left; padding: 6px 10px; background: #fde2e2; border-radius: 8px; }
-  .chat-task { padding: 8px 10px; background: #d9f5e3; color: #0a5b2b; font-size: 12px; border-top: 1px solid rgba(0,0,0,.06); }
+  .sys.error { color: ${ERROR}; font-weight: 600; align-self: stretch; text-align: left; padding: 6px 10px; background: ${PILL.error[0]}; border-radius: 8px; }
+  .chat-task { padding: 8px 10px; background: ${PILL.task[0]}; color: ${PILL.task[1]}; font-size: 12px; border-top: 1px solid rgba(0,0,0,.06); }
   .chat-task[hidden] { display: none; }
   .chat-task code { font-family: ui-monospace, Menlo, Consolas, monospace; user-select: all; }
   .chat-accept { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-top: 1px solid rgba(0,0,0,.08); background: #fafafa; font-size: 12px; color: #555; }
   .chat-accept[hidden] { display: none; }
-  .chat-accept button { padding: 6px 16px; border-radius: 8px; background: #111; color: #fff; font-weight: 600; }
+  .chat-accept button { padding: 6px 16px; border-radius: 8px; background: ${INK}; color: #fff; font-weight: 600; }
   .chat-accept button:hover { background: #333; }
   .chat-input { display: flex; gap: 6px; padding: 8px; border-top: 1px solid rgba(0,0,0,.08); }
   .chat-input textarea { flex: 1; min-height: 38px; max-height: 120px; resize: vertical; font: inherit; padding: 8px; border-radius: 8px;
@@ -112,8 +118,8 @@ export const CHAT_CSS = `
   .chat-foot { padding: 6px 10px; font-size: 11px; color: #777; border-top: 1px solid rgba(0,0,0,.06); background: #fafafa;
                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .chat-foot code { font-family: ui-monospace, Menlo, Consolas, monospace; user-select: all; color: #333; }
-  .chat-foot .badge { display: inline-block; padding: 0 6px; border-radius: 999px; background: #e8f0fe; color: #1a4d99; font-weight: 600; }
-  .chat-foot .badge.experimental { background: #fff3cd; color: #7a5200; }
+  .chat-foot .badge { display: inline-block; padding: 0 6px; border-radius: 999px; background: #e8f0fe; color: ${PILL.idle[1]}; font-weight: 600; }
+  .chat-foot .badge.experimental { background: ${EXPERIMENTAL[0]}; color: ${EXPERIMENTAL[1]}; }
 `;
 
 export interface ChatSnapshot {
@@ -576,7 +582,7 @@ export class ChatPanel {
   private renderState(): void {
     const s = this.state ?? "starting";
     this.stateEl.dataset.state = s;
-    this.stateEl.textContent = { starting: "starting", running: "thinking…", waiting: "needs permission", idle: "your turn", ended: "ended", error: "error" }[s];
+    this.stateEl.textContent = STATE_LABEL[s];
     const over = s === "ended" || s === "error";
     this.input.disabled = over;
     this.sendBtn.disabled = over;
@@ -854,12 +860,4 @@ function inline(text: string): string {
         .replace(/(^|[\s(])\*([^*]+)\*(?=[\s).,;:!?]|$)/g, "$1<em>$2</em>");
     })
     .join("");
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-}
-
-function cssEscape(s: string): string {
-  return typeof CSS !== "undefined" && CSS.escape ? CSS.escape(s) : s.replace(/["\\]/g, "\\$&");
 }

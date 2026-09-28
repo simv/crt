@@ -18,6 +18,7 @@
 import type { ElementInfo, Rect } from "../../server/src/capture-schema.js";
 import { describeElement } from "./element.js";
 import { isOverlayNode } from "./selector.js";
+import { safeGetJson, safeSet } from "./storage.js";
 
 export type AnnotationKind = "select" | "box" | "pin";
 
@@ -211,27 +212,18 @@ export class AnnotationStore {
   private persist(): void {
     clearTimeout(this.persistTimer);
     this.persistTimer = undefined;
-    try {
-      if (!this.items.length) {
-        sessionStorage.removeItem(STORAGE_KEY);
-        return;
-      }
-      const data: Persisted[] = this.items.map(({ element: _e, elements, ...rest }) => ({
-        ...rest,
-        elements: elements.map((b) => b.info),
-      }));
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } catch {
-      // sessionStorage may be unavailable (sandboxed iframe, quota); persistence is a Should.
-    }
+    // Persistence is a Should: without sessionStorage the annotations live for this page load.
+    const data: Persisted[] = this.items.map(({ element: _e, elements, ...rest }) => ({
+      ...rest,
+      elements: elements.map((b) => b.info),
+    }));
+    safeSet("session", STORAGE_KEY, data.length ? JSON.stringify(data) : null);
   }
 
   private restore(): void {
+    const data = safeGetJson("session", STORAGE_KEY) as Persisted[] | null;
+    if (!Array.isArray(data)) return;
     try {
-      const raw = sessionStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const data = JSON.parse(raw) as Persisted[];
-      if (!Array.isArray(data)) return;
       this.items = data.map((p, i) => ({
         ...p,
         sessionId: typeof p.sessionId === "string" ? p.sessionId : null,
@@ -241,7 +233,7 @@ export class AnnotationStore {
       }));
       this.resolve();
     } catch {
-      this.items = [];
+      this.items = []; // a stored shape this version cannot read
     }
   }
 }

@@ -9,12 +9,9 @@
  * across HMR reloads.
  */
 
-const HOST_ID = "crt-host";
+import { cssEscape } from "./dom-util.js";
 
-const cssEscape = (s: string): string =>
-  typeof CSS !== "undefined" && typeof CSS.escape === "function"
-    ? CSS.escape(s)
-    : s.replace(/([^\w-])/g, "\\$1");
+const HOST_ID = "crt-host";
 
 /** Heuristic: hashed/generated tokens make brittle selectors. */
 export function looksGenerated(token: string): boolean {

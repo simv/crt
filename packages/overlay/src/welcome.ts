@@ -12,6 +12,8 @@
  * ui.ts mounts the element and positions it.
  */
 import type { HealthPayload } from "./health.js";
+import { safeGet, safeSet } from "./storage.js";
+import { INK } from "./tokens.js";
 
 export const WELCOME_KEY_PREFIX = "crt.welcome.v1:";
 
@@ -20,19 +22,12 @@ export function welcomeKey(projectRoot: string): string {
 }
 
 export function welcomeSeen(projectRoot: string): boolean {
-  try {
-    return localStorage.getItem(welcomeKey(projectRoot)) !== null;
-  } catch {
-    return true; // no localStorage: never nag on every load
-  }
+  // No localStorage: never nag on every load.
+  return safeGet("local", welcomeKey(projectRoot), "unavailable") !== null;
 }
 
 export function markWelcomeSeen(projectRoot: string): void {
-  try {
-    localStorage.setItem(welcomeKey(projectRoot), new Date().toISOString());
-  } catch {
-    // localStorage unavailable: the card comes back next load
-  }
+  safeSet("local", welcomeKey(projectRoot), new Date().toISOString());
 }
 
 export interface WelcomeCopy {
@@ -100,7 +95,7 @@ export function shouldShowWelcome(g: WelcomeGate): boolean {
 
 export const WELCOME_CSS = `
   .welcome { position: fixed; pointer-events: auto; width: min(360px, calc(100vw - 32px)); padding: 14px 16px;
-             border-radius: 12px; background: #fff; color: #111; box-shadow: 0 8px 28px rgba(0,0,0,.22);
+             border-radius: 12px; background: #fff; color: ${INK}; box-shadow: 0 8px 28px rgba(0,0,0,.22);
              border: 1px solid rgba(0,0,0,.08); font-size: 13px; line-height: 1.45; }
   .welcome[hidden] { display: none; }
   .welcome h2 { margin: 0 0 6px; font-size: 14px; font-weight: 700; }
