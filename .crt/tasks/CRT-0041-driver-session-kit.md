@@ -1,10 +1,10 @@
 ---
 id: CRT-0041
 title: A driver kit for sessions — one emitter, turn queue, permission broker and init event; task_written recorded by the registry
-status: blocked
+status: in_progress
 priority: normal
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-28T11:25:00+08:00
+updated: 2026-09-28T17:14:00+08:00
 url: null
 route: null
 session: null
@@ -80,3 +80,4 @@ No page capture: from the code review in session e145e7ac, 2026-09-24. The Codex
 - 2026-09-28T11:25+08:00 — not verified: the manual Claude intake in the trial app. Claude Code is logged out on this machine: `claude auth status --json` → `loggedIn: false`, no `CLAUDE_CODE_OAUTH_TOKEN`, and a real Agent SDK session (and the opt-in SDK smoke test) answers "Failed to authenticate: OAuth session expired and could not be refreshed". That wording was not recognised as the N-6 login problem; filed and fixed as CRT-0045 (https://github.com/simv/crt/pull/97).
 - 2026-09-28T11:25+08:00 — changed so far: packages/server/src/providers/driver-core.ts (new), claude.ts, codex.ts, antigravity.ts, acp.ts, gemini.ts, stub.ts, detect.ts, types.ts, packages/server/src/session.ts, sessions.ts, session-events.ts, write-task.ts, mcp-stdio.ts; tests driver-core.test.ts (new), conformance.ts, codex.test.ts, session.test.ts, sessions.test.ts, e2e/chat.spec.ts; CLAUDE.md (driver-core.ts in the entry points).
 - 2026-09-28T11:25+08:00 — blocked: Claude Code is logged out on this machine, so the last DoD row's manual Claude intake cannot run. Please run `claude` in a terminal and complete /login (check with `claude auth status`), then say so in ## Notes. Answer in ## Notes and re-run /crt:next CRT-0041.
+- 2026-09-28T17:14+08:00 — claimed by /crt:next, session 7f3d86f7-7da2-449b-bcf3-1cd4cabe70ca, branch crt/CRT-0041-driver-session-kit (a retry: `main` still lists the task as backlog because the blocked commit lives only on this branch; worked in the worktree .claude/worktrees/CRT-0041-retry, the main checkout stays on main). `claude auth status --json` → `loggedIn: false` again, so this run brings the branch up to date with `main` (#98, #99) and re-verifies it; the manual Claude intake still waits for a login.
