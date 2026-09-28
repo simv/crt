@@ -51,7 +51,7 @@ afterEach(() => {
 });
 
 describe("crtJson (CRT-0043)", () => {
-  it("returns the answer of a 2xx that says ok: true, and reports no failure", async () => {
+  it("returns the answer of a 2xx that says ok: true, and reports no failure (F-81)", async () => {
     answer({ body: { ok: true, n: 1 } });
     await expect(crtJson<{ n: number }>("/__crt/x")).resolves.toEqual({ ok: true, n: 1 });
     expect(failures).toBe(0);
@@ -71,7 +71,7 @@ describe("crtJson (CRT-0043)", () => {
     expect(failures).toBe(5);
   });
 
-  it("throws when a field the caller needs is missing", async () => {
+  it("throws when a field the caller needs is missing (F-13, F-24)", async () => {
     answer({ status: 201, body: { ok: true } });
     await expect(crtJson<{ id: string }>("/__crt/x", undefined, ["id"])).rejects.toThrow("CRT server answered 201");
     expect(failures).toBe(1);

@@ -1,8 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import * as api from "../../overlay/src/api.js";
-import * as health from "../../overlay/src/health.js";
 import * as tokens from "../../overlay/src/tokens.js";
 import * as routes from "../src/routes.js";
 
@@ -28,31 +26,33 @@ function rgbaOf(hex: string, alpha: number): string {
 }
 
 describe("overlay structure (CRT-0043)", () => {
-  it("talks to /__crt/ only from api.ts and health.ts (the loader adds a script tag): nothing else builds a CRT URL or calls fetch but the screenshot's stylesheet reads", () => {
+  it("talks to /__crt/ only from api.ts and health.ts (the loader adds a script tag): nothing else builds a CRT URL or calls fetch but the screenshot's stylesheet reads (F-4, F-81)", () => {
     expect(using(/\bfetch\(/)).toEqual(["api.ts", "health.ts", "screenshot.ts"]);
     expect(using(/\bcrtUrl\(/)).toEqual(["api.ts", "base.ts", "health.ts"]);
     expect(source("screenshot.ts")).not.toMatch(/__crt|from "\.\/base\.js"/);
   });
 
-  it("names each route it calls as the server's routes.ts does, without importing it (that would ship every CRT path)", () => {
-    expect({ CAPTURES_PATH: api.CAPTURES_PATH, SESSIONS_PATH: api.SESSIONS_PATH, PROVIDERS_PATH: api.PROVIDERS_PATH, CONFIG_PATH: api.CONFIG_PATH, HEALTH_PATH: health.HEALTH_PATH }).toEqual({
-      CAPTURES_PATH: routes.CAPTURES_PATH,
-      SESSIONS_PATH: routes.SESSIONS_PATH,
-      PROVIDERS_PATH: routes.PROVIDERS_PATH,
-      CONFIG_PATH: routes.CONFIG_PATH,
-      HEALTH_PATH: routes.HEALTH_PATH,
-    });
-    expect(using(/server\/src\/routes\.js/)).toEqual([]);
+  it("takes the paths it calls from the server's routes.ts, whose paths are all plain strings under /__crt/ so the unused ones never reach the bundle (F-4)", () => {
+    expect(using(/server\/src\/routes\.js/)).toEqual(["api.ts", "health.ts"]);
+    expect(using(/["'`]\/__crt/).filter((f) => f !== "loader.ts")).toEqual([]);
+    for (const [name, value] of Object.entries(routes)) {
+      if (typeof value !== "string") continue;
+      expect(value === routes.CRT_PREFIX || value.startsWith(`${routes.CRT_PREFIX}/`), name).toBe(true);
+      if (/^(INTERNAL_|SHUTDOWN)/.test(name)) expect(value.startsWith(routes.INTERNAL_PREFIX), name).toBe(true);
+    }
+    const consts = readFileSync(join(import.meta.dirname, "..", "src", "routes.ts"), "utf8").match(/^export const .*$/gm) ?? [];
+    expect(consts.length).toBeGreaterThan(10);
+    for (const line of consts) expect(line, "a plain string, not a template").toMatch(/^export const \w+ = "[^"]*";$/);
   });
 
-  it("defines escapeHtml, cssEscape and clamp once, in dom-util.ts", () => {
+  it("defines escapeHtml, cssEscape and clamp once, in dom-util.ts (F-17, F-25, F-65)", () => {
     for (const name of ["escapeHtml", "cssEscape", "clamp"]) {
       const defs = using(new RegExp(`\\b(function\\s+${name}\\b|(const|let)\\s+${name}\\s*=)`)).filter((f) => f !== "loader.ts");
       expect(defs, name).toEqual(["dom-util.ts"]);
     }
   });
 
-  it("reads and writes Web Storage only through storage.ts", () => {
+  it("reads and writes Web Storage only through storage.ts (F-12, F-56, F-66, F-81, F-82)", () => {
     expect(using(/\b(localStorage|sessionStorage)\s*\.|\?\s*localStorage\s*:|:\s*sessionStorage\b/).filter((f) => f !== "loader.ts")).toEqual(["storage.ts"]);
   });
 
@@ -72,17 +72,17 @@ describe("overlay structure (CRT-0043)", () => {
     }
   });
 
-  it("the translucent tokens are their base colours at an alpha: ACCENT_WASH is ACCENT at 8%, INK_90 is INK at 90%", () => {
+  it("the translucent tokens are their base colours at an alpha: ACCENT_WASH is ACCENT at 8%, INK_90 is INK at 90% (F-112)", () => {
     expect(tokens.ACCENT_WASH).toBe(rgbaOf(tokens.ACCENT, 0.08));
     expect(tokens.INK_90).toBe(rgbaOf(tokens.INK, 0.9));
     expect(rgbaOf("#2e9e5b", 1)).toBe("rgba(46,158,91,1)");
   });
 
-  it("keeps ui.ts to composing its parts: at most 700 lines", () => {
+  it("keeps ui.ts to composing its parts: at most 700 lines (F-7…F-14, F-65…F-68)", () => {
     expect(readFileSync(join(SRC, "ui.ts"), "utf8").trimEnd().split("\n").length).toBeLessThanOrEqual(700);
   });
 
-  it("builds the status line as DOM: showStatus never assigns innerHTML", () => {
+  it("builds the status line as DOM: showStatus never assigns innerHTML (F-13, F-14, F-66)", () => {
     const ui = source("ui.ts");
     const start = ui.indexOf("private showStatus(");
     expect(start).toBeGreaterThan(0);
