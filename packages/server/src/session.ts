@@ -16,7 +16,7 @@
  *
  * Preflight results are cached per registry (`refresh()` re-runs them: server start, `--refresh`).
  */
-import { type CrtConfig, DEFAULT_CONFIG, LOCAL_CONFIG_FILE, CONFIG_FILE } from "./init.js";
+import { type CrtConfig, DEFAULT_CONFIG, LOCAL_CONFIG_FILE, CONFIG_FILE } from "./config.js";
 import { adHocAcpProfile } from "./providers/acp.js";
 import { antigravityProfile } from "./providers/antigravity.js";
 import { claudeProfile } from "./providers/claude.js";

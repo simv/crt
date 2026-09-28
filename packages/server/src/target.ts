@@ -45,6 +45,16 @@ export function normalizeTarget(input: string): string {
   return url.origin;
 }
 
+/** `normalizeTarget` for a stored value that may be absent or unparseable: the origin, else null. */
+export function safeOrigin(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    return normalizeTarget(value);
+  } catch {
+    return null;
+  }
+}
+
 /** F-71 prompt validation: the origin, or null when the answer is not a URL or port. */
 export function parseTargetAnswer(answer: string): string | null {
   const s = answer.trim();

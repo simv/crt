@@ -31,8 +31,8 @@ Entry points: `packages/server/src/cli.ts` → `serve.ts` (resolves the mode —
 - Test plumbing is shared, never copied: `test/helpers/fake-cli.ts` (fake agent CLIs on an isolated PATH, env restore, the `crt mcp` shim, `driverHarness`), `test/helpers/http.ts` (`listen0`, `apiAt`, `fakeProvider`), `e2e/helpers.ts` (the `PORTS` registry, the `window.__crt` type, `shadow`, `scratch`/`startCrt`/`stopCrts`/`health`). A `.mjs` a test imports gets a `.d.mts` next to it.
 - Overlay is framework-free, renders inside Shadow DOM, no globals except `window.__crt` for debugging.
 - Overlay colours come from `packages/overlay/src/tokens.ts`; the landing page repeats them and a test pins the two equal (PRD-polish F-112).
-- The browser entries (`packages/overlay/src/{loader,react}.ts`) and `packages/server/src/integrations/` import nothing from the server runtime (`init.ts`/`project.ts` excepted) and are dev-only by construction (PRD-embedded N-18): every browser-facing body sits behind `process.env.NODE_ENV !== "production"` in the positive form, and `exports` routes the `production` condition to the no-op modules.
-- Every CRT HTTP/WS route is under `/__crt/`. Server binds `127.0.0.1` only.
+- The browser entries (`packages/overlay/src/{loader,react}.ts`) and `packages/server/src/integrations/` import nothing from the server runtime (`config.ts`/`project.ts` excepted) and are dev-only by construction (PRD-embedded N-18): every browser-facing body sits behind `process.env.NODE_ENV !== "production"` in the positive form, and `exports` routes the `production` condition to the no-op modules.
+- Every CRT HTTP/WS route is under `/__crt/`, its path a constant in `packages/server/src/routes.ts` (no imports). Server binds `127.0.0.1` only.
 - Windows is the primary dev platform: use `node:path`, never hand-build paths; spawn with `shell: false`; write files with `\n`.
 - Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `test:`), squash-merge PRs, short-lived branches `crt/<id>-<slug>` or `feat/<topic>`.
 - Reference the PRD requirement in tests: `it("injects overlay script (F-2)", …)`.

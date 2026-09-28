@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { type DoctorFacts, doctorRows, hasDevScript, installedPluginVersion, integrationFact, renderDoctor, renderRow } from "../src/doctor.js";
+import { type DoctorFacts, doctorRows, hasDevScript, integrationFact, renderDoctor, renderRow } from "../src/doctor.js";
 import { CLAUDE_NOT_LOGGED_IN } from "../src/providers/claude.js";
 import { CODEX_NOT_FOUND, CODEX_NOT_LOGGED_IN, codexTooOld } from "../src/providers/codex.js";
 import { preflightState } from "../src/providers/types.js";
 import type { ProviderStatus, Resolution } from "../src/session.js";
+import { installedPluginVersion } from "../src/setup.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

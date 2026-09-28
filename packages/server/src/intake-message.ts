@@ -11,32 +11,14 @@
  */
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { type CaptureBundle, validateCaptureBundle } from "./capture-schema.js";
+import type { CaptureBundle } from "./capture-schema.js";
+import { readCapture } from "./captures.js";
 import type { IntakeSummary, ProviderCapabilities, UserImage, UserInput } from "./session-events.js";
 
 /** The Messages API caps images at 5 MB; stay under it with headroom for base64. */
 export const MAX_IMAGE_BYTES = 3.5 * 1024 * 1024;
 /** Annotated viewport + up to this many per-annotation crops. */
 export const MAX_ANNOTATION_IMAGES = 6;
-
-export class CaptureNotFoundError extends Error {
-  constructor(id: string, cause: string) {
-    super(`capture ${id} not found: ${cause}`);
-    this.name = "CaptureNotFoundError";
-  }
-}
-
-export function readCaptureBundle(captureDir: string): CaptureBundle {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(readFileSync(join(captureDir, "capture.json"), "utf8"));
-  } catch (err) {
-    throw new CaptureNotFoundError(captureDir, (err as Error).message);
-  }
-  const errors = validateCaptureBundle(raw);
-  if (errors.length) throw new CaptureNotFoundError(captureDir, `invalid capture.json (${errors[0]})`);
-  return raw as CaptureBundle;
-}
 
 export interface IntakeMessageOptions {
   /** F-14 quick note: tell the agent to write the task without waiting for DoD confirmation. */
@@ -58,7 +40,7 @@ export const FIRST_MESSAGE_HEADING = "# CRT intake instructions";
 /** F-50: what the message says instead of attaching images, for an agent that does not take them. */
 export const IMAGES_DROPPED_LINE = "Images not attached: this agent does not accept images; the screenshots are the PNG files next to capture.json.";
 
-export function buildIntakeMessage(captureDir: string, bundle: CaptureBundle = readCaptureBundle(captureDir), opts: IntakeMessageOptions = {}): UserInput {
+export function buildIntakeMessage(captureDir: string, bundle: CaptureBundle = readCapture(captureDir), opts: IntakeMessageOptions = {}): UserInput {
   const mode = opts.images ?? "inline";
   const images: UserImage[] = [];
   const attach = (name: string | null, label: string) => {

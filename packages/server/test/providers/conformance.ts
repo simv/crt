@@ -23,11 +23,11 @@ import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 import { expect } from "vitest";
 import { buildIntakeMessage, prependInstructions } from "../../src/intake-message.js";
-import { MCP_PORT_ENV, MCP_TOKEN_ENV, STALE_TOKEN_LINE } from "../../src/mcp-stdio.js";
+import { MCP_PORT_ENV, MCP_TOKEN_ENV } from "../../src/mcp-stdio.js";
 import { decidePermission } from "../../src/permissions.js";
 import type { ProviderProfile } from "../../src/providers/types.js";
 import type { SessionEvent, StartSessionOptions, UserInput, WriteTaskRequest } from "../../src/session-events.js";
-import { handleInternalRoute, INTERNAL_PREFIX, type SessionRegistry } from "../../src/sessions.js";
+import { handleInternalRoute, INTERNAL_PREFIX, type SessionRegistry, StaleSessionError } from "../../src/sessions.js";
 import { createTask, displayPath, parseTask, validateTaskText } from "../../src/tasks.js";
 import { waitForEvent } from "../helpers/fake-cli.js";
 
@@ -177,7 +177,7 @@ async function internalRoute(
   const registry = {
     sessionForToken: (given: string) => (live && given === token ? sessionId : null),
     writeTaskFor: async (_id: string, request: WriteTaskRequest) => {
-      if (!live) throw new Error(STALE_TOKEN_LINE);
+      if (!live) throw new StaleSessionError();
       const written = await writeTask(request);
       record({ type: "task_written", id: written.id, path: written.path });
       return written;
