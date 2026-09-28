@@ -1,7 +1,7 @@
 /**
  * `crt setup` (PRD-setup F-86): idempotent registration of the plugin bundled in this package
  * (`dist/plugin-marketplace/`, built per F-85) with Claude Code, so a machine with only the npm
- * package gets /crt:serve, /crt:next, /crt:tasks, /crt:task, /crt:done and /crt:intake without
+ * package gets the plugin's skills (/crt:serve, /crt:next, … — `SLASH_COMMANDS`) without
  * reaching GitHub. Everything here is a spawn of the developer's `claude` CLI with `shell: false`
  * (N-10): `plugin list --json`, then `plugin marketplace add <dir>` and `plugin install crt@crt`
  * (or `plugin update crt@crt` when an older version is present). CRT writes nothing itself; the
@@ -17,15 +17,15 @@
  * version", exit 0). §12 rules 2–3 apply if a later CLI differs.
  */
 import { CrtError } from "./errors.js";
-import { installedPluginVersion } from "./doctor.js";
-import { type Executable, findOnPath, resolveExecutable, runExecutable } from "./providers/exec.js";
+import { type Executable, findOnPath, firstLine, resolveExecutable, runExecutable } from "./providers/exec.js";
+import { SKILL_NAMES } from "./skills.js";
 
 /** The marketplace and plugin ids, as `claude plugin install crt@crt` names them (F-85). */
 export const PLUGIN_ID = "crt@crt";
 /** The GitHub form of the same two commands, for the "claude not found" line. */
 export const MANUAL_INSTALL = "claude plugin marketplace add simv/crt && claude plugin install crt@crt";
-/** The seven skills the plugin loads, in the F-86 line's order (PRD-embedded §9: `/crt:init` joined in v0.4). */
-export const SKILL_NAMES = ["/crt:serve", "/crt:next", "/crt:tasks", "/crt:task", "/crt:done", "/crt:intake", "/crt:init"] as const;
+/** The skills the plugin loads as Claude Code names them, in the F-86 line's order (skills.ts `SKILL_NAMES`). */
+export const SLASH_COMMANDS = SKILL_NAMES.map((name) => `/crt:${name}`);
 
 export const CLAUDE_NOT_FOUND = `claude not found on PATH — install Claude Code (npm i -g @anthropic-ai/claude-code), or run: ${MANUAL_INSTALL}`;
 
@@ -68,7 +68,7 @@ export async function runSetup(opts: SetupOptions): Promise<SetupResult> {
   lines.push(`crt setup: registered marketplace crt from ${opts.marketplaceDir}`);
   const verb = installed === null ? "install" : "update";
   await must(run(["plugin", verb, PLUGIN_ID]), `claude plugin ${verb} ${PLUGIN_ID}`);
-  lines.push(`crt setup: ${verb === "install" ? "installed" : "updated"} ${PLUGIN_ID} ${opts.version} — restart Claude Code to load ${SKILL_NAMES.join(", ")}`);
+  lines.push(`crt setup: ${verb === "install" ? "installed" : "updated"} ${PLUGIN_ID} ${opts.version} — restart Claude Code to load ${SLASH_COMMANDS.join(", ")}`);
   return { action: verb === "install" ? "installed" : "updated", lines };
 }
 
@@ -80,12 +80,21 @@ async function must(result: ReturnType<typeof runExecutable>, command: string): 
   throw new CrtError(`\`${command}\` failed: ${reason} — fix that, or run: ${MANUAL_INSTALL}`);
 }
 
-function firstLine(text: string): string | null {
-  const line = text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .find(Boolean);
-  return line ?? null;
+/** The `crt@crt` entry's version in `claude plugin list --json` output, or null (absent, or not parseable); `crt doctor`'s plugin row reads it too. */
+export function installedPluginVersion(stdout: string): string | null {
+  try {
+    const parsed = JSON.parse(stdout) as unknown;
+    const list = Array.isArray(parsed) ? parsed : parsed && typeof parsed === "object" && Array.isArray((parsed as { plugins?: unknown }).plugins) ? (parsed as { plugins: unknown[] }).plugins : [];
+    for (const item of list) {
+      if (item && typeof item === "object" && (item as { id?: unknown }).id === PLUGIN_ID) {
+        const v = (item as { version?: unknown }).version;
+        return typeof v === "string" ? v : "?";
+      }
+    }
+  } catch {
+    // not JSON
+  }
+  return null;
 }
 
 /** Which `claude` `crt setup` runs: `--claude <path>` (a binary or an npm shim) or the one on PATH; null when neither exists. */

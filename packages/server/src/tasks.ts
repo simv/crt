@@ -10,9 +10,10 @@
  * Everything is written with `\n` line endings.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { basename, join, relative, resolve } from "node:path";
-import { type CaptureBundle, validateCaptureBundle } from "./capture-schema.js";
-import { capturesDir } from "./captures.js";
+import { join, relative, resolve } from "node:path";
+import type { CaptureBundle } from "./capture-schema.js";
+import { CaptureNotFoundError, capturesDir, readCapture } from "./captures.js";
+import type { WriteTaskRequest } from "./session-events.js";
 
 export const TASK_STATUSES = ["backlog", "in_progress", "review", "done", "blocked"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
@@ -20,6 +21,7 @@ export const TASK_PRIORITIES = ["low", "normal", "high"] as const;
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 export const SECTION_NAMES = ["Summary", "Context", "Evidence", "Ask", "Definition of Done", "Notes", "Log"] as const;
 export type SectionName = (typeof SECTION_NAMES)[number];
+/** The F-32 frontmatter keys in file order: `serializeTask` writes them in this order. */
 export const FRONTMATTER_KEYS = [
   "id",
   "title",
@@ -33,7 +35,10 @@ export const FRONTMATTER_KEYS = [
   "provider",
   "tags",
   "files",
-] as const;
+] as const satisfies ReadonlyArray<keyof TaskFrontmatter>;
+export type FrontmatterKey = (typeof FRONTMATTER_KEYS)[number];
+// Compile-time: every `TaskFrontmatter` field is listed, so `serializeTask` writes them all.
+true satisfies [Exclude<keyof TaskFrontmatter, FrontmatterKey>] extends [never] ? true : false;
 
 export const TASK_ID_RE = /^CRT-\d{4}$/;
 export const TASK_FILE_RE = /^(CRT-\d{4})-([a-z0-9-]+)\.md$/;
@@ -316,25 +321,17 @@ export function parseTask(text: string, fileName?: string): Task {
   };
 }
 
-/** Render a task back to text in the F-32 layout. `parseTask(serializeTask(t))` round-trips. */
+/**
+ * Render a task back to text in the F-32 layout. `parseTask(serializeTask(t))` round-trips. Every
+ * scalar goes through `yamlScalar`, which leaves the validated id, status, priority and ISO stamps bare.
+ */
 export function serializeTask(task: Task): string {
   const f = task.frontmatter;
-  const lines = [
-    "---",
-    `id: ${f.id}`,
-    `title: ${yamlScalar(f.title)}`,
-    `status: ${f.status}`,
-    `priority: ${f.priority}`,
-    `created: ${f.created}`,
-    `updated: ${f.updated}`,
-    `url: ${yamlScalar(f.url)}`,
-    `route: ${yamlScalar(f.route)}`,
-    `session: ${yamlScalar(f.session)}`,
-    `provider: ${yamlScalar(f.provider)}`,
-    `tags: ${yamlList(f.tags)}`,
-    `files: ${yamlList(f.files)}`,
-    "---",
-  ];
+  const value = (key: FrontmatterKey): string => {
+    const v = f[key];
+    return Array.isArray(v) ? yamlList(v) : yamlScalar(v);
+  };
+  const lines = ["---", ...FRONTMATTER_KEYS.map((key) => `${key}: ${value(key)}`), "---"];
   for (const name of SECTION_NAMES) {
     lines.push("", `## ${name}`, task.sections[name].replace(/^\n+|\s+$/g, ""));
   }
@@ -395,33 +392,57 @@ export function countTaskFiles(tasksDir: string): number {
   return safeReaddir(tasksDir).filter((name) => TASK_FILE_RE.test(name)).length;
 }
 
-/** F-33: every well-formed task in the directory, sorted by id. Malformed files are skipped. */
+/**
+ * F-33: the task files whose frontmatter has an `id`, a `title` and a known `status`, sorted by
+ * id; the rest are skipped. Only those keys are checked (an unknown priority lists as `normal`),
+ * so a listed file can still fail `crt task <ID> --validate`.
+ */
 export function listTasks(tasksDir: string): TaskSummary[] {
   const out: TaskSummary[] = [];
   for (const name of safeReaddir(tasksDir)) {
-    if (!TASK_FILE_RE.test(name)) continue;
-    let text: string;
-    try {
-      text = readFileSync(join(tasksDir, name), "utf8");
-    } catch {
-      continue;
-    }
-    const fm = parseFrontmatter(text);
-    if (!fm) continue;
-    const d = fm.data;
-    const status = typeof d.status === "string" && (TASK_STATUSES as readonly string[]).includes(d.status) ? (d.status as TaskStatus) : null;
-    if (!status || typeof d.id !== "string" || typeof d.title !== "string") continue;
-    out.push({
-      id: d.id,
-      status,
-      priority: typeof d.priority === "string" && (TASK_PRIORITIES as readonly string[]).includes(d.priority) ? (d.priority as TaskPriority) : "normal",
-      title: d.title,
-      updated: typeof d.updated === "string" ? d.updated : "",
-      provider: typeof d.provider === "string" ? d.provider : null,
-      file: name,
-    });
+    const summary = TASK_FILE_RE.test(name) ? readSummary(tasksDir, name) : null;
+    if (summary) out.push(summary);
   }
   return out.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/**
+ * The embedded landing page's two numbers in one pass over the folder (PRD-polish F-114): every
+ * task file (health's `tasks`) and, of those `listTasks` would list, how many are `backlog`.
+ */
+export function taskCounts(tasksDir: string): { files: number; backlog: number } {
+  let files = 0;
+  let backlog = 0;
+  for (const name of safeReaddir(tasksDir)) {
+    if (!TASK_FILE_RE.test(name)) continue;
+    files++;
+    if (readSummary(tasksDir, name)?.status === "backlog") backlog++;
+  }
+  return { files, backlog };
+}
+
+/** One task file's `listTasks` row; null when it is unreadable or lacks an id, a title or a known status. */
+function readSummary(tasksDir: string, name: string): TaskSummary | null {
+  let text: string;
+  try {
+    text = readFileSync(join(tasksDir, name), "utf8");
+  } catch {
+    return null;
+  }
+  const fm = parseFrontmatter(text);
+  if (!fm) return null;
+  const d = fm.data;
+  const status = typeof d.status === "string" && (TASK_STATUSES as readonly string[]).includes(d.status) ? (d.status as TaskStatus) : null;
+  if (!status || typeof d.id !== "string" || typeof d.title !== "string") return null;
+  return {
+    id: d.id,
+    status,
+    priority: typeof d.priority === "string" && (TASK_PRIORITIES as readonly string[]).includes(d.priority) ? (d.priority as TaskPriority) : "normal",
+    title: d.title,
+    updated: typeof d.updated === "string" ? d.updated : "",
+    provider: typeof d.provider === "string" ? d.provider : null,
+    file: name,
+  };
 }
 
 /** F-34: the generated README table. Never hand-edited. */
@@ -461,25 +482,18 @@ export function writeIndex(tasksDir: string): boolean {
 // Creating a task from intake
 // ---------------------------------------------------------------------------------------------
 
-export interface NewTaskInput {
-  title: string;
-  summary: string;
-  context: string;
-  /** Extra evidence text appended below the screenshot/annotation lines generated from the capture. */
-  evidence?: string;
-  ask: string;
-  definitionOfDone: string[];
-  notes?: string;
-  priority?: TaskPriority;
-  tags?: string[];
-  files?: string[];
+/**
+ * What `createTask` takes: the `write_task` arguments (`evidence` is appended below the lines
+ * generated from the capture) plus what the session registry knows.
+ */
+export type NewTaskInput = WriteTaskRequest & {
   /** The provider's own session id (frontmatter `session`, and named in the first Log entry; §5.4). */
   session: string | null;
   /** Provider id (frontmatter `provider`, and the suffix of the first Log entry; F-48). Omit for v0.1 wording. */
   provider?: string | null;
   /** Capture whose assets move to `.crt/tasks/assets/<ID>/` and whose page info fills url/route/Evidence. */
   captureId?: string | null;
-}
+};
 
 export interface CreatedTask {
   id: string;
@@ -498,11 +512,18 @@ const MAX_ID_ATTEMPTS = 10;
  * when another CRT server on the project wrote the same file first, the next id is used instead
  * of overwriting that task. (Two servers writing different titles under one id in the same
  * instant still both succeed; only the file name is exclusive.) All inside `<root>/.crt/` (N-5).
+ *
+ * The required fields follow `writeTaskShape`'s minimums, counted after trimming: a title of 3
+ * characters, a non-blank summary, context and ask, one non-blank definition-of-done item. Text
+ * that is only whitespace passes zod's length but not this check, and answers the 400 naming the field.
  */
 export function createTask(root: string, tasksDir: string, input: NewTaskInput, now: Date = new Date()): CreatedTask {
   const errors: string[] = [];
-  if (!input.title?.trim()) errors.push("title is required");
+  const trimmedTitle = input.title?.trim() ?? "";
+  if (!trimmedTitle) errors.push("title is required");
+  else if (trimmedTitle.length < 3) errors.push("title needs at least 3 characters");
   if (!input.summary?.trim()) errors.push("summary is required");
+  if (!input.context?.trim()) errors.push("context is required");
   if (!input.ask?.trim()) errors.push("ask is required");
   if (!Array.isArray(input.definitionOfDone) || !input.definitionOfDone.some((d) => d.trim())) errors.push("definitionOfDone needs at least one item");
   if (input.priority !== undefined && !(TASK_PRIORITIES as readonly string[]).includes(input.priority)) errors.push(`priority must be one of ${TASK_PRIORITIES.join("|")}`);
@@ -513,11 +534,17 @@ export function createTask(root: string, tasksDir: string, input: NewTaskInput, 
   let captureFiles: string[] = [];
   if (input.captureId) {
     captureDir = join(capturesDir(root), input.captureId);
-    capture = readCapture(captureDir);
+    try {
+      capture = readCapture(captureDir);
+    } catch (err) {
+      // The agent's call is what is wrong here: a 400 it reads back, not the session routes' 404.
+      if (err instanceof CaptureNotFoundError) throw new TaskFormatError(err.errors, "capture");
+      throw err;
+    }
     captureFiles = safeReaddir(captureDir);
   }
 
-  const title = input.title.trim();
+  const title = trimmedTitle;
   const stamp = localIso(now);
   const dod = input.definitionOfDone
     .map((d) => demoteHeadings(d.trim()))
@@ -542,7 +569,7 @@ export function createTask(root: string, tasksDir: string, input: NewTaskInput, 
       },
       sections: {
         Summary: demoteHeadings(input.summary.trim()),
-        Context: demoteHeadings(input.context?.trim() || "See Evidence."),
+        Context: demoteHeadings(input.context.trim()),
         // The whole section: the developer's annotation notes are free text too.
         Evidence: demoteHeadings(renderEvidence(id, capture, captureFiles, input.evidence)),
         Ask: demoteHeadings(input.ask.trim()),
@@ -590,18 +617,6 @@ function demoteHeadings(text: string): string {
     else if (line.startsWith("## ") || (!fenced && line.startsWith("# "))) parts[i] = `### ${line.slice(line.indexOf(" ") + 1)}`;
   }
   return parts.join("");
-}
-
-function readCapture(dir: string): CaptureBundle {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(readFileSync(join(dir, "capture.json"), "utf8"));
-  } catch (err) {
-    throw new TaskFormatError([`capture ${basename(dir)} not found or unreadable (${(err as Error).message})`], "capture");
-  }
-  const errors = validateCaptureBundle(raw);
-  if (errors.length) throw new TaskFormatError(errors, "capture");
-  return raw as CaptureBundle;
 }
 
 /** F-23: move every file of the capture into the task's asset dir, then remove the capture dir. */

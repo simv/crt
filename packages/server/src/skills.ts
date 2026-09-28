@@ -1,6 +1,6 @@
 /**
  * `crt skills install [--provider <id>] [--global] [--dir <path>]` (PRD-providers F-58): the
- * plugin's skills (`next`, `tasks`, `task`, `done`, `intake`, `serve`) as portable Agent Skills —
+ * plugin's skills (`SKILL_NAMES`) as portable Agent Skills —
  * `<dir>/<name>/SKILL.md` — for agents that read that format (Codex, Gemini, …). The text is the
  * plugin's, after rewriting the Claude-only tokens:
  *
@@ -12,8 +12,8 @@
  *     `/crt:next` is tested on Claude Code only."
  *
  * Idempotent: a file whose content already matches is left alone, and every path written is
- * printed. This is the one deliberate write outside `.crt/` besides the `.gitignore` line (N-5
- * as amended in PRD-providers §9). The Claude Code plugin stays the distribution for Claude:
+ * printed. This is a documented write outside `.crt/` (N-5 as amended in PRD-providers §9), like
+ * `crt init`'s `.gitignore` lines and CRT section (PRD-embedded N-19). The Claude Code plugin stays the distribution for Claude:
  * `--provider claude` is refused with a pointer to `claude plugin install crt@crt`.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -21,8 +21,12 @@ import { isAbsolute, join, resolve } from "node:path";
 import { CrtError } from "./errors.js";
 import type { ProviderProfile } from "./providers/types.js";
 
-/** The seven skills, in plugin order; the build copies each `plugin/skills/<name>/SKILL.md` to `dist/skills/<name>/SKILL.md`. */
-export const SKILL_NAMES = ["next", "tasks", "task", "done", "intake", "serve", "init"] as const;
+/**
+ * The plugin's skills — one per `plugin/skills/<name>/` folder (test/skills.test.ts pins the two),
+ * in the order `crt setup` names them (PRD-setup F-86). The build copies each
+ * `plugin/skills/<name>/SKILL.md` to `dist/skills/<name>/SKILL.md`.
+ */
+export const SKILL_NAMES = ["serve", "next", "tasks", "task", "done", "intake", "init"] as const;
 export const SKILL_FILE = "SKILL.md";
 export const INSTALLED_PARAGRAPH = "Installed by `crt skills install`; the no-questions guarantee of `/crt:next` is tested on Claude Code only.";
 export const CLAUDE_REFUSAL = "crt skills install --provider claude is not needed: Claude Code gets the skills from the plugin — claude plugin marketplace add simv/crt && claude plugin install crt@crt";

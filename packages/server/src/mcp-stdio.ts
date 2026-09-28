@@ -16,12 +16,13 @@ import { readFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
+import { INTERNAL_WRITE_TASK_PATH } from "./routes.js";
 import type { WriteTaskRequest } from "./session-events.js";
 import { CRT_MCP_SERVER, parseWriteTaskRequest, WRITE_TASK_DESCRIPTION, WRITE_TASK_TOOL, writeTaskJsonSchema } from "./write-task.js";
 
+export { INTERNAL_WRITE_TASK_PATH };
 /** Newest first. `initialize` echoes the client's version when it is here, else `[0]`. */
 export const MCP_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"] as const;
-export const INTERNAL_WRITE_TASK_PATH = "/__crt/internal/write-task";
 export const MCP_TOKEN_ENV = "CRT_MCP_TOKEN";
 export const MCP_PORT_ENV = "CRT_MCP_PORT";
 /** N-7: what the agent reads back when the server no longer knows the token. */

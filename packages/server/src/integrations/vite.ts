@@ -8,12 +8,12 @@
  *
  * Production guarantee (F-98, N-18): `apply: "serve"` keeps the plugin out of `vite build`
  * entirely, and the handler is behind `process.env.NODE_ENV !== "production"` too. This module
- * imports `init.ts` and `project.ts` only (pure `node:fs`) — never the server, providers or SDK.
+ * imports `config.ts` and `project.ts` only (pure `node:fs`) — never the server, providers or SDK.
  * Written against Vite 8.3 (`transformIndexHtml` `{ order: "pre", handler }`, `injectTo:
  * "head-prepend"`), the same hook shape since Vite 3.
  */
 import type { Plugin } from "vite";
-import { readConfig } from "../init.js";
+import { readConfig } from "../config.js";
 import { findProjectRoot } from "../project.js";
 
 export interface CrtVitePluginOptions {

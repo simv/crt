@@ -494,7 +494,7 @@ describe("the front page and the docs pages (PRD-polish F-115, N-26, M23)", () =
   });
 
   it("the two re-pointed server strings name the docs pages, and the pages carry the sections they name (PRD-polish §5.4, F-115)", () => {
-    expect(read("packages/server/src/init.ts")).toContain("(docs/integration.md › Production)");
+    expect(read("packages/server/src/integration.ts")).toContain("(docs/integration.md › Production)");
     expect(read("packages/server/src/proxy.ts")).toContain("see docs/troubleshooting.md › Overlay does not appear");
     expect(anchors(join(root, "docs", "integration.md"))).toContain("production");
     expect(anchors(join(root, "docs", "troubleshooting.md"))).toContain("overlay-does-not-appear-proxy-mode");

@@ -16,7 +16,8 @@
  * panel that reloads the page (or the developer opening the session list) can rebuild the
  * transcript by replaying from 0. The driver behind each session comes from the provider the
  * `ProviderRegistry` resolves for it (session.ts, F-43): Claude on the Agent SDK by default,
- * the scripted stub under `CRT_SESSION_STUB=1`, Codex on the developer's own CLI.
+ * the scripted stub under `CRT_SESSION_STUB=1`, Codex, Gemini and Antigravity on the developer's
+ * own CLIs, an ad-hoc ACP agent from the config files (F-54).
  *
  * The provider's capabilities (F-46) shape the first message: images by path or inline (F-50)
  * and the intake instructions in the system prompt or prepended to the message (F-51).
@@ -36,20 +37,28 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
-import { capturesDir } from "./captures.js";
+import { CaptureNotFoundError, capturesDir, readCapture } from "./captures.js";
 import { json, readJson } from "./http.js";
-import { buildIntakeMessage, prependInstructions, readCaptureBundle, summarizeCapture, summarizeIntake } from "./intake-message.js";
-import { INTERNAL_WRITE_TASK_PATH, mcpLaunch, STALE_TOKEN_LINE } from "./mcp-stdio.js";
+import { buildIntakeMessage, prependInstructions, summarizeCapture, summarizeIntake } from "./intake-message.js";
+import { mcpLaunch, STALE_TOKEN_LINE } from "./mcp-stdio.js";
 import { decidePermission } from "./permissions.js";
+import { INTERNAL_PREFIX, INTERNAL_WRITE_TASK_PATH, SESSIONS_PATH } from "./routes.js";
 import { describeResolution, type ProviderRegistry } from "./session.js";
 import type { IntakeSummary, ProviderCapabilities, SessionDriver, SessionEvent, SessionInfo, SessionState, UserInput, WriteTaskRequest } from "./session-events.js";
 import { createTask, displayPath, TaskFormatError } from "./tasks.js";
 import { parseWriteTaskRequest } from "./write-task.js";
 
-export const SESSIONS_PATH = "/__crt/sessions";
-export const INTERNAL_PREFIX = "/__crt/internal";
+export { INTERNAL_PREFIX, SESSIONS_PATH };
 const MAX_BODY = 1024 * 1024;
 const KEEPALIVE_MS = 15_000;
+
+/** N-7: `write_task` for a session that has ended (or never existed); the internal route answers a bare 404. */
+export class StaleSessionError extends Error {
+  constructor() {
+    super(STALE_TOKEN_LINE);
+    this.name = "StaleSessionError";
+  }
+}
 
 export interface RegistryOptions {
   projectRoot: string;
@@ -191,7 +200,7 @@ export class SessionRegistry {
    */
   private firstMessage(entry: Entry, captureId: string): UserInput {
     const dir = join(capturesDir(this.opts.projectRoot), captureId);
-    const bundle = readCaptureBundle(dir);
+    const bundle = readCapture(dir);
     entry.info.summary = summarizeCapture(bundle);
     entry.info.url = bundle.page.url;
     const caps = entry.capabilities;
@@ -234,6 +243,13 @@ export class SessionRegistry {
   /** F-30: newest first. */
   list(): SessionInfo[] {
     return [...this.entries.values()].map((e) => ({ ...e.info })).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  }
+
+  /** Sessions neither ended nor failed: health's `sessions` (F-78), the landing page and the F-77 stop line. */
+  openCount(): number {
+    let n = 0;
+    for (const e of this.entries.values()) if (!isOver(e.info.state)) n++;
+    return n;
   }
 
   /** Replay events with seq > `after`, then stream live ones. Returns an unsubscribe function. */
@@ -299,7 +315,7 @@ export class SessionRegistry {
    */
   async writeTaskFor(id: string, request: WriteTaskRequest): Promise<{ id: string; path: string }> {
     const e = this.entries.get(id);
-    if (!e || isOver(e.info.state)) throw new Error(STALE_TOKEN_LINE);
+    if (!e || isOver(e.info.state)) throw new StaleSessionError();
     const written = await e.writeTask(request);
     this.record(e, { type: "task_written", id: written.id, path: written.path });
     this.opts.log?.(`crt: task ${written.id} written to ${written.path}`);
@@ -393,8 +409,7 @@ export async function handleSessionRoute(
       });
       json(res, 201, { ok: true, id: info.id, session: info });
     } catch (err) {
-      const message = (err as Error).message;
-      json(res, /not found/.test(message) ? 404 : 500, { ok: false, error: message });
+      json(res, err instanceof CaptureNotFoundError ? 404 : 500, { ok: false, error: (err as Error).message });
     }
     return true;
   }
@@ -435,8 +450,7 @@ export async function handleSessionRoute(
         const r = registry.attachCapture(id, b.captureId);
         json(res, r === "ok" ? 200 : 409, { ok: r === "ok", error: r === "ok" ? undefined : r });
       } catch (err) {
-        const message = (err as Error).message;
-        json(res, /not found/.test(message) ? 404 : 500, { ok: false, error: message });
+        json(res, err instanceof CaptureNotFoundError ? 404 : 500, { ok: false, error: (err as Error).message });
       }
       return true;
     }
@@ -516,7 +530,7 @@ export async function handleInternalRoute(path: string, req: IncomingMessage, re
     json(res, 201, { ok: true, id: written.id, path: written.path });
   } catch (err) {
     if (err instanceof TaskFormatError) json(res, 400, { ok: false, error: err.message, errors: err.errors });
-    else if ((err as Error).message === STALE_TOKEN_LINE) {
+    else if (err instanceof StaleSessionError) {
       registry.rejectToken();
       res.writeHead(404);
       res.end();

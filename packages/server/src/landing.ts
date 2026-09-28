@@ -28,9 +28,9 @@
  * 480 px, the tube ≤ 280 px and hidden under 480 px, the power-on by opacity ≤ 1.2 s and `none`
  * under `prefers-reduced-motion`. ≤ 32 KB rendered (N-25). The overlay is never mounted here.
  */
+import type { CrtMode } from "./config.js";
 import type { DoctorPayload } from "./doctor-route.js";
 import type { DoctorRow } from "./doctor.js";
-import type { CrtMode } from "./init.js";
 import type { ProviderStatus } from "./session.js";
 
 /**

@@ -7,6 +7,7 @@ import { CrtError } from "../src/errors.js";
 import { claudeProfile } from "../src/providers/claude.js";
 import { codexProfile } from "../src/providers/codex.js";
 import { makeStubProfile } from "../src/providers/stub.js";
+import { SLASH_COMMANDS } from "../src/setup.js";
 import { CLAUDE_REFUSAL, INSTALLED_PARAGRAPH, installSkills, rewriteSkill, SKILL_NAMES, skillsTargetDir } from "../src/skills.js";
 import { parseFrontmatter } from "../src/tasks.js";
 
@@ -25,6 +26,11 @@ afterEach(() => {
 });
 
 describe("crt skills install (F-58)", () => {
+  it("SKILL_NAMES is the plugin's skill folders, so a new skill is installed as well as built — and crt setup names the same list (F-58, F-86)", () => {
+    expect([...SKILL_NAMES].sort()).toEqual(readdirSync(pluginSkills).sort());
+    expect(SLASH_COMMANDS).toEqual(SKILL_NAMES.map((n) => `/crt:${n}`));
+  });
+
   it("--provider codex --dir <tmp> writes seven SKILL.md files with no ${CLAUDE_ token and no AskUserQuestion; a second run changes nothing (F-58, F-104)", () => {
     const dir = join(root, "skills");
     const first = installSkills({ sourceDir: pluginSkills, root, profile: codexProfile, dir });

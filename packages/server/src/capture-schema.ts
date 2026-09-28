@@ -302,7 +302,6 @@ export const ScreenshotsSchema = obj(
   },
   "F-16 screenshot file names relative to the capture dir",
 );
-export type ScreenshotsInfo = Infer<typeof ScreenshotsSchema>;
 
 export const CaptureBundleSchema = obj(
   {
@@ -329,10 +328,6 @@ export function validateCaptureBundle(value: unknown): string[] {
   const errors: string[] = [];
   CaptureBundleSchema.check(value, "", errors);
   return errors;
-}
-
-export function isCaptureBundle(value: unknown): value is CaptureBundle {
-  return validateCaptureBundle(value).length === 0;
 }
 
 /**

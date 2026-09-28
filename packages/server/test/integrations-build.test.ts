@@ -90,9 +90,9 @@ describe("package entries — the build (F-97, F-98)", () => {
     for (const text of [loader, react, vite]) expect(text).not.toContain("\r\n");
   });
 
-  it("the built vite.js imports init.js and project.js only — never the server, providers or SDK (N-18)", () => {
+  it("the built vite.js imports config.js and project.js only — never the server, providers or SDK (N-18)", () => {
     const js = readFileSync(join(dist, "integrations", "vite.js"), "utf8");
     const imports = [...js.matchAll(/^import .* from "([^"]+)";?$/gm)].map((m) => m[1]);
-    expect(imports.sort()).toEqual(["../init.js", "../project.js"]);
+    expect(imports.sort()).toEqual(["../config.js", "../project.js"]);
   });
 });

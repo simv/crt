@@ -1,7 +1,8 @@
 /**
  * The contract between an intake session and the chat panel (PRD F-25, F-26, F-28, F-29;
  * PRD-providers F-42, F-46, F-47). Every provider driver under `providers/` (Claude on the Agent
- * SDK, the scripted stub, Codex over `codex exec --json`) produces these events; `sessions.ts` numbers them
+ * SDK, the scripted stub, Codex over `codex exec --json`, Gemini and ad-hoc agents over ACP,
+ * Antigravity over its own CLI) produces these events; `sessions.ts` numbers them
  * and streams them over SSE; the overlay imports only the types. Nothing here depends on the SDK
  * or on any provider module, so this file is safe for the overlay bundle.
  */
@@ -173,7 +174,10 @@ export interface ProvidersPayload {
   providers: ProviderRow[];
 }
 
-/** Fields the intake session passes to CRT's `write_task` tool; mirrors tasks.ts NewTaskInput. */
+/**
+ * Fields the intake session passes to CRT's `write_task` tool. `writeTaskSchema` (write-task.ts)
+ * is checked against this at compile time; tasks.ts `NewTaskInput` extends it.
+ */
 export interface WriteTaskRequest {
   title: string;
   summary: string;

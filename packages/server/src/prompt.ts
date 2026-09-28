@@ -13,7 +13,19 @@
  */
 import { createInterface, type Interface } from "node:readline/promises";
 import { CrtError } from "./errors.js";
-import type { Prompter, WaitOutcome } from "./start.js";
+
+export type WaitOutcome = { kind: "ready" } | { kind: "answer"; text: string };
+
+/** The terminal side of a prompt (`createTerminalPrompter` below); tests script it. */
+export interface Prompter {
+  /** Print `question`, return the trimmed answer ("" for Enter alone). Ctrl+C throws `CrtError("cancelled", 130)` (F-77). */
+  ask(question: string): Promise<string>;
+  /**
+   * F-71 wait loop: print `line`, then return `ready` as soon as `check` answers true (polled every
+   * 2 s) or `answer` when the developer presses Enter (retry, "") or types something else.
+   */
+  waitFor(line: string, check: () => Promise<boolean>): Promise<WaitOutcome>;
+}
 
 /** F-71/N-14: how often the wait loop re-probes the target. */
 export const REPROBE_MS = 2_000;

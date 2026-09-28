@@ -1,17 +1,17 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { request as httpRequest } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { startFixture, type Fixture } from "../e2e/fixture/server.mjs";
 import { writeCapture } from "../src/captures.js";
 import { FIRST_MESSAGE_HEADING, QUICK_NOTE_INSTRUCTIONS } from "../src/intake-message.js";
-import { INTERNAL_WRITE_TASK_PATH } from "../src/mcp-stdio.js";
+import { INTERNAL_WRITE_TASK_PATH, STALE_TOKEN_LINE } from "../src/mcp-stdio.js";
 import { createProxyServer } from "../src/proxy.js";
 import { makeStubProfile, stubProfile } from "../src/providers/stub.js";
 import { ProviderRegistry } from "../src/session.js";
-import type { SessionEvent, WriteTaskRequest } from "../src/session-events.js";
-import { SessionRegistry } from "../src/sessions.js";
+import type { SessionEvent, SessionInfo, WriteTaskRequest } from "../src/session-events.js";
+import { handleInternalRoute, SessionRegistry, StaleSessionError } from "../src/sessions.js";
 import { parseTask, validateTaskText } from "../src/tasks.js";
 import { waitForEvent } from "./helpers/fake-cli.js";
 import { apiAt, listen0 } from "./helpers/http.js";
@@ -320,6 +320,59 @@ provider: stub
     expect(strict.list().map((s) => s.id)).toContain(info.id);
     expect(strict.send(info.id, "hi")).toBe(false);
     strict.closeAll();
+  });
+
+  it("the session routes answer 404 for a missing capture by its error type, and 500 for anything else — even a message saying \"not found\" (F-23, F-24)", async () => {
+    class Failing extends SessionRegistry {
+      failure: Error | null = null;
+      override create(captureId: string | null, opts?: { quick?: boolean; provider?: string | null }): SessionInfo {
+        if (this.failure) throw this.failure;
+        return super.create(captureId, opts);
+      }
+      override attachCapture(id: string, captureId: string): "ok" | "no_session" | "already_started" {
+        if (this.failure) throw this.failure;
+        return super.attachCapture(id, captureId);
+      }
+    }
+    const providers = new ProviderRegistry({ root, env: { CRT_SESSION_STUB: "1" }, log: () => undefined });
+    await providers.refresh();
+    const failing = new Failing({ projectRoot: root, tasksDir: join(root, ".crt", "tasks"), intakePrompt: "x", providers });
+    const own = await listen0(createProxyServer({ target: fixture.url, projectRoot: root, overlayPath: join(root, "overlay.js"), sessions: failing, providers }));
+    const call = apiAt(() => own.origin);
+    try {
+      expect((await call("POST", "/__crt/sessions", { captureId: "20200101-000000-dead" })).status).toBe(404);
+      const id = (await call("POST", "/__crt/sessions", {})).json.id as string;
+      expect((await call("POST", `/__crt/sessions/${id}/capture`, { captureId: "20200101-000000-dead" })).status).toBe(404);
+
+      failing.failure = new Error("model claude-x not found");
+      const cap = writeCapture(root, samplePost());
+      const created = await call("POST", "/__crt/sessions", { captureId: cap.id });
+      expect(created).toEqual({ status: 500, json: { ok: false, error: "model claude-x not found" } });
+      expect((await call("POST", `/__crt/sessions/${id}/capture`, { captureId: cap.id })).status).toBe(500);
+    } finally {
+      failing.closeAll();
+      await own.close();
+    }
+  });
+
+  it("write_task for a session that ended after its token was checked is a bare 404 and one log line, by StaleSessionError (F-49, N-7)", async () => {
+    const warm = registry.create(null);
+    registry.close(warm.id);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(registry.get(warm.id)?.state).toBe("ended");
+    await expect(registry.writeTaskFor(warm.id, { title: "abc", summary: "s", context: "c", ask: "a", definitionOfDone: ["d"] })).rejects.toBeInstanceOf(StaleSessionError);
+    // The route: the token still resolves (the race), the write finds the session over.
+    const raced = { sessionForToken: () => warm.id, writeTaskFor: () => Promise.reject(new StaleSessionError()), rejectToken: () => logs.push(`crt: ${STALE_TOKEN_LINE}`) } as unknown as SessionRegistry;
+    const own = await listen0(createServer((req, res) => void handleInternalRoute(INTERNAL_WRITE_TASK_PATH, req, res, raced)));
+    try {
+      const before = logs.length;
+      const res = await fetch(own.origin + INTERNAL_WRITE_TASK_PATH, { method: "POST", headers: { authorization: "Bearer t", "content-type": "application/json" }, body: JSON.stringify({ title: "abc", summary: "s", context: "c", ask: "a", definitionOfDone: ["d"] }) });
+      expect(res.status).toBe(404);
+      expect(await res.text()).toBe("");
+      expect(logs.slice(before)).toEqual([`crt: ${STALE_TOKEN_LINE}`]);
+    } finally {
+      await own.close();
+    }
   });
 
   it("the same write_task request yields the same file through the in-process tool and the stdio route, PRD-providers §5.3 (F-49)", async () => {
