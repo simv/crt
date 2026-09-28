@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { claudePreflight, claudeProfile, describeInput, describeSessionError, loginProblem, startSession, toolLabel } from "../src/providers/claude.js";
+import { CLAUDE_NOT_LOGGED_IN, claudePreflight, claudeProfile, describeInput, describeSessionError, loginProblem, startSession, toolLabel } from "../src/providers/claude.js";
 import type { SessionEvent } from "../src/session-events.js";
 import { waitForEvent } from "./helpers/fake-cli.js";
 
@@ -45,6 +45,17 @@ describe("failure messages (N-6)", () => {
     expect(describeSessionError(new Error("spawn ENOENT"))).toContain("reinstall claude-review-tool");
     expect(describeSessionError(new Error("exit 1"), ["authentication_error: OAuth token expired"])).toContain("not logged in");
     expect(describeSessionError(new Error("exit 1"), ["a", "b"])).toBe("Claude Code session failed: exit 1 (a | b)");
+  });
+
+  it("maps an expired OAuth session to the login line, but not another tool's authentication failure (N-6, CRT-0045)", () => {
+    // What a logged-out Claude Code answered on 2026-09-28, as the result's error and as a stderr line.
+    const expired = "Failed to authenticate: OAuth session expired and could not be refreshed";
+    expect(loginProblem(expired)).toBe(CLAUDE_NOT_LOGGED_IN);
+    expect(loginProblem("OAuth session expired")).toBe(CLAUDE_NOT_LOGGED_IN);
+    expect(describeSessionError(new Error("Claude Code process exited with code 1"), ["starting", expired])).toBe(CLAUDE_NOT_LOGGED_IN);
+    // The session also runs the user's MCP servers; their auth failures are not Claude's login.
+    expect(loginProblem('MCP server "github": failed to authenticate (check its token)')).toBeNull();
+    expect(describeSessionError(new Error("exit 1"), ['MCP server "github": failed to authenticate'])).toBe('Claude Code session failed: exit 1 (MCP server "github": failed to authenticate)');
   });
 });
 
