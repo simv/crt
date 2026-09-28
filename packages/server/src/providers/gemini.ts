@@ -30,9 +30,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ProviderCapabilities } from "../session-events.js";
 import { startAcpSession } from "./acp.js";
-import { compareVersions } from "./codex.js";
-import { resolveExecutable, runExecutable } from "./exec.js";
+import { resolveExecutable } from "./exec.js";
 import type { PreflightOptions, PreflightResult, ProviderProfile } from "./types.js";
+import { cliPreflight } from "./version.js";
+
+/** `0.60.0` (or `gemini 0.60.0`) → `0.60.0`; null when the output is not a version. */
+export { parseBareVersion as parseGeminiVersion } from "./version.js";
 
 export const GEMINI_TESTED_VERSION = "0.60.0";
 /** Oldest version whose ACP contract matches the tested one; older prints "too old" (N-7). */
@@ -96,26 +99,13 @@ export function geminiLoginProblem(message: string): string | null {
   return null;
 }
 
-/** `0.60.0` (or `gemini 0.60.0`) → `0.60.0`; null when the output is not a version. */
-export function parseGeminiVersion(stdout: string): string | null {
-  const m = /(?:^|\s)v?(\d+\.\d+\.\d+(?:[-+][\w.]+)?)\s*$/m.exec(stdout.trim());
-  return m ? m[1]! : null;
-}
-
 /** F-42 preflight: find the executable (config → PATH → npm shim), read `--version`, then the login files. */
-export async function geminiPreflight(opts: PreflightOptions = {}): Promise<PreflightResult> {
-  const env = opts.env ?? process.env;
-  const exe = resolveExecutable("gemini", { command: opts.command ?? null, env });
-  if (!exe) return { installed: false, loggedIn: "unknown", version: null, problem: GEMINI_NOT_FOUND };
-  const v = await runExecutable(exe, ["--version"], { env });
-  const version = parseGeminiVersion(v.stdout);
-  if (v.status !== 0 || !version) {
-    const why = v.error ?? v.stderr.trim().split(/\r?\n/)[0] ?? `exit ${v.status}`;
-    return { installed: true, loggedIn: "unknown", version, problem: `gemini --version failed (${why || "no output"}) — reinstall with ${GEMINI_INSTALL}` };
-  }
-  if (compareVersions(version, GEMINI_MIN_VERSION) < 0) return { installed: true, loggedIn: "unknown", version, problem: geminiTooOld(version) };
-  const loggedIn = geminiLoginState(env);
-  return { installed: true, loggedIn, version, problem: loggedIn === false ? GEMINI_NOT_LOGGED_IN : null };
+export function geminiPreflight(opts: PreflightOptions = {}): Promise<PreflightResult> {
+  const login = async (_exe: unknown, env: NodeJS.ProcessEnv | undefined) => {
+    const loggedIn = geminiLoginState(env);
+    return { loggedIn, problem: loggedIn === false ? GEMINI_NOT_LOGGED_IN : null };
+  };
+  return cliPreflight({ name: "gemini", minVersion: GEMINI_MIN_VERSION, notFound: GEMINI_NOT_FOUND, tooOld: geminiTooOld, fix: `reinstall with ${GEMINI_INSTALL}`, login }, opts);
 }
 
 export const geminiProfile: ProviderProfile = {

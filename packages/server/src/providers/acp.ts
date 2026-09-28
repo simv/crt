@@ -41,21 +41,23 @@
  * Any agent→client request other than `session/request_permission` (fs/*, terminal/*) is answered
  * -32601: the client advertised none of those capabilities.
  */
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { relative } from "node:path";
+import { IMAGES_DROPPED_LINE } from "../intake-message.js";
 import { isReadOnlyGit, isUnderCrtDir, PERMISSION_TIMEOUT_MS } from "../permissions.js";
 import type { PermissionDecision, ProviderCapabilities, SessionDriver, SessionEvent, SessionState, StartSessionOptions, UserInput } from "../session-events.js";
 import { packageVersion } from "../version.js";
 import { CRT_MCP_SERVER, WRITE_TASK_TOOL } from "../write-task.js";
-import { type Executable, killProcessTree, resolveExecutable } from "./exec.js";
+import { type Executable, LineBuffer, lineReader, parseJsonLine, type ProcessDeps, realProcessDeps, resolveExecutable, StderrTail } from "./exec.js";
+import { shortPath, summarize } from "./format.js";
 import type { PreflightOptions, PreflightResult, ProviderProfile } from "./types.js";
+
+export { IMAGES_DROPPED_LINE };
 
 /** ACP protocol versions this client speaks (the agent's `initialize` reply is checked against it). */
 export const ACP_PROTOCOL_VERSIONS: readonly number[] = [1];
 /** How long `close()` waits for the agent to leave on its own after stdin ends. */
 export const ACP_CLOSE_GRACE_MS = 2000;
-const STDERR_TAIL_LINES = 30;
 /** How long `initialize` + `session/new` may take before the session fails (Gemini needs ~6 s cold). */
 const ACP_START_TIMEOUT_MS = 60_000;
 
@@ -77,7 +79,7 @@ type RpcMessage = { jsonrpc?: string; id?: number | string; method?: string; par
 export class JsonRpcStdio {
   private nextId = 1;
   private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: JsonRpcError) => void }>();
-  private buffer = "";
+  private readonly lines = new LineBuffer((line) => this.handle(line));
   /** Handlers for the agent's requests (must return a result or throw a JsonRpcError) and notifications. */
   onRequest: (method: string, params: unknown) => Promise<unknown> = async (method) => {
     throw { code: -32601, message: `client does not implement ${method}` } satisfies JsonRpcError;
@@ -98,15 +100,9 @@ export class JsonRpcStdio {
     this.write(`${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`);
   }
 
-  /** Feed a chunk of the agent's stdout. */
+  /** Feed a chunk of the agent's stdout (the driver hands over whole lines through `handle`). */
   feed(chunk: string): void {
-    this.buffer += chunk;
-    let idx: number;
-    while ((idx = this.buffer.indexOf("\n")) !== -1) {
-      const line = this.buffer.slice(0, idx);
-      this.buffer = this.buffer.slice(idx + 1);
-      this.handle(line);
-    }
+    this.lines.push(chunk);
   }
 
   /** Reject every outstanding request (the agent went away). */
@@ -115,6 +111,7 @@ export class JsonRpcStdio {
     this.pending.clear();
   }
 
+  /** One line of the agent's stdout. */
   handle(line: string): void {
     const msg = parseRpcLine(line);
     if (!msg) return;
@@ -139,14 +136,7 @@ export class JsonRpcStdio {
 }
 
 export function parseRpcLine(line: string): RpcMessage | null {
-  const trimmed = line.trim();
-  if (!trimmed.startsWith("{")) return null;
-  try {
-    const v = JSON.parse(trimmed) as unknown;
-    return v && typeof v === "object" && !Array.isArray(v) ? (v as RpcMessage) : null;
-  } catch {
-    return null;
-  }
+  return parseJsonLine(line) as RpcMessage | null;
 }
 
 function isRpcError(v: unknown): v is JsonRpcError {
@@ -300,19 +290,6 @@ export function describeToolCall(toolCall: AcpToolCall, cwd: string): string {
   return toolCall.title ?? toolCall.kind ?? "";
 }
 
-function shortPath(p: string, cwd: string): string {
-  const r = relative(cwd, p);
-  return r && !r.startsWith("..") ? r.split("\\").join("/") : p;
-}
-
-function summarize(text: string): string {
-  const t = text.replace(/\s+/g, " ").trim();
-  return t.length > 160 ? `${t.slice(0, 157)}…` : t;
-}
-
-/** F-50: what the first message says when the agent turned out not to take images (the intake-message.ts wording). */
-export const IMAGES_DROPPED_LINE = "Images not attached: this agent does not accept images; the screenshots are the PNG files next to capture.json.";
-
 /**
  * F-50: the `session/prompt` content blocks for one developer message. When `initialize` negotiated
  * `images: none` after the registry had already attached them, the blocks are dropped and the text
@@ -422,35 +399,20 @@ export interface AcpAgentSpec {
 }
 
 /** What the driver needs from the OS; tests replace the spawn to drive a fake in-process. */
-export interface AcpProcessDeps {
-  spawn: (command: string, args: string[], opts: { cwd: string; env: NodeJS.ProcessEnv }) => ChildProcess;
-  killTree: (pid: number) => boolean;
+export interface AcpProcessDeps extends ProcessDeps {
   /** Time source and timers (tests shorten the close grace). */
   closeGraceMs?: number;
 }
-
-const realDeps: AcpProcessDeps = {
-  spawn: (command, args, opts) =>
-    spawn(command, args, {
-      cwd: opts.cwd,
-      env: opts.env,
-      shell: false,
-      windowsHide: true,
-      stdio: ["pipe", "pipe", "pipe"],
-      detached: process.platform !== "win32",
-    }),
-  killTree: (pid) => killProcessTree(pid),
-};
 
 interface PendingPermission {
   settle: (behavior: "allow" | "deny", by: "user" | "timeout" | "session") => void;
 }
 
-export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, deps: AcpProcessDeps = realDeps): SessionDriver {
+export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, deps: AcpProcessDeps = realProcessDeps): SessionDriver {
   const listeners = new Set<(e: SessionEvent) => void>();
   const pending = new Map<string, PendingPermission>();
   const queue: UserInput[] = [];
-  const stderrTail: string[] = [];
+  const stderr = new StderrTail();
   const log = opts.log ?? (() => undefined);
   let state: SessionState = "starting";
   let closed = false;
@@ -496,7 +458,6 @@ export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, d
     rpc?.fail({ code: -32000, message: problem });
     killNow();
   };
-  const tail = () => stderrTail.slice(-2).join(" | ");
 
   // ---- agent → client ----
   const onUpdate = (params: unknown) => {
@@ -547,7 +508,7 @@ export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, d
     let proc: ChildProcess;
     try {
       const modelArgs = opts.model && spec.modelArgs ? spec.modelArgs(opts.model) : [];
-      proc = deps.spawn(exe.command, [...exe.args, ...spec.acpArgs, ...modelArgs], { cwd: opts.cwd, env: process.env });
+      proc = deps.spawn(exe, [...spec.acpArgs, ...modelArgs], { cwd: opts.cwd, env: process.env });
     } catch (err) {
       return fail(`could not start ${spec.displayName} (${(err as Error).message})`);
     }
@@ -564,26 +525,22 @@ export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, d
       throw { code: -32601, message: `client does not implement ${method}` } satisfies JsonRpcError;
     };
     proc.stdin?.on("error", () => undefined);
-    proc.stdout?.setEncoding("utf8");
-    proc.stdout?.on("data", (chunk: string) => client.feed(chunk));
+    lineReader(proc.stdout, (line) => client.handle(line));
     proc.stderr?.setEncoding("utf8");
-    proc.stderr?.on("data", (chunk: string) => {
-      for (const line of chunk.split(/\r?\n/)) {
-        if (!line.trim()) continue;
-        stderrTail.push(line);
-        if (stderrTail.length > STDERR_TAIL_LINES) stderrTail.shift();
-      }
-    });
+    proc.stderr?.on("data", (chunk: string) => stderr.push(chunk));
     proc.on("error", (err: NodeJS.ErrnoException) => fail(err.code === "ENOENT" ? spec.notFound : `could not start ${spec.displayName} (${err.message})`));
     proc.on("exit", (code) => {
       if (child !== proc) return; // closed on purpose
       child = null;
       if (closed) return;
-      log(`crt: ${spec.id} exited with code ${code}; stderr tail: ${stderrTail.slice(-5).join(" | ")}`);
-      fail(spec.loginProblem(stderrTail.join("\n")) ?? agentExited(spec.displayName, code, tail()));
+      log(`crt: ${spec.id} exited with code ${code}; stderr tail: ${stderr.lines().slice(-5).join(" | ")}`);
+      fail(spec.loginProblem(stderr.lines().join("\n")) ?? agentExited(spec.displayName, code, stderr.brief()));
     });
 
-    const timer = setTimeout(() => fail(`${spec.displayName} did not finish initialize + session/new within ${ACP_START_TIMEOUT_MS / 1000} s${tail() ? ` (${tail()})` : ""}`), ACP_START_TIMEOUT_MS);
+    const timer = setTimeout(() => {
+      const tail = stderr.brief();
+      fail(`${spec.displayName} did not finish initialize + session/new within ${ACP_START_TIMEOUT_MS / 1000} s${tail ? ` (${tail})` : ""}`);
+    }, ACP_START_TIMEOUT_MS);
     try {
       const init = (await client.request("initialize", {
         protocolVersion: ACP_PROTOCOL_VERSIONS[ACP_PROTOCOL_VERSIONS.length - 1],
@@ -620,7 +577,7 @@ export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, d
     } catch (err) {
       if (closed) return;
       const message = isRpcError(err) ? err.message : (err as Error)?.message ?? String(err);
-      fail(spec.loginProblem(message) ?? spec.loginProblem(stderrTail.join("\n")) ?? `${spec.displayName} could not start a session: ${message}`);
+      fail(spec.loginProblem(message) ?? spec.loginProblem(stderr.lines().join("\n")) ?? `${spec.displayName} could not start a session: ${message}`);
     } finally {
       clearTimeout(timer);
     }

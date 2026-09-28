@@ -31,7 +31,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join, relative } from "node:path";
+import { dirname, join } from "node:path";
 import {
   type CanUseTool,
   createSdkMcpServer,
@@ -46,7 +46,8 @@ import {
   tool,
 } from "@anthropic-ai/claude-agent-sdk";
 import { PERMISSION_TIMEOUT_MS } from "../permissions.js";
-import { findOnPath, runExecutable, type RunResult } from "./exec.js";
+import { findOnPath, runExecutable, type RunResult, StderrTail } from "./exec.js";
+import { shortPath, summarize } from "./format.js";
 import type {
   ProviderCapabilities,
   SessionDriver,
@@ -61,7 +62,6 @@ import type { PreflightOptions, PreflightResult, ProviderProfile } from "./types
 
 export { CRT_MCP_SERVER, WRITE_TASK_TOOL, WRITE_TASK_TOOL_FULL } from "../write-task.js";
 
-const STDERR_TAIL_LINES = 30;
 const SDK_PACKAGE = "@anthropic-ai/claude-agent-sdk";
 /** F-74: `auth status` answers in well under a second; a hung binary must not delay the start. */
 export const AUTH_STATUS_TIMEOUT_MS = 5_000;
@@ -218,7 +218,7 @@ export function startSession(opts: StartSessionOptions): SessionDriver {
   const listeners = new Set<(e: SessionEvent) => void>();
   const pending = new Map<string, PendingPermission>();
   const input = new InputQueue();
-  const stderrTail: string[] = [];
+  const stderr = new StderrTail();
   const streamedMessages = new Set<string>();
   const log = opts.log ?? (() => undefined);
   let state: SessionState = "starting";
@@ -305,11 +305,7 @@ export function startSession(opts: StartSessionOptions): SessionDriver {
     canUseTool,
     mcpServers: { [CRT_MCP_SERVER]: createSdkMcpServer({ name: CRT_MCP_SERVER, version: "1.0.0", tools: [writeTask] }) },
     stderr: (data) => {
-      for (const line of data.split(/\r?\n/)) {
-        if (!line.trim()) continue;
-        stderrTail.push(line);
-        if (stderrTail.length > STDERR_TAIL_LINES) stderrTail.shift();
-      }
+      stderr.push(data);
     },
   };
 
@@ -429,7 +425,7 @@ export function startSession(opts: StartSessionOptions): SessionDriver {
       for await (const msg of q) handle(msg);
       setState("ended");
     } catch (err) {
-      fail(describeSessionError(err, stderrTail));
+      fail(describeSessionError(err, stderr.lines()));
     } finally {
       denyAllPending("session");
       state = state === "error" ? "error" : "ended";
@@ -484,11 +480,6 @@ function current(ids: Set<string>): string {
   return last;
 }
 
-function summarize(text: string): string {
-  const t = text.replace(/\s+/g, " ").trim();
-  return t.length > 160 ? `${t.slice(0, 157)}…` : t;
-}
-
 /** F-25: the collapsed one-liner for a tool call ("Read src/components/Cart.tsx"). */
 export function toolLabel(name: string, input: Record<string, unknown>, cwd: string): string {
   const rel = (p: unknown) => (typeof p === "string" ? shortPath(p, cwd) : "");
@@ -519,11 +510,6 @@ export function describeInput(name: string, input: Record<string, unknown>, cwd:
   if (typeof path === "string") return shortPath(path, cwd);
   const text = JSON.stringify(input);
   return text.length > 500 ? `${text.slice(0, 497)}…` : text;
-}
-
-function shortPath(p: string, cwd: string): string {
-  const r = relative(cwd, p);
-  return r && !r.startsWith("..") ? r.split("\\").join("/") : p;
 }
 
 /** N-6: the one-line message for "not logged in", or null when the text is something else. */
