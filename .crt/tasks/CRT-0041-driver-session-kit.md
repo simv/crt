@@ -1,10 +1,10 @@
 ---
 id: CRT-0041
 title: A driver kit for sessions — one emitter, turn queue, permission broker and init event; task_written recorded by the registry
-status: backlog
+status: in_progress
 priority: normal
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-24T12:15:00+08:00
+updated: 2026-09-28T10:54:15+08:00
 url: null
 route: null
 session: null
@@ -68,3 +68,4 @@ No page capture: from the code review in session e145e7ac, 2026-09-24. The Codex
 
 ## Log
 - 2026-09-24T12:15+08:00 — filed by hand from the code review in session e145e7ac (Simon's request).
+- 2026-09-28T10:54+08:00 — claimed by /crt:next, session 4c449e4b-1c6a-4bae-b93a-0f8702a05461, branch crt/CRT-0041-driver-session-kit (worked in the worktree .claude/worktrees/CRT-0041, branched from origin/main 2d21af7; the main checkout stays on main).
