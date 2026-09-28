@@ -1,10 +1,10 @@
 ---
 id: CRT-0045
 title: A Claude session whose OAuth session expired fails with the N-6 login line instead of going idle
-status: review
+status: done
 priority: normal
 created: 2026-09-28T11:21:00+08:00
-updated: 2026-09-28T11:23:00+08:00
+updated: 2026-09-28T11:31:00+08:00
 url: null
 route: null
 session: null
@@ -45,3 +45,4 @@ No page capture. Observed in session 4c449e4b while verifying CRT-0041, 2026-09-
 - 2026-09-28T11:23+08:00 — verified: the existing N-6 test ("maps login problems and a missing binary to one actionable line") passes unchanged; test/session.test.ts 6 passed, 1 skipped (the SDK smoke test, opt-in).
 - 2026-09-28T11:23+08:00 — verified: `npm run check` green — 57 files, 752 passed, 2 skipped. Live, with Claude Code logged out (`CRT_SESSION_SMOKE=1` smoke run against the real SDK): the session now ends `result(ok: false) → error "not logged in to Claude Code — run \`claude\` …" → state: error` with that line as detail, where before the fix it went to `idle`.
 - 2026-09-28T11:23+08:00 — ready for review: changed packages/server/src/providers/claude.ts (`loginProblem` pattern and its doc comment), packages/server/test/session.test.ts (one new N-6 test).
+- 2026-09-28T11:31+08:00 — done; closed in https://github.com/simv/crt/pull/97 (CI green on 271fdd4)
