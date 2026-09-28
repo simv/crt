@@ -80,6 +80,9 @@ export interface ProviderProfile {
   start(opts: StartSessionOptions): SessionDriver;
 }
 
+/** A profile whose preflight has not run (or has no cached result): failing, so it is never picked. */
+export const NO_PREFLIGHT: PreflightResult = { installed: false, loggedIn: "unknown", version: null, problem: "preflight has not run" };
+
 /** F-43/F-44: preflight passes when the agent is installed, not known to be logged out, and has no other problem. */
 export function preflightPasses(p: PreflightResult): boolean {
   return p.installed && p.loggedIn !== false && p.problem === null;

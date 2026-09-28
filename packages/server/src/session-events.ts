@@ -126,6 +126,7 @@ export type SessionEvent =
   | { type: "permission_resolved"; id: string; behavior: "allow" | "deny"; by: "user" | "timeout" | "session" }
   /** `detail` is the provider's own accounting when it has no cost (Codex token usage, F-53). */
   | { type: "result"; ok: boolean; durationMs: number; costUsd: number; errors: string[]; detail?: string }
+  /** Recorded by the registry when its `write_task` write succeeds (`sessions.ts`), whichever route the agent took; never by a driver. */
   | { type: "task_written"; id: string; path: string }
   | { type: "error"; message: string };
 

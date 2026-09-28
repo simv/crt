@@ -23,7 +23,8 @@
  *
  * `write_task` (§5.3, F-49): every session gets a random bearer token. The Claude driver calls
  * `writeTask` in-process; every other agent spawns `crt mcp`, which POSTs to the internal route
- * above with that token. Both call the same function, so the file is the same either way. The
+ * above with that token. Both call the same function, so the file is the same either way, and
+ * that function records `task_written` — once per task, for every provider. The
  * token lives only in this process's memory and the shim's environment: it is never in a
  * `SessionInfo`, an event, a log line or a URL (N-8). A wrong or expired token answers 404 with an
  * empty body (one local log line explains it), and any request carrying `Origin` — a browser,
@@ -71,7 +72,11 @@ interface Entry {
   capabilities: ProviderCapabilities | null;
   /** F-49 bearer token for `POST /__crt/internal/write-task`; valid while the session is live. */
   token: string;
-  /** The one write path (§5.3): what the in-process tool and the internal route both call. */
+  /**
+   * The one write path (§5.3): what the in-process tool and the internal route both call. It is
+   * also the one owner of `task_written`: recorded (which sets `taskId`) and logged once per task,
+   * whichever route the agent took; drivers never emit it.
+   */
   writeTask: (request: WriteTaskRequest) => Promise<{ id: string; path: string }>;
   /**
    * F-119: the developer's words behind the first message, kept from `firstMessage()` until the
@@ -129,8 +134,10 @@ export class SessionRegistry {
           provider: entry.info.provider,
           captureId: entry.info.captureId,
         });
-        entry.info.taskId = created.id;
-        return { id: created.id, path: displayPath(this.opts.projectRoot, created.path) };
+        const written = { id: created.id, path: displayPath(this.opts.projectRoot, created.path) };
+        this.record(entry, { type: "task_written", ...written });
+        this.opts.log?.(`crt: task ${written.id} written to ${written.path}`);
+        return written;
       },
       intake: null,
       events: [],
@@ -293,17 +300,11 @@ export class SessionRegistry {
     return null;
   }
 
-  /**
-   * §5.3: perform a session's `write_task` on the server (the stdio path), emit `task_written`
-   * as the in-process tool does, and return what the agent reads back.
-   */
+  /** §5.3: perform a session's `write_task` on the server (the stdio path); the same write the in-process tool calls. */
   async writeTaskFor(id: string, request: WriteTaskRequest): Promise<{ id: string; path: string }> {
     const e = this.entries.get(id);
     if (!e || isOver(e.info.state)) throw new Error(STALE_TOKEN_LINE);
-    const written = await e.writeTask(request);
-    this.record(e, { type: "task_written", id: written.id, path: written.path });
-    this.opts.log?.(`crt: task ${written.id} written to ${written.path}`);
-    return written;
+    return e.writeTask(request);
   }
 
   /** N-7: one local log line for a rejected token (the token itself is never logged). */

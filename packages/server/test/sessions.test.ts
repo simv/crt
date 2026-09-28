@@ -199,6 +199,7 @@ describe("session routes (F-24, F-25, F-29)", () => {
     expect(rest.events.find((e) => e.type === "tool_use" && e.name === "Bash")).toMatchObject({ label: "Bash npm test" });
     expect(rest.events.find((e) => e.type === "tool_result" && e.summary === "12 passing")).toBeDefined();
 
+    const logMark = logs.length;
     expect((await api("POST", `/__crt/sessions/${id}/messages`, { text: "write it" })).status).toBe(202);
     const after = Number(first.ids.at(-1)) + rest.events.length;
     const turn = await collect(`/__crt/sessions/${id}/events?after=${after}`, (e) => e.type === "result");
@@ -207,6 +208,10 @@ describe("session routes (F-24, F-25, F-29)", () => {
     const written = turn.events.find((e) => e.type === "task_written") as Extract<SessionEvent, { type: "task_written" }>;
     expect(written).toMatchObject({ id: "CRT-0001", path: ".crt/tasks/CRT-0001-cart-total-excludes-applied-discount.md" });
     expect(registry.get(id)?.taskId).toBe("CRT-0001");
+    // CRT-0041: the registry's write owns the event — recorded once, logged once, before the tool's answer reaches the agent.
+    expect(turn.events.filter((e) => e.type === "task_written")).toHaveLength(1);
+    expect(logs.slice(logMark).filter((l) => l.includes(`task CRT-0001 written to ${written.path}`))).toHaveLength(1);
+    expect(turn.events.findIndex((e) => e.type === "task_written")).toBeLessThan(turn.events.findIndex((e) => e.type === "tool_result"));
 
     // F-23 / F-32 / F-34 on disk
     const file = join(root, written.path);
@@ -352,7 +357,7 @@ provider: stub
     expect(res.status).toBe(201);
     const wroteB = (await res.json()) as { ok: boolean; id: string; path: string };
     expect(wroteB).toEqual({ ok: true, id: "CRT-0002", path: ".crt/tasks/CRT-0002-cart-total-excludes-applied-discount.md" });
-    // The route emitted task_written like the in-process tool does, and the registry learned the id.
+    // The registry's write recorded task_written, the same as on the in-process path, and learned the id.
     const viaRoute = await collect(`/__crt/sessions/${b.id}/events`, (e) => e.type === "task_written");
     expect(viaRoute.events.find((e) => e.type === "task_written")).toEqual({ type: "task_written", id: "CRT-0002", path: wroteB.path });
     expect(registry.get(b.id)?.taskId).toBe("CRT-0002");

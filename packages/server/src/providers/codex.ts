@@ -48,8 +48,9 @@
 import type { ChildProcess } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { ProviderCapabilities, SessionDriver, SessionEvent, SessionState, StartSessionOptions, UserInput } from "../session-events.js";
+import type { ProviderCapabilities, SessionDriver, SessionEvent, StartSessionOptions, UserInput } from "../session-events.js";
 import { CRT_MCP_SERVER, WRITE_TASK_TOOL } from "../write-task.js";
+import { createEmitter, createTurnQueue, initEvent } from "./driver-core.js";
 import { type Executable, lineReader, parseJsonLine, type ProcessDeps, realProcessDeps, resolveExecutable, runExecutable, StderrTail } from "./exec.js";
 import { describeUsage, summarize } from "./format.js";
 import type { PreflightOptions, PreflightResult, ProviderProfile } from "./types.js";
@@ -258,32 +259,18 @@ export function codexToolSummary(item: CodexItem): string {
  * the internal route, and the registry records `task_written` itself (§5.3).
  */
 export function startCodexSession(opts: StartSessionOptions, deps: ProcessDeps = realProcessDeps): SessionDriver {
-  const listeners = new Set<(e: SessionEvent) => void>();
+  const em = createEmitter(opts.log);
+  const { emit, setState } = em;
   const env = process.env;
-  let state: SessionState = "starting";
-  let closed = false;
   let threadId: string | null = null;
   let child: ChildProcess | null = null;
   let interrupted = false;
   let turns = 0;
-  const queue: UserInput[] = [];
   // Codex's stderr is `tracing` output; its timestamped lines stay out of the failure messages.
   const stderr = new StderrTail(/^\d{4}-\d\d-\d\dT/);
 
-  const emit = (e: SessionEvent) => {
-    for (const fn of listeners) fn(e);
-  };
-  const setState = (next: SessionState, detail?: string) => {
-    if (closed) return;
-    state = next;
-    emit(detail === undefined ? { type: "state", state: next } : { type: "state", state: next, detail });
-  };
   const fail = (problem: string) => {
-    if (closed) return;
-    emit({ type: "error", message: problem });
-    setState("error", problem);
-    closed = true;
-    killCurrent();
+    if (em.fail(problem)) killCurrent();
   };
   const killCurrent = () => {
     const pid = child?.pid;
@@ -299,7 +286,7 @@ export function startCodexSession(opts: StartSessionOptions, deps: ProcessDeps =
   /** Run one turn to completion; resolves when the process has exited and its events are mapped. */
   const runTurn = (input: UserInput): Promise<void> =>
     new Promise((resolve) => {
-      if (closed || !exe) return resolve();
+      if (em.isClosed() || !exe) return resolve();
       const turn = new TurnMapper(threadId, opts, emit, ++turns);
       const command = codexTurnCommand(opts, threadId, (input.images ?? []).map((i) => i.path), env);
       const started = Date.now();
@@ -328,7 +315,7 @@ export function startCodexSession(opts: StartSessionOptions, deps: ProcessDeps =
       proc.stderr?.setEncoding("utf8");
       proc.stderr?.on("data", (chunk: string) => stderr.push(chunk));
       const handle = (line: string) => {
-        if (closed || finished) return;
+        if (em.isClosed() || finished) return;
         const event = parseCodexLine(line);
         if (!event) return;
         const outcome = turn.handle(event, Date.now() - started);
@@ -337,7 +324,7 @@ export function startCodexSession(opts: StartSessionOptions, deps: ProcessDeps =
       };
       proc.on("exit", (code) => {
         stdout.flush();
-        if (!closed && !turn.ended) {
+        if (!em.isClosed() && !turn.ended) {
           if (interrupted) {
             emit({ type: "result", ok: false, durationMs: Date.now() - started, costUsd: 0, errors: ["interrupted"] });
             setState("idle");
@@ -349,7 +336,7 @@ export function startCodexSession(opts: StartSessionOptions, deps: ProcessDeps =
             emit({ type: "result", ok: false, durationMs: Date.now() - started, costUsd: 0, errors: [codexExited(code, stderr.brief())] });
             setState("idle");
           }
-        } else if (!closed && turn.ended && state !== "error") {
+        } else if (!em.isClosed() && turn.ended) {
           setState("idle");
         }
         finish();
@@ -359,51 +346,28 @@ export function startCodexSession(opts: StartSessionOptions, deps: ProcessDeps =
       proc.stdin?.end(input.text.endsWith("\n") ? input.text : `${input.text}\n`);
     });
 
-  let busy = false;
-  const pump = async () => {
-    if (busy) return;
-    busy = true;
-    try {
-      while (queue.length && !closed) await runTurn(queue.shift()!);
-    } finally {
-      busy = false;
-    }
-  };
-  const enqueue = (input: UserInput) => {
-    if (closed) return;
-    emit({ type: "user", text: input.text, images: (input.images ?? []).map((i) => i.label) });
-    queue.push(input);
-    void pump();
-  };
+  const queue = createTurnQueue(runTurn, em);
   if (opts.first) {
     const first = opts.first;
-    queueMicrotask(() => enqueue(first));
+    queueMicrotask(() => queue.enqueue(first));
   }
 
   return {
     id: opts.id,
-    send(u) {
-      if (closed) return;
-      enqueue(u);
-    },
+    send: (u) => queue.enqueue(u),
     async interrupt() {
-      if (closed || !child?.pid) return;
+      if (em.isClosed() || !child?.pid) return;
       interrupted = true;
       deps.killTree(child.pid);
     },
     respondPermission: () => false, // F-46 sandboxed: there are no cards
     close() {
-      if (closed) return;
-      closed = true;
-      queue.length = 0;
+      if (em.isClosed()) return;
+      queue.clear();
       killCurrent();
-      state = "ended";
-      emit({ type: "state", state: "ended" });
+      setState("ended");
     },
-    onEvent(fn) {
-      listeners.add(fn);
-      return () => listeners.delete(fn);
-    },
+    onEvent: em.onEvent,
   };
 }
 
@@ -442,17 +406,7 @@ export class TurnMapper {
           return null;
         }
         if (!id) return { kind: "fail", problem: "Codex started without a thread id — cannot resume this session later" };
-        this.emit({
-          type: "init",
-          sessionId: this.opts.id,
-          nativeSessionId: id,
-          provider: codexProfile.id,
-          displayName: codexProfile.displayName,
-          model: this.opts.model ?? null,
-          agentVersion: this.opts.agentVersion ?? null,
-          resumeCommand: codexProfile.resumeCommand(id),
-          capabilities: CODEX_CAPABILITIES,
-        });
+        this.emit(initEvent(codexProfile, this.opts, { nativeSessionId: id, model: this.opts.model ?? null, agentVersion: this.opts.agentVersion ?? null }));
         return { kind: "thread", threadId: id };
       }
       case "item.started": {

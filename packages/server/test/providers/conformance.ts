@@ -7,15 +7,20 @@
  *   `write_task` through the driver's real tool path into a temp `.crt/` → task_written → result →
  *   interrupt mid-turn → close.
  *
- * It asserts the `SessionEvent` sequence shape and that the file passes `validateTaskText` with
- * the right `provider:` and `session:`. The driver under test is started through its profile's
- * `start()` with the same `StartSessionOptions` the registry would build (F-50/F-51 per its
- * capabilities), and `writeTask` is the registry's own `createTask` call.
+ * It asserts the `SessionEvent` sequence shape, that `task_written` arrives exactly once, and that
+ * the file passes `validateTaskText` with the right `provider:` and `session:`. The driver under
+ * test is started through its profile's `start()` with the same `StartSessionOptions` the registry
+ * would build (F-50/F-51 per its capabilities), and `writeTask` is the registry's own write
+ * (`sessions.ts` `Entry.writeTask`): `createTask`, then `task_written` recorded into the stream the
+ * driver's events land in. A driver never emits `task_written` itself (CRT-0041).
+ *
+ * A listener that throws on every event is attached before the one that records them: the
+ * scenario must pass all the same, and the driver logs each failure (CRT-0041, `driver-core.ts`).
  *
  * `writePath: "stdio"` (Codex and every ACP agent) adds what the registry provides on that path:
- * a per-session bearer token, `POST /__crt/internal/write-task` on 127.0.0.1 behind the real
- * `handleInternalRoute`, and the `task_written` event the registry records when the route has
- * written the file (`sessions.ts` `writeTaskFor`). The caller passes the `crt mcp` shim to spawn.
+ * a per-session bearer token and `POST /__crt/internal/write-task` on 127.0.0.1 behind the real
+ * `handleInternalRoute`, whose `writeTaskFor` calls the same `writeTask`. The caller passes the
+ * `crt mcp` shim to spawn.
  */
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
@@ -70,9 +75,12 @@ export async function runConformance(input: ConformanceInput): Promise<Conforman
   let nativeSessionId: string | null = null;
   const writeTask = async (request: WriteTaskRequest) => {
     const created = createTask(root, tasksDir, { ...request, session: nativeSessionId, provider: profile.id, captureId: null });
-    return { id: created.id, path: displayPath(root, created.path) };
+    const written = { id: created.id, path: displayPath(root, created.path) };
+    events.push({ type: "task_written", ...written });
+    return written;
   };
-  const stdio = input.writePath === "stdio" ? await internalRoute(id, writeTask, (e) => events.push(e)) : null;
+  const stdio = input.writePath === "stdio" ? await internalRoute(id, writeTask) : null;
+  const logs: string[] = [];
   const options: StartSessionOptions = {
     id,
     cwd: root,
@@ -86,10 +94,16 @@ export async function runConformance(input: ConformanceInput): Promise<Conforman
     model: null,
     agentVersion: "conformance",
     permissionTimeoutMs: timeoutMs,
+    log: (line) => logs.push(line),
   };
 
   const driver = profile.start(options);
+  let emitted = 0;
+  driver.onEvent(() => {
+    throw new Error(LISTENER_FAILURE);
+  });
   driver.onEvent((e) => {
+    emitted++;
     events.push(e);
     if (e.type === "init") nativeSessionId = e.nativeSessionId;
   });
@@ -138,6 +152,8 @@ export async function runConformance(input: ConformanceInput): Promise<Conforman
   await waitFor((e) => e.type === "result", writtenAt);
   await waitFor(idle, writtenAt);
   const file = join(root, written.path);
+  // One owner (CRT-0041): the registry's write records `task_written`; a driver that also emitted it would show two.
+  expect(events.filter((e) => e.type === "task_written")).toEqual([written]);
   const text = readFileSync(file, "utf8");
   expect(validateTaskText(text, readdirSync(tasksDir).find((f) => f.startsWith(written.id))!)).toEqual([]);
   expect(parseTask(text).frontmatter).toMatchObject({ id: written.id, provider: profile.id, session: init.nativeSessionId });
@@ -158,19 +174,23 @@ export async function runConformance(input: ConformanceInput): Promise<Conforman
   driver.close();
   await waitFor((e) => e.type === "state" && e.state === "ended");
   expect(errors()).toEqual([]);
+  // The throwing listener never stopped the session, and every failure it caused was logged.
+  expect(logs.filter((l) => l.includes(LISTENER_FAILURE))).toHaveLength(emitted);
   await stdio?.close();
   return { events, init, taskFile: file, options };
 }
 
+/** What the conformance scenario's throwing listener throws (CRT-0041). */
+const LISTENER_FAILURE = "conformance listener failure";
+
 /**
- * The registry's side of F-49 for one session: a bearer token, the internal route on a random
- * 127.0.0.1 port, and `task_written` recorded when the route has written the file — a minimal
- * `SessionRegistry` duck for `handleInternalRoute`, which is the real route handler.
+ * The registry's side of F-49 for one session: a bearer token and the internal route on a random
+ * 127.0.0.1 port, whose `writeTaskFor` calls the session's `writeTask` (which records
+ * `task_written`) — a minimal `SessionRegistry` duck for `handleInternalRoute`, the real handler.
  */
 async function internalRoute(
   sessionId: string,
   writeTask: (request: WriteTaskRequest) => Promise<{ id: string; path: string }>,
-  record: (e: SessionEvent) => void,
 ): Promise<{ token: string; port: number; close: () => Promise<void> }> {
   const token = randomBytes(32).toString("base64url");
   let live = true;
@@ -178,9 +198,7 @@ async function internalRoute(
     sessionForToken: (given: string) => (live && given === token ? sessionId : null),
     writeTaskFor: async (_id: string, request: WriteTaskRequest) => {
       if (!live) throw new Error(STALE_TOKEN_LINE);
-      const written = await writeTask(request);
-      record({ type: "task_written", id: written.id, path: written.path });
-      return written;
+      return writeTask(request);
     },
     rejectToken: () => undefined,
   } as unknown as SessionRegistry;

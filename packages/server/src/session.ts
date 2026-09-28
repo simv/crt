@@ -24,7 +24,7 @@ import { codexProfile } from "./providers/codex.js";
 import { type Decision, detectProvider, formatDecision, scanMarkers } from "./providers/detect.js";
 import { geminiProfile } from "./providers/gemini.js";
 import { stubProfile } from "./providers/stub.js";
-import { type LoggedIn, type PreflightResult, preflightPasses, preflightState, type ProviderProfile, type ProviderState } from "./providers/types.js";
+import { type LoggedIn, NO_PREFLIGHT, type PreflightResult, preflightPasses, preflightState, type ProviderProfile, type ProviderState } from "./providers/types.js";
 import type { ProviderCapabilities, ProvidersPayload } from "./session-events.js";
 
 export { DEFAULT_PROVIDER, formatDecision } from "./providers/detect.js";
@@ -93,8 +93,6 @@ export interface ProviderRegistryOptions {
   log?: (line: string) => void;
 }
 
-const FAILED: PreflightResult = { installed: false, loggedIn: "unknown", version: null, problem: "preflight has not run" };
-
 export class ProviderRegistry {
   readonly root: string;
   readonly env: NodeJS.ProcessEnv;
@@ -147,25 +145,23 @@ export class ProviderRegistry {
         this.preflights.set(p.id, result);
       }),
     );
-    this.detected = detectProvider({
-      root: this.root,
-      env: this.env,
-      profiles: this.list().filter((p) => p.id !== stubProfile.id),
-      preflights: Object.fromEntries(this.preflights),
-    });
+    this.detected = this.detect();
   }
 
   /** Cached preflight; failing until `refresh()` has run. */
   preflight(id: string): PreflightResult {
-    return this.preflights.get(id) ?? FAILED;
+    return this.preflights.get(id) ?? NO_PREFLIGHT;
   }
 
   /** The F-44 decision from the last `refresh()`; computed on demand if none ran (every preflight then fails). */
   detection(): Decision {
-    if (!this.detected) {
-      this.detected = detectProvider({ root: this.root, env: this.env, profiles: this.list().filter((p) => p.id !== stubProfile.id), preflights: Object.fromEntries(this.preflights) });
-    }
+    this.detected ??= this.detect();
     return this.detected;
+  }
+
+  /** F-44 over the listed profiles and the cached preflights; `stub` is never detected. */
+  private detect(): Decision {
+    return detectProvider({ root: this.root, env: this.env, profiles: this.list().filter((p) => p.id !== stubProfile.id), preflights: Object.fromEntries(this.preflights) });
   }
 
   /**

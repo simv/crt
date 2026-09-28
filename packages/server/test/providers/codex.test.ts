@@ -292,6 +292,22 @@ describe("codex driver (F-53, F-59, N-7)", () => {
     idle.close();
   }, 60_000);
 
+  it("a listener that throws during a turn neither ends the turn nor the process; the failure is logged (F-53, F-59, CRT-0041)", async () => {
+    useFake(bin);
+    const logs: string[] = [];
+    const driver = startCodexSession({ ...driverOptions({ cwd: root, captureDir, shim }), log: (l) => logs.push(l) });
+    // Attached first, so it throws before anything else sees the event: the user echo, then every stdout line's events.
+    driver.onEvent(() => {
+      throw new Error("listener broke");
+    });
+    const { events, waitFor } = driverHarness(driver);
+    await waitFor((e) => e.type === "state" && e.state === "idle");
+    expect(events.map((e) => e.type)).toEqual(["user", "state", "init", "tool_use", "tool_result", "tool_use", "tool_result", "assistant_start", "text", "assistant_end", "result", "state"]);
+    expect(events.find((e) => e.type === "result")).toMatchObject({ ok: true });
+    expect(logs.filter((l) => l.includes("listener broke"))).toHaveLength(events.length);
+    driver.close();
+  }, 30_000);
+
   it("a resume whose thread.started id differs ends the session with the N-7 could-not-resume line (F-53)", async () => {
     useFake(bin, { FAKE_CODEX_RESUME_MISMATCH: "1" });
     const { events, driver, waitFor } = start(root, captureDir, shim);

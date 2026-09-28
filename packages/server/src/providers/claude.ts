@@ -28,7 +28,6 @@
  *     "email": "…", "orgId": "…", "orgName": "…", "subscriptionType": "…" }
  * A session start remains the fallback signal (`loginProblem` on the result/auth_status messages).
  */
-import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -45,19 +44,11 @@ import {
   type SDKUserMessage,
   tool,
 } from "@anthropic-ai/claude-agent-sdk";
-import { PERMISSION_TIMEOUT_MS } from "../permissions.js";
+import type { ProviderCapabilities, SessionDriver, StartSessionOptions, UserInput, WriteTaskRequest } from "../session-events.js";
+import { CRT_MCP_SERVER, WRITE_TASK_DESCRIPTION, WRITE_TASK_TOOL, WRITE_TASK_TOOL_FULL, writeTaskErrorText, writeTaskResultText, writeTaskShape } from "../write-task.js";
+import { createEmitter, createPermissionBroker, initEvent } from "./driver-core.js";
 import { findOnPath, runExecutable, type RunResult, StderrTail } from "./exec.js";
 import { shortPath, summarize } from "./format.js";
-import type {
-  ProviderCapabilities,
-  SessionDriver,
-  SessionEvent,
-  SessionState,
-  StartSessionOptions,
-  UserInput,
-  WriteTaskRequest,
-} from "../session-events.js";
-import { CRT_MCP_SERVER, WRITE_TASK_DESCRIPTION, WRITE_TASK_TOOL, WRITE_TASK_TOOL_FULL, writeTaskShape } from "../write-task.js";
 import type { PreflightOptions, PreflightResult, ProviderProfile } from "./types.js";
 
 export { CRT_MCP_SERVER, WRITE_TASK_TOOL, WRITE_TASK_TOOL_FULL } from "../write-task.js";
@@ -210,87 +201,44 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
   }
 }
 
-interface PendingPermission {
-  settle: (behavior: "allow" | "deny", by: "user" | "timeout" | "session") => void;
-}
-
 export function startSession(opts: StartSessionOptions): SessionDriver {
-  const listeners = new Set<(e: SessionEvent) => void>();
-  const pending = new Map<string, PendingPermission>();
+  const em = createEmitter(opts.log);
+  const { emit, setState } = em;
+  const permissions = createPermissionBroker({ ...em, timeoutMs: opts.permissionTimeoutMs });
   const input = new InputQueue();
   const stderr = new StderrTail();
   const streamedMessages = new Set<string>();
-  const log = opts.log ?? (() => undefined);
-  let state: SessionState = "starting";
-  let closed = false;
+  // close() was called: the input and the query are released (after a failure too, which ends the session but not the query).
+  let released = false;
   let q: Query | null = null;
 
-  const emit = (event: SessionEvent) => {
-    for (const fn of listeners) {
-      try {
-        fn(event);
-      } catch {
-        // a listener failing must not take the session down
-      }
-    }
-  };
-  const setState = (next: SessionState, detail?: string) => {
-    if (state === "error" || state === "ended") return;
-    state = next;
-    emit(detail === undefined ? { type: "state", state: next } : { type: "state", state: next, detail });
-  };
   const fail = (message: string) => {
-    if (state === "error" || state === "ended") return;
-    emit({ type: "error", message });
-    state = "error";
-    emit({ type: "state", state: "error", detail: message });
-    denyAllPending("session");
-  };
-  const denyAllPending = (by: "user" | "timeout" | "session") => {
-    for (const p of [...pending.values()]) p.settle("deny", by);
+    if (em.fail(message)) permissions.denyAll("session");
   };
 
-  const canUseTool: CanUseTool = async (toolName, toolInput, options) => {
+  const canUseTool: CanUseTool = async (toolName, toolInput, options): Promise<PermissionResult> => {
     const decision = opts.decide(toolName, toolInput);
     if (decision.kind === "allow") return { behavior: "allow", updatedInput: toolInput };
     if (decision.kind === "deny") return { behavior: "deny", message: decision.reason };
-    const id = randomUUID();
-    const timeoutMs = opts.permissionTimeoutMs ?? PERMISSION_TIMEOUT_MS;
-    const expiresAt = Date.now() + timeoutMs;
-    return new Promise<PermissionResult>((resolve) => {
-      const timer = setTimeout(() => settle("deny", "timeout"), timeoutMs);
-      const settle = (behavior: "allow" | "deny", by: "user" | "timeout" | "session") => {
-        if (!pending.delete(id)) return;
-        clearTimeout(timer);
-        emit({ type: "permission_resolved", id, behavior, by });
-        if (pending.size === 0 && state === "waiting") setState("running");
-        const why =
-          by === "timeout" ? "No answer in the CRT panel within 5 minutes" : by === "session" ? "The CRT session ended before this was answered" : "Denied in the CRT panel";
-        resolve(behavior === "allow" ? { behavior: "allow", updatedInput: toolInput } : { behavior: "deny", message: why });
-      };
-      pending.set(id, { settle });
-      options.signal.addEventListener("abort", () => settle("deny", "session"), { once: true });
-      emit({
-        type: "permission",
-        id,
+    const answer = await permissions.ask(
+      {
         toolName,
         title: options.title ?? `Claude wants to use ${options.displayName ?? toolName}`,
         detail: describeInput(toolName, toolInput, opts.cwd),
-        expiresAt,
-      });
-      setState("waiting");
-    });
+      },
+      { signal: options.signal },
+    );
+    return answer.behavior === "allow" ? { behavior: "allow", updatedInput: toolInput } : { behavior: "deny", message: answer.reason };
   };
 
   // §5.3: the same name, description and schema `crt mcp` serves to every other agent (write-task.ts).
+  // The registry's `writeTask` records `task_written` and logs it (sessions.ts); the tool only answers the agent.
   const writeTask = tool(WRITE_TASK_TOOL, WRITE_TASK_DESCRIPTION, writeTaskShape, async (args) => {
     try {
       const written = await opts.writeTask(args as WriteTaskRequest);
-      emit({ type: "task_written", id: written.id, path: written.path });
-      log(`crt: task ${written.id} written to ${written.path}`);
-      return { content: [{ type: "text", text: `Task ${written.id} written to ${written.path}` }] };
+      return { content: [{ type: "text", text: writeTaskResultText(written) }] };
     } catch (err) {
-      return { content: [{ type: "text", text: `write_task failed: ${(err as Error).message}` }], isError: true };
+      return { content: [{ type: "text", text: writeTaskErrorText((err as Error).message) }], isError: true };
     }
   });
 
@@ -331,17 +279,7 @@ export function startSession(opts: StartSessionOptions): SessionDriver {
       case "system":
         if (msg.subtype === "init") {
           // F-47: Claude Code adopted CRT's UUID as its own session id, so the native id is `opts.id`.
-          emit({
-            type: "init",
-            sessionId: opts.id,
-            nativeSessionId: msg.session_id,
-            provider: claudeProfile.id,
-            displayName: claudeProfile.displayName,
-            model: msg.model,
-            agentVersion: msg.claude_code_version,
-            resumeCommand: claudeProfile.resumeCommand(msg.session_id),
-            capabilities: CLAUDE_CAPABILITIES,
-          });
+          emit(initEvent(claudeProfile, opts, { nativeSessionId: msg.session_id, model: msg.model, agentVersion: msg.claude_code_version }));
           setState("running");
         }
         return;
@@ -359,7 +297,7 @@ export function startSession(opts: StartSessionOptions): SessionDriver {
         emit({ type: "result", ok: !msg.is_error, durationMs: msg.duration_ms, costUsd: msg.total_cost_usd, errors });
         const login = errors.map(loginProblem).find(Boolean);
         if (login) fail(login);
-        else if (pending.size === 0) setState("idle");
+        else if (permissions.size === 0) setState("idle");
         return;
       }
       case "auth_status":
@@ -427,8 +365,8 @@ export function startSession(opts: StartSessionOptions): SessionDriver {
     } catch (err) {
       fail(describeSessionError(err, stderr.lines()));
     } finally {
-      denyAllPending("session");
-      state = state === "error" ? "error" : "ended";
+      // The query is over, so the session is: `ended` above, or `error` from fail().
+      permissions.denyAll("session");
     }
   };
   // Deferred so the caller can attach onEvent() before the first message is echoed.
@@ -437,10 +375,10 @@ export function startSession(opts: StartSessionOptions): SessionDriver {
   return {
     id: opts.id,
     send(u) {
-      if (state === "ended" || state === "error") return;
+      if (em.isClosed()) return;
       emit({ type: "user", text: u.text, images: (u.images ?? []).map((i) => i.label) });
       input.push(toSdkMessage(u));
-      if (state !== "starting") setState("running");
+      if (em.getState() !== "starting") setState("running");
     },
     async interrupt() {
       try {
@@ -449,17 +387,12 @@ export function startSession(opts: StartSessionOptions): SessionDriver {
         emit({ type: "error", message: `interrupt failed: ${(err as Error).message}` });
       }
     },
-    respondPermission(id, behavior) {
-      const p = pending.get(id);
-      if (!p) return false;
-      p.settle(behavior, "user");
-      return true;
-    },
+    respondPermission: (id, behavior) => permissions.respond(id, behavior),
     close() {
-      if (closed) return;
-      closed = true;
+      if (released) return;
+      released = true;
       input.end();
-      denyAllPending("session");
+      permissions.denyAll("session");
       try {
         q?.close();
       } catch {
@@ -467,10 +400,7 @@ export function startSession(opts: StartSessionOptions): SessionDriver {
       }
       setState("ended");
     },
-    onEvent(fn) {
-      listeners.add(fn);
-      return () => listeners.delete(fn);
-    },
+    onEvent: em.onEvent,
   };
 }
 

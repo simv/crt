@@ -44,10 +44,11 @@
 import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { IMAGES_DROPPED_LINE } from "../intake-message.js";
-import { isReadOnlyGit, isUnderCrtDir, PERMISSION_TIMEOUT_MS } from "../permissions.js";
-import type { PermissionDecision, ProviderCapabilities, SessionDriver, SessionEvent, SessionState, StartSessionOptions, UserInput } from "../session-events.js";
+import { isReadOnlyGit, isUnderCrtDir } from "../permissions.js";
+import type { PermissionDecision, ProviderCapabilities, SessionDriver, SessionEvent, StartSessionOptions, UserInput } from "../session-events.js";
 import { packageVersion } from "../version.js";
 import { CRT_MCP_SERVER, WRITE_TASK_TOOL } from "../write-task.js";
+import { createEmitter, createPermissionBroker, createTurnQueue, initEvent } from "./driver-core.js";
 import { type Executable, LineBuffer, parseJsonLine, type ProcessDeps, realProcessDeps, resolveExecutable, StderrTail } from "./exec.js";
 import { shortPath, summarize } from "./format.js";
 import type { PreflightOptions, PreflightResult, ProviderProfile } from "./types.js";
@@ -374,12 +375,12 @@ export class AcpTurnMapper {
 
 // ---- the driver -----------------------------------------------------------------------------------
 
-/** What an ACP profile tells the driver about its agent (Gemini, or the ad-hoc command). */
+/**
+ * What the driver needs to know about an ACP agent beyond its profile (Gemini, or the ad-hoc
+ * command): how to start it in ACP mode and how to read its failures. Identity, capabilities,
+ * resume command and the experimental flag come from the `ProviderProfile`.
+ */
 export interface AcpAgentSpec {
-  id: string;
-  displayName: string;
-  capabilities: ProviderCapabilities;
-  resumeCommand: (nativeSessionId: string) => string | null;
   /** The executable to spawn (`providers.<id>.command` already applied), or null with the N-7 line. */
   resolve: (opts: StartSessionOptions) => Executable | null;
   /** Arguments that put the agent in ACP mode (`--acp` for Gemini; none for an ad-hoc command). */
@@ -390,8 +391,6 @@ export interface AcpAgentSpec {
    * only what the agent says it runs (`session/new` `models.currentModelId`).
    */
   modelArgs?: (model: string) => string[];
-  /** F-54 (M10): the profile ships untested against a real agent; carried on the `init` event for the footer badge. */
-  experimental?: string;
   notFound: string;
   /** N-7: map an auth failure the agent reports (a `session/new` error, stderr) to the not-logged-in line, or null. */
   loginProblem: (message: string) => string | null;
@@ -403,57 +402,31 @@ export interface AcpProcessDeps extends ProcessDeps {
   closeGraceMs?: number;
 }
 
-interface PendingPermission {
-  settle: (behavior: "allow" | "deny", by: "user" | "timeout" | "session") => void;
-}
-
-export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, deps: AcpProcessDeps = realProcessDeps): SessionDriver {
-  const listeners = new Set<(e: SessionEvent) => void>();
-  const pending = new Map<string, PendingPermission>();
-  const queue: UserInput[] = [];
+export function startAcpSession(opts: StartSessionOptions, profile: ProviderProfile, spec: AcpAgentSpec, deps: AcpProcessDeps = realProcessDeps): SessionDriver {
+  const em = createEmitter(opts.log);
+  const { emit, setState } = em;
+  const permissions = createPermissionBroker({ ...em, timeoutMs: opts.permissionTimeoutMs });
   const stderr = new StderrTail();
   const log = opts.log ?? (() => undefined);
-  let state: SessionState = "starting";
-  let closed = false;
+  const name = profile.displayName;
   let child: ChildProcess | null = null;
   let rpc: JsonRpcStdio | null = null;
   let nativeSessionId: string | null = null;
-  let capabilities = spec.capabilities;
+  let capabilities = profile.capabilities;
   let turns = 0;
   let mapper: AcpTurnMapper | null = null;
   let interrupted = false;
-  let busy = false;
   let ready = false;
 
-  const emit = (e: SessionEvent) => {
-    for (const fn of listeners) {
-      try {
-        fn(e);
-      } catch {
-        // a listener failing must not take the session down
-      }
-    }
-  };
-  const setState = (next: SessionState, detail?: string) => {
-    if (closed) return;
-    state = next;
-    emit(detail === undefined ? { type: "state", state: next } : { type: "state", state: next, detail });
-  };
-  const denyAllPending = (by: "user" | "timeout" | "session") => {
-    for (const p of [...pending.values()]) p.settle("deny", by);
-  };
   const killNow = () => {
     const pid = child?.pid;
     child = null;
     if (pid) deps.killTree(pid);
   };
   const fail = (problem: string) => {
-    if (closed) return;
-    emit({ type: "error", message: problem });
-    setState("error", problem);
-    closed = true;
-    queue.length = 0;
-    denyAllPending("session");
+    if (!em.fail(problem)) return;
+    queue.clear();
+    permissions.denyAll("session");
     rpc?.fail({ code: -32000, message: problem });
     killNow();
   };
@@ -468,37 +441,18 @@ export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, d
     const req = (params ?? {}) as AcpPermissionRequest;
     const toolCall: AcpToolCall = req.toolCall ?? { toolCallId: randomUUID() };
     const options = req.options ?? [];
-    if (closed || interrupted) return { outcome: { outcome: "cancelled" } };
+    if (em.isClosed() || interrupted) return { outcome: { outcome: "cancelled" } };
     const decision = decideAcpPermission(toolCall, opts.cwd);
     if (decision.kind === "allow") return pickPermissionOption(options, "allow");
     if (decision.kind === "deny") return pickPermissionOption(options, "deny");
-    const behavior = await askCard(toolCall);
-    if (closed || interrupted) return { outcome: { outcome: "cancelled" } };
+    const { behavior } = await permissions.ask({
+      toolName: acpToolName(toolCall),
+      title: toolCall.title ?? `${name} wants to use ${toolCall.kind ?? "a tool"}`,
+      detail: describeToolCall(toolCall, opts.cwd),
+    });
+    if (em.isClosed() || interrupted) return { outcome: { outcome: "cancelled" } };
     return pickPermissionOption(options, behavior);
   };
-  const askCard = (toolCall: AcpToolCall): Promise<"allow" | "deny"> =>
-    new Promise((resolve) => {
-      const id = randomUUID();
-      const timeoutMs = opts.permissionTimeoutMs ?? PERMISSION_TIMEOUT_MS;
-      const timer = setTimeout(() => settle("deny", "timeout"), timeoutMs);
-      const settle = (behavior: "allow" | "deny", by: "user" | "timeout" | "session") => {
-        if (!pending.delete(id)) return;
-        clearTimeout(timer);
-        emit({ type: "permission_resolved", id, behavior, by });
-        if (pending.size === 0 && state === "waiting") setState("running");
-        resolve(behavior);
-      };
-      pending.set(id, { settle });
-      emit({
-        type: "permission",
-        id,
-        toolName: acpToolName(toolCall),
-        title: toolCall.title ?? `${spec.displayName} wants to use ${toolCall.kind ?? "a tool"}`,
-        detail: describeToolCall(toolCall, opts.cwd),
-        expiresAt: Date.now() + timeoutMs,
-      });
-      setState("waiting");
-    });
 
   // ---- process ----
   const start = async () => {
@@ -509,7 +463,7 @@ export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, d
       const modelArgs = opts.model && spec.modelArgs ? spec.modelArgs(opts.model) : [];
       proc = deps.spawn(exe, [...spec.acpArgs, ...modelArgs], { cwd: opts.cwd, env: process.env });
     } catch (err) {
-      return fail(`could not start ${spec.displayName} (${(err as Error).message})`);
+      return fail(`could not start ${name} (${(err as Error).message})`);
     }
     child = proc;
     const client = new JsonRpcStdio((line) => {
@@ -529,18 +483,18 @@ export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, d
     proc.stdout?.on("data", (chunk: string) => client.feed(chunk));
     proc.stderr?.setEncoding("utf8");
     proc.stderr?.on("data", (chunk: string) => stderr.push(chunk));
-    proc.on("error", (err: NodeJS.ErrnoException) => fail(err.code === "ENOENT" ? spec.notFound : `could not start ${spec.displayName} (${err.message})`));
+    proc.on("error", (err: NodeJS.ErrnoException) => fail(err.code === "ENOENT" ? spec.notFound : `could not start ${name} (${err.message})`));
     proc.on("exit", (code) => {
       if (child !== proc) return; // closed on purpose
       child = null;
-      if (closed) return;
-      log(`crt: ${spec.id} exited with code ${code}; stderr tail: ${stderr.lines().slice(-5).join(" | ")}`);
-      fail(spec.loginProblem(stderr.lines().join("\n")) ?? agentExited(spec.displayName, code, stderr.brief()));
+      if (em.isClosed()) return;
+      log(`crt: ${profile.id} exited with code ${code}; stderr tail: ${stderr.lines().slice(-5).join(" | ")}`);
+      fail(spec.loginProblem(stderr.lines().join("\n")) ?? agentExited(name, code, stderr.brief()));
     });
 
     const timer = setTimeout(() => {
       const tail = stderr.brief();
-      fail(`${spec.displayName} did not finish initialize + session/new within ${ACP_START_TIMEOUT_MS / 1000} s${tail ? ` (${tail})` : ""}`);
+      fail(`${name} did not finish initialize + session/new within ${ACP_START_TIMEOUT_MS / 1000} s${tail ? ` (${tail})` : ""}`);
     }, ACP_START_TIMEOUT_MS);
     try {
       const init = (await client.request("initialize", {
@@ -548,37 +502,33 @@ export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, d
         clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
         clientInfo: { name: "crt", version: packageVersion() },
       })) as AcpInitializeResult | null;
-      if (closed) return;
+      if (em.isClosed()) return;
       const version = init?.protocolVersion;
-      if (typeof version !== "number" || !ACP_PROTOCOL_VERSIONS.includes(version)) return fail(unsupportedProtocol(spec.displayName, version));
-      capabilities = negotiateCapabilities(spec.capabilities, init ?? {});
+      if (typeof version !== "number" || !ACP_PROTOCOL_VERSIONS.includes(version)) return fail(unsupportedProtocol(name, version));
+      capabilities = negotiateCapabilities(profile.capabilities, init ?? {});
       const session = (await client.request("session/new", {
         cwd: opts.cwd,
         mcpServers: [{ name: CRT_MCP_SERVER, command: opts.mcp.command, args: opts.mcp.args, env: Object.entries(opts.mcp.env).map(([name, value]) => ({ name, value })) }],
       })) as AcpNewSessionResult | null;
-      if (closed) return;
+      if (em.isClosed()) return;
       const sessionId = session?.sessionId;
-      if (typeof sessionId !== "string" || !sessionId) return fail(`${spec.displayName} started without a session id — cannot continue this session`);
+      if (typeof sessionId !== "string" || !sessionId) return fail(`${name} started without a session id — cannot continue this session`);
       nativeSessionId = sessionId;
-      emit({
-        type: "init",
-        sessionId: opts.id,
-        nativeSessionId: sessionId,
-        provider: spec.id,
-        displayName: spec.displayName,
-        model: (spec.modelArgs ? opts.model : null) ?? session?.models?.currentModelId ?? null,
-        agentVersion: opts.agentVersion ?? init?.agentInfo?.version ?? null,
-        resumeCommand: capabilities.resume ? spec.resumeCommand(sessionId) : null,
-        capabilities,
-        ...(spec.experimental ? { experimental: spec.experimental } : {}),
-      });
+      emit(
+        initEvent(profile, opts, {
+          nativeSessionId: sessionId,
+          model: (spec.modelArgs ? opts.model : null) ?? session?.models?.currentModelId ?? null,
+          agentVersion: opts.agentVersion ?? init?.agentInfo?.version ?? null,
+          capabilities,
+        }),
+      );
       ready = true;
-      if (queue.length) void pump();
+      if (queue.length) queue.pump();
       else setState("idle");
     } catch (err) {
-      if (closed) return;
+      if (em.isClosed()) return;
       const message = isRpcError(err) ? err.message : (err as Error)?.message ?? String(err);
-      fail(spec.loginProblem(message) ?? spec.loginProblem(stderr.lines().join("\n")) ?? `${spec.displayName} could not start a session: ${message}`);
+      fail(spec.loginProblem(message) ?? spec.loginProblem(stderr.lines().join("\n")) ?? `${name} could not start a session: ${message}`);
     } finally {
       clearTimeout(timer);
     }
@@ -586,7 +536,7 @@ export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, d
 
   // ---- turns ----
   const runTurn = async (input: UserInput) => {
-    if (closed || !rpc || !nativeSessionId) return;
+    if (em.isClosed() || !rpc || !nativeSessionId) return;
     const started = Date.now();
     const turn = new AcpTurnMapper(emit, ++turns);
     mapper = turn;
@@ -594,7 +544,7 @@ export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, d
     setState("running");
     try {
       const r = (await rpc.request("session/prompt", { sessionId: nativeSessionId, prompt: promptBlocks(input, capabilities.images === "inline") })) as { stopReason?: string } | null;
-      if (closed) return;
+      if (em.isClosed()) return;
       turn.endMessage();
       const stop = r?.stopReason ?? "end_turn";
       if (stop === "cancelled" || interrupted) {
@@ -604,7 +554,7 @@ export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, d
       }
       setState("idle");
     } catch (err) {
-      if (closed) return;
+      if (em.isClosed()) return;
       turn.endMessage();
       const message = isRpcError(err) ? err.message : (err as Error)?.message ?? String(err);
       const login = spec.loginProblem(message);
@@ -616,55 +566,34 @@ export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, d
       if (mapper === turn) mapper = null;
     }
   };
-  const pump = async () => {
-    if (busy || !ready) return;
-    busy = true;
-    try {
-      while (queue.length && !closed) await runTurn(queue.shift()!);
-    } finally {
-      busy = false;
-    }
-  };
-  const enqueue = (input: UserInput) => {
-    if (closed) return;
-    emit({ type: "user", text: input.text, images: (input.images ?? []).map((i) => i.label) });
-    queue.push(input);
-    void pump();
-  };
+  // Turns wait for `session/new`; `start()` pumps the queue once the session exists.
+  const queue = createTurnQueue(runTurn, em, { ready: () => ready });
 
   if (opts.first) {
     const first = opts.first;
-    queueMicrotask(() => enqueue(first));
+    queueMicrotask(() => queue.enqueue(first));
   }
   queueMicrotask(() => void start());
 
   return {
     id: opts.id,
-    send(u) {
-      enqueue(u);
-    },
+    send: (u) => queue.enqueue(u),
     async interrupt() {
-      if (closed || !rpc || !nativeSessionId || state !== "running" && state !== "waiting") return;
+      const state = em.getState();
+      if (em.isClosed() || !rpc || !nativeSessionId || state !== "running" && state !== "waiting") return;
       interrupted = true;
-      denyAllPending("session");
+      permissions.denyAll("session");
       rpc.notify("session/cancel", { sessionId: nativeSessionId });
     },
-    respondPermission(id, behavior) {
-      const p = pending.get(id);
-      if (!p) return false;
-      p.settle(behavior, "user");
-      return true;
-    },
+    respondPermission: (id, behavior) => permissions.respond(id, behavior),
     close() {
-      if (closed) return;
-      closed = true;
-      queue.length = 0;
-      denyAllPending("session");
+      if (em.isClosed()) return;
+      queue.clear();
+      permissions.denyAll("session");
       rpc?.fail({ code: -32000, message: "session closed" });
       const proc = child;
       child = null;
-      state = "ended";
-      emit({ type: "state", state: "ended" });
+      setState("ended");
       if (!proc?.pid) return;
       // F-54 close: end stdin, give the agent a moment to leave, then kill the tree.
       const pid = proc.pid;
@@ -690,10 +619,7 @@ export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, d
       }, deps.closeGraceMs ?? ACP_CLOSE_GRACE_MS);
       grace.unref();
     },
-    onEvent(fn) {
-      listeners.add(fn);
-      return () => listeners.delete(fn);
-    },
+    onEvent: em.onEvent,
   };
 }
 
@@ -736,7 +662,7 @@ export function acpLoginProblem(name: string, message: string): string | null {
 export function adHocAcpProfile(config: AcpProviderConfig): ProviderProfile {
   const argv = [config.command, ...config.args];
   const resolve = (command?: string[] | null, env?: NodeJS.ProcessEnv) => resolveExecutable(config.command, { command: command?.length ? command : argv, ...(env ? { env } : {}) });
-  return {
+  const profile: ProviderProfile = {
     id: "acp",
     displayName: config.name,
     agentName: `${config.name} (ACP)`,
@@ -753,16 +679,12 @@ export function adHocAcpProfile(config: AcpProviderConfig): ProviderProfile {
     },
     resumeCommand: () => null,
     start: (opts) =>
-      startAcpSession(opts, {
-        id: "acp",
-        displayName: config.name,
-        capabilities: ACP_CAPABILITIES,
-        resumeCommand: () => null,
+      startAcpSession(opts, profile, {
         resolve: (o) => resolve(o.command),
         acpArgs: [],
-        experimental: ACP_EXPERIMENTAL,
         notFound: acpNotFound(config.command),
         loginProblem: (message) => acpLoginProblem(config.name, message),
       }),
   };
+  return profile;
 }
