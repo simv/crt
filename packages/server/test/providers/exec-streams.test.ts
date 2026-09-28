@@ -11,7 +11,7 @@ import { type Executable, LineBuffer, lineReader, parseJsonLine, spawnProvider, 
 const node: Executable = { command: process.execPath, args: [], via: "path", found: process.execPath };
 
 describe("lineReader (F-53)", () => {
-  it("joins lines split across chunks and delivers each once", () => {
+  it("joins lines split across chunks and delivers each once (F-53)", () => {
     const stream = new PassThrough();
     const lines: string[] = [];
     lineReader(stream, (l) => lines.push(l));
@@ -22,7 +22,7 @@ describe("lineReader (F-53)", () => {
     expect(lines).toEqual(['{"type":"a"}', '{"type":"b"}', "third"]);
   });
 
-  it("drops the \\r of CRLF endings, even when the \\n comes in the next chunk", () => {
+  it("drops the \\r of CRLF endings, even when the \\n comes in the next chunk (F-53)", () => {
     const stream = new PassThrough();
     const lines: string[] = [];
     lineReader(stream, (l) => lines.push(l));
@@ -31,7 +31,7 @@ describe("lineReader (F-53)", () => {
     expect(lines).toEqual(["one", "two", ""]);
   });
 
-  it("delivers a final line with no newline when the stream ends, and drops a blank rest", async () => {
+  it("delivers a final line with no newline when the stream ends, and drops a blank rest (F-53)", async () => {
     const stream = new PassThrough();
     const lines: string[] = [];
     lineReader(stream, (l) => lines.push(l));
@@ -47,7 +47,7 @@ describe("lineReader (F-53)", () => {
     expect(none).toEqual(["x"]);
   });
 
-  it("decodes a UTF-8 character split across chunks", () => {
+  it("decodes a UTF-8 character split across chunks (F-53)", () => {
     const stream = new PassThrough();
     const lines: string[] = [];
     lineReader(stream, (l) => lines.push(l));
@@ -57,7 +57,7 @@ describe("lineReader (F-53)", () => {
     expect(lines).toEqual(["café — ok"]);
   });
 
-  it("flush() hands over the rest once, for drivers that see exit before end", () => {
+  it("flush() hands over the rest once, for drivers that see exit before end (F-53)", () => {
     const lines: string[] = [];
     const buffer = new LineBuffer((l) => lines.push(l));
     buffer.push("a\nb");
@@ -69,12 +69,12 @@ describe("lineReader (F-53)", () => {
 });
 
 describe("parseJsonLine (F-53)", () => {
-  it("returns the object on a line, trimmed", () => {
+  it("returns the object on a line, trimmed (F-53)", () => {
     expect(parseJsonLine('  {"type":"turn.started"}\r')).toEqual({ type: "turn.started" });
     expect(parseJsonLine('{"jsonrpc":"2.0","id":1,"result":null}')).toEqual({ jsonrpc: "2.0", id: 1, result: null });
   });
 
-  it("returns null for anything that is not one JSON object, and never throws", () => {
+  it("returns null for anything that is not one JSON object, and never throws (F-53)", () => {
     for (const line of ["", "   ", "not json", "2026-09-15T10:00:00Z INFO codex", "[1,2]", "null", '"text"', "{broken", '{"a":1} trailing']) {
       expect(parseJsonLine(line)).toBeNull();
     }
@@ -82,7 +82,7 @@ describe("parseJsonLine (F-53)", () => {
 });
 
 describe("StderrTail (N-7)", () => {
-  it("keeps the last 30 non-blank lines of what arrived, CRLF or not", () => {
+  it("keeps the last 30 non-blank lines of what arrived, CRLF or not (N-7)", () => {
     const tail = new StderrTail();
     expect(tail.push("first\r\n\r\n  \nsecond\n")).toEqual(["first", "second"]);
     for (let i = 0; i < STDERR_TAIL_LINES; i++) tail.push(`line ${i}\n`);
@@ -92,7 +92,7 @@ describe("StderrTail (N-7)", () => {
     expect(tail.lines().at(-1)).toBe("line 29");
   });
 
-  it("brief() is the last lines that are not noise; noise still counts in lines()", () => {
+  it("brief() is the last lines that are not noise; noise still counts in lines() (N-7)", () => {
     const tail = new StderrTail(/^\d{4}-\d\d-\d\dT/);
     tail.push("Error: bad flag\n2026-09-15T10:00:00Z WARN retrying\nusage: codex exec\n2026-09-15T10:00:01Z INFO bye\n");
     expect(tail.brief()).toBe("Error: bad flag | usage: codex exec");
@@ -104,7 +104,7 @@ describe("StderrTail (N-7)", () => {
     expect(plain.brief()).toBe("b | c");
   });
 
-  it("lines() is a copy", () => {
+  it("lines() is a copy (N-7)", () => {
     const tail = new StderrTail();
     tail.push("x");
     tail.lines().push("y");
@@ -113,7 +113,7 @@ describe("StderrTail (N-7)", () => {
 });
 
 describe("spawnProvider (N-10)", () => {
-  it("runs exe + args without a shell, with piped stdio, cwd and env", async () => {
+  it("runs exe + args without a shell, with piped stdio, cwd and env (N-10)", async () => {
     const script = [
       'process.stdout.write(JSON.stringify({ cwd: process.cwd(), marker: process.env.CRT_TEST_MARKER, argv: process.argv.slice(1) }) + "\\r\\n");',
       'process.stderr.write("warn one\\nwarn two\\n");',

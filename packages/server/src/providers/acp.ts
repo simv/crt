@@ -48,7 +48,7 @@ import { isReadOnlyGit, isUnderCrtDir, PERMISSION_TIMEOUT_MS } from "../permissi
 import type { PermissionDecision, ProviderCapabilities, SessionDriver, SessionEvent, SessionState, StartSessionOptions, UserInput } from "../session-events.js";
 import { packageVersion } from "../version.js";
 import { CRT_MCP_SERVER, WRITE_TASK_TOOL } from "../write-task.js";
-import { type Executable, LineBuffer, lineReader, parseJsonLine, type ProcessDeps, realProcessDeps, resolveExecutable, StderrTail } from "./exec.js";
+import { type Executable, LineBuffer, parseJsonLine, type ProcessDeps, realProcessDeps, resolveExecutable, StderrTail } from "./exec.js";
 import { shortPath, summarize } from "./format.js";
 import type { PreflightOptions, PreflightResult, ProviderProfile } from "./types.js";
 
@@ -100,7 +100,7 @@ export class JsonRpcStdio {
     this.write(`${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`);
   }
 
-  /** Feed a chunk of the agent's stdout (the driver hands over whole lines through `handle`). */
+  /** Feed a chunk of the agent's stdout. */
   feed(chunk: string): void {
     this.lines.push(chunk);
   }
@@ -111,7 +111,6 @@ export class JsonRpcStdio {
     this.pending.clear();
   }
 
-  /** One line of the agent's stdout. */
   handle(line: string): void {
     const msg = parseRpcLine(line);
     if (!msg) return;
@@ -525,7 +524,9 @@ export function startAcpSession(opts: StartSessionOptions, spec: AcpAgentSpec, d
       throw { code: -32601, message: `client does not implement ${method}` } satisfies JsonRpcError;
     };
     proc.stdin?.on("error", () => undefined);
-    lineReader(proc.stdout, (line) => client.handle(line));
+    // Chunks, not `lineReader`: a line the agent never terminated is not a JSON-RPC message.
+    proc.stdout?.setEncoding("utf8");
+    proc.stdout?.on("data", (chunk: string) => client.feed(chunk));
     proc.stderr?.setEncoding("utf8");
     proc.stderr?.on("data", (chunk: string) => stderr.push(chunk));
     proc.on("error", (err: NodeJS.ErrnoException) => fail(err.code === "ENOENT" ? spec.notFound : `could not start ${spec.displayName} (${err.message})`));
