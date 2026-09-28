@@ -8,16 +8,12 @@
  * numeric suffixes) are skipped in favour of structural steps, so the selector stays meaningful
  * across HMR reloads.
  */
+import { cssEscape } from "./dom-util.js";
 
 const HOST_ID = "crt-host";
 
-const cssEscape = (s: string): string =>
-  typeof CSS !== "undefined" && typeof CSS.escape === "function"
-    ? CSS.escape(s)
-    : s.replace(/([^\w-])/g, "\\$1");
-
 /** Heuristic: hashed/generated tokens make brittle selectors. */
-export function looksGenerated(token: string): boolean {
+function looksGenerated(token: string): boolean {
   if (/^[a-zA-Z_-]*[0-9a-f]{6,}$/i.test(token)) return true; // hash suffix (css-modules, emotion, tailwind arbitrary)
   if (/^(css|sc|jss|svelte|ng)-[\w-]+$/i.test(token)) return true;
   if (/^_[\w-]*\d{3,}/.test(token)) return true;

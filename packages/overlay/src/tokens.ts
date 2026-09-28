@@ -1,8 +1,8 @@
 /**
  * The overlay's colours in one place (PRD-polish F-112, §5.1, decision 7) — the brand's inputs.
- * `ui.ts` and `screenshot.ts` interpolate them into the stylesheet and the marker drawing (`chat.ts`
- * takes the accent); the rendered CSS is byte-for-byte what it was when the values were literals
- * (test/brand.test.ts pins every site). The brand files under docs/brand/ carry INK, GLASS,
+ * The stylesheets (`styles.ts`, `chat.ts`, `welcome.ts`) and `screenshot.ts`'s marker drawing
+ * interpolate them, and no overlay module repeats one as a literal (CRT-0043); the rendered CSS is
+ * byte-for-byte what it was when the values were literals (test/brand.test.ts pins every site). The brand files under docs/brand/ carry INK, GLASS,
  * BEZEL_DARK and ACCENT as literals — the same test pins them equal — and the landing page (server
  * code, M21) repeats what it needs: the server never imports overlay source at runtime.
  */
@@ -27,6 +27,8 @@ export const WARN = "#e0a800";
 export const DANGER = "#d7263d";
 /** Deep red: error states (the status bar, a marker). */
 export const ERROR = "#b00020";
+/** Bright red: a provider that cannot run, a failed tool call, Delete on hover. */
+export const FAIL = "#c00";
 /** Blue: a session idle (a marker). */
 export const IDLE = "#2f6fed";
 /** The tinted status pills, `[background, text]` by session state. */
@@ -38,3 +40,7 @@ export const PILL = {
 } as const;
 /** The "experimental" badge on a provider row, `[background, text]`. */
 export const EXPERIMENTAL = ["#fff3cd", "#7a5200"] as const;
+/** ACCENT at 8%: the fill of the Select outline and of a Box being drawn (a test pins it to ACCENT). */
+export const ACCENT_WASH = "rgba(255,61,113,.08)";
+/** INK at 90%: the tool hint's pill (a test pins it to INK). */
+export const INK_90 = "rgba(17,17,17,.9)";

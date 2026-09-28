@@ -44,7 +44,7 @@ function formatArg(a: unknown): string {
 }
 
 /** Minimal printf-style handling so `console.error("x %s", y)` reads naturally. */
-export function formatConsoleArgs(args: unknown[]): string {
+function formatConsoleArgs(args: unknown[]): string {
   if (args.length === 0) return "";
   const [first, ...rest] = args;
   if (typeof first === "string" && /%[sdifoOc]/.test(first)) {

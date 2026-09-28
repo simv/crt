@@ -134,7 +134,7 @@ function cleanModuleUrl(url: string): string {
   return f;
 }
 
-export function detectReact(el: Element): ComponentDetection | null {
+function detectReact(el: Element): ComponentDetection | null {
   let node: Element | null = el;
   let fiber: Fiber | null = null;
   while (node && !fiber) {
@@ -183,7 +183,7 @@ interface Vue2Instance {
   $parent?: Vue2Instance | null;
 }
 
-export function detectVue(el: Element): ComponentDetection | null {
+function detectVue(el: Element): ComponentDetection | null {
   let node: Element | null = el;
   while (node) {
     const v3 = (node as unknown as { __vueParentComponent?: VueInstance }).__vueParentComponent;
