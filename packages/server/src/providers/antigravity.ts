@@ -54,22 +54,25 @@
  *   • No per-invocation telemetry flag (`enableTelemetry` in settings.json applies, N-12).
  *   • Skills: `.agents/skills` in the project, `~/.gemini/config/skills` for the user (F-58).
  */
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ProviderCapabilities, SessionDriver, SessionEvent, SessionState, StartSessionOptions, UserInput } from "../session-events.js";
 import { CRT_MCP_SERVER, WRITE_TASK_TOOL } from "../write-task.js";
-import { compareVersions } from "./codex.js";
-import { type Executable, killProcessTree, resolveExecutable, runExecutable } from "./exec.js";
+import { type Executable, lineReader, parseJsonLine, type ProcessDeps, realProcessDeps, resolveExecutable, StderrTail } from "./exec.js";
+import { describeUsage, summarize } from "./format.js";
 import type { PreflightOptions, PreflightResult, ProviderProfile } from "./types.js";
+import { cliPreflight } from "./version.js";
+
+/** `1.2.7` (or `agy 1.2.7`) → `1.2.7`; null when the output is not a version. */
+export { parseBareVersion as parseAntigravityVersion } from "./version.js";
 
 export const ANTIGRAVITY_TESTED_VERSION = "1.2.7";
 /** Oldest version whose stream-json loop, plugin discovery and hook contract match the tested one. */
 export const ANTIGRAVITY_MIN_VERSION = "1.2.7";
 const ANTIGRAVITY_INSTALL = "install the Antigravity CLI (https://antigravity.google/docs/cli)";
 const ANTIGRAVITY_LOGIN = "agy";
-const STDERR_TAIL_LINES = 30;
 /** The plugin name; Antigravity namespaces its servers `<plugin>_<server>`. */
 export const ANTIGRAVITY_PLUGIN = "crt";
 export const ANTIGRAVITY_MCP_SERVER = `${ANTIGRAVITY_PLUGIN}_${CRT_MCP_SERVER}`;
@@ -123,23 +126,8 @@ const antigravityExited = (code: number | null, tail: string) => `Antigravity ex
  * F-111 preflight: find the executable (config → PATH), read `--version` against the minimum.
  * Login cannot be told offline (no status command, keyring token): "unknown" passes (§12 rule 3).
  */
-export async function antigravityPreflight(opts: PreflightOptions = {}): Promise<PreflightResult> {
-  const exe = resolveExecutable("agy", { command: opts.command ?? null, ...(opts.env ? { env: opts.env } : {}) });
-  if (!exe) return { installed: false, loggedIn: "unknown", version: null, problem: ANTIGRAVITY_NOT_FOUND };
-  const v = await runExecutable(exe, ["--version"], opts.env ? { env: opts.env } : {});
-  const version = parseAntigravityVersion(v.stdout);
-  if (v.status !== 0 || !version) {
-    const why = v.error ?? v.stderr.trim().split(/\r?\n/)[0] ?? `exit ${v.status}`;
-    return { installed: true, loggedIn: "unknown", version, problem: `agy --version failed (${why || "no output"}) — ${ANTIGRAVITY_INSTALL}` };
-  }
-  if (compareVersions(version, ANTIGRAVITY_MIN_VERSION) < 0) return { installed: true, loggedIn: "unknown", version, problem: antigravityTooOld(version) };
-  return { installed: true, loggedIn: "unknown", version, problem: null };
-}
-
-/** `1.2.7` (or `agy 1.2.7`) → `1.2.7`; null when the output is not a version. */
-export function parseAntigravityVersion(stdout: string): string | null {
-  const m = /(?:^|\s)v?(\d+\.\d+\.\d+(?:[-+][\w.]+)?)\s*$/m.exec(stdout.trim());
-  return m ? m[1]! : null;
+export function antigravityPreflight(opts: PreflightOptions = {}): Promise<PreflightResult> {
+  return cliPreflight({ name: "agy", minVersion: ANTIGRAVITY_MIN_VERSION, notFound: ANTIGRAVITY_NOT_FOUND, tooOld: antigravityTooOld, fix: ANTIGRAVITY_INSTALL }, opts);
 }
 
 /** N-7: the logged-out strings print mode emits (spike §4, binary strings). */
@@ -304,14 +292,8 @@ export interface AgyResult {
 }
 
 export function parseAgyLine(line: string): AgyEvent | null {
-  const trimmed = line.trim();
-  if (!trimmed.startsWith("{")) return null;
-  try {
-    const v = JSON.parse(trimmed) as unknown;
-    return v && typeof v === "object" && typeof (v as AgyEvent).event === "string" ? (v as AgyEvent) : null;
-  } catch {
-    return null;
-  }
+  const v = parseJsonLine(line);
+  return v && typeof v.event === "string" ? (v as unknown as AgyEvent) : null;
 }
 
 /** Parameter keys worth a label, in the order Antigravity's tools use them (spike recordings). */
@@ -353,18 +335,11 @@ export function antigravityToolSummary(step: AgyStep): string {
   return out || (step.state === "ERROR" ? "failed" : "done");
 }
 
-function summarize(text: string): string {
-  const t = text.replace(/\s+/g, " ").trim();
-  return t.length > 160 ? `${t.slice(0, 157)}…` : t;
-}
-
 /** `result.usage` (+ denied actions) as one line for `result.detail`. */
 export function describeAgyResult(result: AgyResult): string | undefined {
   const parts: string[] = [];
-  const usage = Object.entries(result.usage ?? {})
-    .filter(([, v]) => typeof v === "number")
-    .map(([k, v]) => `${k.replace(/_tokens$/, "").replace(/_/g, " ")} ${v}`);
-  if (usage.length) parts.push(`tokens: ${usage.join(", ")}`);
+  const usage = describeUsage(result.usage);
+  if (usage) parts.push(usage);
   const denied = (result.denied_actions ?? []).map((d) => d.display_name ?? d.action ?? "?");
   if (denied.length) parts.push(`denied by Antigravity: ${denied.join(", ")}`);
   return parts.length ? parts.join("; ") : undefined;
@@ -493,27 +468,11 @@ export class AgyMapper {
 
 // ---- the driver ---------------------------------------------------------------------------------
 
-/** What `startAntigravitySession` needs from the OS; tests replace the spawn to replay fixtures in-process. */
-export interface AntigravityProcessDeps {
-  spawn: (command: string, args: string[], opts: { cwd: string; env: NodeJS.ProcessEnv }) => ChildProcess;
-  killTree: (pid: number) => boolean;
+/** What `startAntigravitySession` needs from the OS and the disk; tests replace them to replay fixtures in-process. */
+export interface AntigravityProcessDeps extends ProcessDeps {
   /** Where the session plugin goes; defaults to `.crt/captures/antigravity/<id>` under the project root. */
   sessionDir?: (opts: StartSessionOptions) => string;
 }
-
-const realDeps: AntigravityProcessDeps = {
-  spawn: (command, args, opts) =>
-    spawn(command, args, {
-      cwd: opts.cwd,
-      env: opts.env,
-      shell: false,
-      windowsHide: true,
-      stdio: ["pipe", "pipe", "pipe"],
-      // POSIX: a process group of its own so a negative-pid kill takes the MCP child and the sidecar with it.
-      detached: process.platform !== "win32",
-    }),
-  killTree: (pid) => killProcessTree(pid),
-};
 
 /**
  * F-111: one `agy` process per session, one turn per stdin line. Turn 1 carries the first message
@@ -522,7 +481,7 @@ const realDeps: AntigravityProcessDeps = {
  * `writeTask` is never called here: Antigravity reaches `write_task` through `crt mcp` and the
  * internal route, and the registry records `task_written` itself (§5.3).
  */
-export function startAntigravitySession(opts: StartSessionOptions, deps: AntigravityProcessDeps = realDeps): SessionDriver {
+export function startAntigravitySession(opts: StartSessionOptions, deps: AntigravityProcessDeps = realProcessDeps): SessionDriver {
   const listeners = new Set<(e: SessionEvent) => void>();
   const env = process.env;
   const log = opts.log ?? (() => undefined);
@@ -534,7 +493,7 @@ export function startAntigravitySession(opts: StartSessionOptions, deps: Antigra
   let turnStarted = 0;
   let resolveTurn: (() => void) | null = null;
   const queue: UserInput[] = [];
-  const stderrTail: string[] = [];
+  const stderr = new StderrTail(/^warning:/i);
   const sessionDir = deps.sessionDir ? deps.sessionDir(opts) : antigravitySessionDir(opts.cwd, opts.id);
   let plugin: SessionPlugin | null = null;
   let hooksVerified = false;
@@ -575,7 +534,6 @@ export function startAntigravitySession(opts: StartSessionOptions, deps: Antigra
     removeSessionDir();
     resolveTurn?.();
   };
-  const tail = () => stderrTail.filter((l) => !/^warning:/i.test(l)).slice(-2).join(" | ");
 
   const exe: Executable | null = resolveExecutable("agy", { command: opts.command ?? null, env });
   if (!exe) queueMicrotask(() => fail(ANTIGRAVITY_NOT_FOUND));
@@ -596,31 +554,18 @@ export function startAntigravitySession(opts: StartSessionOptions, deps: Antigra
     const turn = new AgyMapper(conversationId, opts, emit);
     let proc: ChildProcess;
     try {
-      proc = deps.spawn(exe.command, [...exe.args, ...antigravityArgs(sessionDir, opts.model, conversationId)], { cwd: opts.cwd, env: { ...env, ...opts.mcp.env } });
+      proc = deps.spawn(exe, antigravityArgs(sessionDir, opts.model, conversationId), { cwd: opts.cwd, env: { ...env, ...opts.mcp.env } });
     } catch (err) {
       fail(`could not start agy (${(err as Error).message}) — ${ANTIGRAVITY_INSTALL}`);
       return null;
     }
     child = proc;
     mapper = turn;
-    let buffer = "";
     proc.stdin?.on("error", () => undefined);
-    proc.stdout?.setEncoding("utf8");
-    proc.stdout?.on("data", (chunk: string) => {
-      buffer += chunk;
-      let idx: number;
-      while ((idx = buffer.indexOf("\n")) !== -1) {
-        const line = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 1);
-        handle(proc, turn, line);
-      }
-    });
+    const stdout = lineReader(proc.stdout, (line) => handle(proc, turn, line));
     proc.stderr?.setEncoding("utf8");
     proc.stderr?.on("data", (chunk: string) => {
-      for (const line of chunk.split(/\r?\n/)) {
-        if (!line.trim()) continue;
-        stderrTail.push(line);
-        if (stderrTail.length > STDERR_TAIL_LINES) stderrTail.shift();
+      for (const line of stderr.push(chunk)) {
         if (child !== proc || closed) continue;
         const login = antigravityLoginProblem(line);
         if (login) {
@@ -637,23 +582,22 @@ export function startAntigravitySession(opts: StartSessionOptions, deps: Antigra
       fail(err.code === "ENOENT" ? ANTIGRAVITY_NOT_FOUND : `could not start agy (${err.message})`);
     });
     proc.on("exit", (code) => {
-      if (buffer.trim()) handle(proc, turn, buffer);
-      buffer = "";
+      stdout.flush();
       if (child !== proc) return; // killed on purpose (interrupt, close, fail)
       child = null;
       if (closed) return;
       if (turn.ended || state === "idle" || state === "starting") {
         // Died between turns: the next message resumes the conversation in a new process.
-        log(`crt: agy exited with code ${code} between turns; stderr tail: ${stderrTail.slice(-3).join(" | ")}`);
-        if (conversationId === null) fail(antigravityLoginProblem(stderrTail.join("\n")) ?? antigravityExited(code, tail()));
+        log(`crt: agy exited with code ${code} between turns; stderr tail: ${stderr.lines().slice(-3).join(" | ")}`);
+        if (conversationId === null) fail(antigravityLoginProblem(stderr.lines().join("\n")) ?? antigravityExited(code, stderr.brief()));
         return;
       }
-      log(`crt: agy exited with code ${code} mid-turn; stderr tail: ${stderrTail.slice(-5).join(" | ")}`);
+      log(`crt: agy exited with code ${code} mid-turn; stderr tail: ${stderr.lines().slice(-5).join(" | ")}`);
       if (conversationId === null) {
-        fail(antigravityLoginProblem(stderrTail.join("\n")) ?? antigravityExited(code, tail()));
+        fail(antigravityLoginProblem(stderr.lines().join("\n")) ?? antigravityExited(code, stderr.brief()));
         return;
       }
-      emit({ type: "result", ok: false, durationMs: Date.now() - turnStarted, costUsd: 0, errors: [antigravityExited(code, tail())] });
+      emit({ type: "result", ok: false, durationMs: Date.now() - turnStarted, costUsd: 0, errors: [antigravityExited(code, stderr.brief())] });
       turn.ended = true;
       setState("idle");
       resolveTurn?.();

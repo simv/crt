@@ -45,20 +45,23 @@
  *     `exec.ts` finds the `.exe` when it is on PATH and otherwise runs the shim's JS entry with our
  *     own Node (N-10).
  */
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ProviderCapabilities, SessionDriver, SessionEvent, SessionState, StartSessionOptions, UserInput } from "../session-events.js";
 import { CRT_MCP_SERVER, WRITE_TASK_TOOL } from "../write-task.js";
-import { type Executable, killProcessTree, resolveExecutable, runExecutable } from "./exec.js";
+import { type Executable, lineReader, parseJsonLine, type ProcessDeps, realProcessDeps, resolveExecutable, runExecutable, StderrTail } from "./exec.js";
+import { describeUsage, summarize } from "./format.js";
 import type { PreflightOptions, PreflightResult, ProviderProfile } from "./types.js";
+import { cliPreflight, type LoginCheck } from "./version.js";
+
+export { compareVersions } from "./version.js"; // its home before version.ts
 
 export const CODEX_TESTED_VERSION = "0.154.0";
 /** Oldest version whose `exec --json` contract matches the tested one; older prints "too old" (N-7). */
 export const CODEX_MIN_VERSION = "0.154.0";
 const CODEX_INSTALL = "npm i -g @openai/codex";
 const CODEX_LOGIN = "codex login";
-const STDERR_TAIL_LINES = 30;
 
 /** F-46 reference values for Codex (M6 verdicts: no deltas, read-only sandbox, images by path). */
 export const CODEX_CAPABILITIES: ProviderCapabilities = {
@@ -104,39 +107,22 @@ const codexExited = (code: number | null, tail: string) => `Codex exited${code =
  * F-53 preflight: find the executable (config → PATH → npm shim), read `--version`, then ask
  * `login status`. Neither command is allowed to hang the server: 15 s each, then "unknown".
  */
-export async function codexPreflight(opts: PreflightOptions = {}): Promise<PreflightResult> {
-  const exe = resolveExecutable("codex", { command: opts.command ?? null, ...(opts.env ? { env: opts.env } : {}) });
-  if (!exe) return { installed: false, loggedIn: "unknown", version: null, problem: CODEX_NOT_FOUND };
+export function codexPreflight(opts: PreflightOptions = {}): Promise<PreflightResult> {
+  return cliPreflight({ name: "codex", minVersion: CODEX_MIN_VERSION, parseVersion: parseCodexVersion, notFound: CODEX_NOT_FOUND, tooOld: codexTooOld, fix: `reinstall with ${CODEX_INSTALL}`, login: codexLoginStatus }, opts);
+}
 
-  const v = await runExecutable(exe, ["--version"], opts.env ? { env: opts.env } : {});
-  const version = parseCodexVersion(v.stdout);
-  if (v.status !== 0 || !version) {
-    const why = v.error ?? v.stderr.trim().split(/\r?\n/)[0] ?? `exit ${v.status}`;
-    return { installed: true, loggedIn: "unknown", version, problem: `codex --version failed (${why || "no output"}) — reinstall with ${CODEX_INSTALL}` };
-  }
-  if (compareVersions(version, CODEX_MIN_VERSION) < 0) return { installed: true, loggedIn: "unknown", version, problem: codexTooOld(version) };
-
-  const login = await runExecutable(exe, ["login", "status"], opts.env ? { env: opts.env } : {});
-  if (login.status === 0) return { installed: true, loggedIn: true, version, problem: null };
-  if (login.status === 1) return { installed: true, loggedIn: false, version, problem: CODEX_NOT_LOGGED_IN };
-  return { installed: true, loggedIn: "unknown", version, problem: null };
+/** `codex login status`: exit 0 → logged in, 1 → not (N-7), anything else → unknown (§12 rule 3). */
+async function codexLoginStatus(exe: Executable, env: NodeJS.ProcessEnv | undefined): Promise<LoginCheck> {
+  const login = await runExecutable(exe, ["login", "status"], env ? { env } : {});
+  if (login.status === 0) return { loggedIn: true, problem: null };
+  if (login.status === 1) return { loggedIn: false, problem: CODEX_NOT_LOGGED_IN };
+  return { loggedIn: "unknown", problem: null };
 }
 
 /** `codex-cli 0.154.0` → `0.154.0`; null when the line is not in that shape. */
 export function parseCodexVersion(stdout: string): string | null {
   const m = /codex(?:-cli)?\s+v?(\d+\.\d+\.\d+(?:[-+][\w.]+)?)/i.exec(stdout);
   return m ? m[1]! : null;
-}
-
-/** Numeric dotted compare; a pre-release suffix is ignored. */
-export function compareVersions(a: string, b: string): number {
-  const pa = a.split(/[-+]/)[0]!.split(".").map(Number);
-  const pb = b.split(/[-+]/)[0]!.split(".").map(Number);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (d !== 0) return d;
-  }
-  return 0;
 }
 
 /** N-7: the stale-login message Codex prints at turn time (spike §2); `login status` does not see it. */
@@ -219,14 +205,8 @@ export interface CodexItem {
 const TOOL_ITEMS = new Set(["mcp_tool_call", "command_execution", "file_change", "web_search"]);
 
 export function parseCodexLine(line: string): CodexEvent | null {
-  const trimmed = line.trim();
-  if (!trimmed.startsWith("{")) return null;
-  try {
-    const v = JSON.parse(trimmed) as unknown;
-    return v && typeof v === "object" && typeof (v as CodexEvent).type === "string" ? (v as CodexEvent) : null;
-  } catch {
-    return null;
-  }
+  const v = parseJsonLine(line);
+  return v && typeof v.type === "string" ? (v as unknown as CodexEvent) : null;
 }
 
 /** F-25-style one-liner for a Codex item. */
@@ -269,41 +249,7 @@ export function codexToolSummary(item: CodexItem): string {
   return item.status === "failed" ? "failed" : "done";
 }
 
-function summarize(text: string): string {
-  const t = text.replace(/\s+/g, " ").trim();
-  return t.length > 160 ? `${t.slice(0, 157)}…` : t;
-}
-
-/** `turn.completed.usage` as one line for `result.detail`. */
-export function describeUsage(usage: Record<string, number> | undefined): string | undefined {
-  if (!usage) return undefined;
-  const parts = Object.entries(usage)
-    .filter(([, v]) => typeof v === "number")
-    .map(([k, v]) => `${k.replace(/_tokens$/, "").replace(/_/g, " ")} ${v}`);
-  return parts.length ? `tokens: ${parts.join(", ")}` : undefined;
-}
-
 // ---- the driver ---------------------------------------------------------------------------------
-
-/** What `startCodexSession` needs from the OS; tests replace the spawn to replay fixtures in-process. */
-export interface CodexProcessDeps {
-  spawn: (command: string, args: string[], opts: { cwd: string; env: NodeJS.ProcessEnv }) => ChildProcess;
-  killTree: (pid: number) => boolean;
-}
-
-const realDeps: CodexProcessDeps = {
-  spawn: (command, args, opts) =>
-    spawn(command, args, {
-      cwd: opts.cwd,
-      env: opts.env,
-      shell: false,
-      windowsHide: true,
-      stdio: ["pipe", "pipe", "pipe"],
-      // POSIX: a process group of its own so a negative-pid kill takes the MCP child and shells with it.
-      detached: process.platform !== "win32",
-    }),
-  killTree: (pid) => killProcessTree(pid),
-};
 
 /**
  * F-53: one `codex exec` process per turn. Turn 1 carries the first message (instructions
@@ -311,7 +257,7 @@ const realDeps: CodexProcessDeps = {
  * registry's `writeTask` is never called here: Codex reaches `write_task` through `crt mcp` and
  * the internal route, and the registry records `task_written` itself (§5.3).
  */
-export function startCodexSession(opts: StartSessionOptions, deps: CodexProcessDeps = realDeps): SessionDriver {
+export function startCodexSession(opts: StartSessionOptions, deps: ProcessDeps = realProcessDeps): SessionDriver {
   const listeners = new Set<(e: SessionEvent) => void>();
   const env = process.env;
   let state: SessionState = "starting";
@@ -321,7 +267,8 @@ export function startCodexSession(opts: StartSessionOptions, deps: CodexProcessD
   let interrupted = false;
   let turns = 0;
   const queue: UserInput[] = [];
-  const stderrTail: string[] = [];
+  // Codex's stderr is `tracing` output; its timestamped lines stay out of the failure messages.
+  const stderr = new StderrTail(/^\d{4}-\d\d-\d\dT/);
 
   const emit = (e: SessionEvent) => {
     for (const fn of listeners) fn(e);
@@ -359,7 +306,7 @@ export function startCodexSession(opts: StartSessionOptions, deps: CodexProcessD
       interrupted = false;
       let proc: ChildProcess;
       try {
-        proc = deps.spawn(exe.command, [...exe.args, ...command.args], { cwd: command.cwd, env: command.env });
+        proc = deps.spawn(exe, command.args, { cwd: command.cwd, env: command.env });
       } catch (err) {
         fail(`could not start codex (${(err as Error).message}) — ${CODEX_INSTALL}`);
         return resolve();
@@ -377,25 +324,9 @@ export function startCodexSession(opts: StartSessionOptions, deps: CodexProcessD
         fail(err.code === "ENOENT" ? CODEX_NOT_FOUND : `could not start codex (${err.message})`);
         finish();
       });
-      let buffer = "";
-      proc.stdout?.setEncoding("utf8");
-      proc.stdout?.on("data", (chunk: string) => {
-        buffer += chunk;
-        let idx: number;
-        while ((idx = buffer.indexOf("\n")) !== -1) {
-          const line = buffer.slice(0, idx);
-          buffer = buffer.slice(idx + 1);
-          handle(line);
-        }
-      });
+      const stdout = lineReader(proc.stdout, (line) => handle(line));
       proc.stderr?.setEncoding("utf8");
-      proc.stderr?.on("data", (chunk: string) => {
-        for (const line of chunk.split(/\r?\n/)) {
-          if (!line.trim()) continue;
-          stderrTail.push(line);
-          if (stderrTail.length > STDERR_TAIL_LINES) stderrTail.shift();
-        }
-      });
+      proc.stderr?.on("data", (chunk: string) => stderr.push(chunk));
       const handle = (line: string) => {
         if (closed || finished) return;
         const event = parseCodexLine(line);
@@ -405,20 +336,17 @@ export function startCodexSession(opts: StartSessionOptions, deps: CodexProcessD
         else if (outcome?.kind === "fail") fail(outcome.problem);
       };
       proc.on("exit", (code) => {
-        if (buffer.trim()) handle(buffer);
-        buffer = "";
+        stdout.flush();
         if (!closed && !turn.ended) {
           if (interrupted) {
             emit({ type: "result", ok: false, durationMs: Date.now() - started, costUsd: 0, errors: ["interrupted"] });
             setState("idle");
           } else if (threadId === null) {
             // Nothing to resume: the process died before a thread existed (bad flags, broken install, …).
-            const tail = stderrTail.filter((l) => !/^\d{4}-\d\d-\d\dT/.test(l)).slice(-2).join(" | ");
-            opts.log?.(`crt: codex exited with code ${code} before thread.started; stderr tail: ${stderrTail.slice(-5).join(" | ")}`);
-            fail(codexLoginProblem(stderrTail.join("\n")) ?? codexExited(code, tail));
+            opts.log?.(`crt: codex exited with code ${code} before thread.started; stderr tail: ${stderr.lines().slice(-5).join(" | ")}`);
+            fail(codexLoginProblem(stderr.lines().join("\n")) ?? codexExited(code, stderr.brief()));
           } else {
-            const tail = stderrTail.filter((l) => !/^\d{4}-\d\d-\d\dT/.test(l)).slice(-2).join(" | ");
-            emit({ type: "result", ok: false, durationMs: Date.now() - started, costUsd: 0, errors: [codexExited(code, tail)] });
+            emit({ type: "result", ok: false, durationMs: Date.now() - started, costUsd: 0, errors: [codexExited(code, stderr.brief())] });
             setState("idle");
           }
         } else if (!closed && turn.ended && state !== "error") {

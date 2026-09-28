@@ -55,6 +55,9 @@ export const QUICK_NOTE_INSTRUCTIONS = [
 /** F-51: the fixed heading above the intake instructions when they travel in the first message. */
 export const FIRST_MESSAGE_HEADING = "# CRT intake instructions";
 
+/** F-50: what the message says instead of attaching images, for an agent that does not take them. */
+export const IMAGES_DROPPED_LINE = "Images not attached: this agent does not accept images; the screenshots are the PNG files next to capture.json.";
+
 export function buildIntakeMessage(captureDir: string, bundle: CaptureBundle = readCaptureBundle(captureDir), opts: IntakeMessageOptions = {}): UserInput {
   const mode = opts.images ?? "inline";
   const images: UserImage[] = [];
@@ -155,7 +158,7 @@ export function renderIntakeText(captureDir: string, b: CaptureBundle, attached:
   for (const a of b.annotations) lines.push(...describeAnnotation(a));
   lines.push("");
   // F-50: a provider that cannot take images is told where the PNGs are instead.
-  if (images === "none") lines.push("Images not attached: this agent does not accept images; the screenshots are the PNG files next to capture.json.");
+  if (images === "none") lines.push(IMAGES_DROPPED_LINE);
   else lines.push(attached.length ? `Attached images: ${attached.join(", ")}.` : "No screenshots could be rasterised for this capture.");
   if (b.screenshots.error) lines.push(`Screenshot note: ${b.screenshots.error}`);
   return lines.join("\n");
