@@ -1,10 +1,10 @@
 ---
 id: CRT-0042
 title: Server module boundaries and single sources — routes.ts, split init.ts, typed errors, one write_task shape, one skill list
-status: review
+status: done
 priority: normal
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-28T12:33:00+08:00
+updated: 2026-09-28T12:36:00+08:00
 url: null
 route: null
 session: null
@@ -109,3 +109,4 @@ Considered and deferred, with reasons:
 - 2026-09-28T12:33+08:00 — verified: every listed test file passes with its expected strings as they were; the test edits are imports only (`doctor.test.ts`, `intake-message.test.ts`, `providers/conformance.ts`), the vite import list in `integrations-build.test.ts`, and the source path of the unchanged "(docs/integration.md › Production)" string in `docs.test.ts` (now `integration.ts`).
 - 2026-09-28T12:33+08:00 — verified: `npm run check` exit 0 (58 files, 762 passed, 2 skipped; one earlier run hit a Windows EPERM in antigravity.test.ts's temp-dir cleanup, green on re-run). `npx playwright test --workers=2`: 73/74 locally; the one failure is embedded.spec.ts:177 expecting "no dev server on ports 3000, 5173, 8080, …", which cannot hold here while the Apex project's servers listen on :3000 and :8080 (another project's processes, left alone); the e2e CI job on ubuntu is the clean run.
 - 2026-09-28T12:33+08:00 — ready for review: changed packages/server/src/{routes,config,instructions,integration}.ts (new), init.ts, prompt.ts, start.ts, probes.ts, proxy.ts, inject.ts, sessions.ts, captures.ts, intake-message.ts, tasks.ts, write-task.ts, session-events.ts, setup.ts, doctor.ts, doctor-route.ts, skills.ts, serve.ts, target.ts, capture-schema.ts, cli.ts, session.ts, landing.ts, provider-routes.ts, mcp-stdio.ts, integrations/vite.ts, providers/exec.ts, providers/types.ts; tests module-boundaries (new), sessions, tasks, skills, doctor, intake-message, integrations-build, docs, providers/conformance; CLAUDE.md; .claude/agents/prd-reviewer.md. prd-reviewer: PR-ready with notes (test titles now cite F/N ids; the two wording changes are item 6 above). CRT-0041's branch also touches sessions.ts (task_written); whichever merges second resolves that.
+- 2026-09-28T12:36+08:00 — done; closed in https://github.com/simv/crt/pull/98 (CI green on 073c7e7: check ubuntu + windows, e2e ubuntu green — the clean run of embedded.spec.ts:177, CodeQL).
