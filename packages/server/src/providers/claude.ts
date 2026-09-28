@@ -512,9 +512,14 @@ export function describeInput(name: string, input: Record<string, unknown>, cwd:
   return text.length > 500 ? `${text.slice(0, 497)}…` : text;
 }
 
-/** N-6: the one-line message for "not logged in", or null when the text is something else. */
+/**
+ * N-6: the one-line message for "not logged in", or null when the text is something else.
+ * "Failed to authenticate" counts only at the start of a line, where Claude Code's own message puts
+ * it ("Failed to authenticate: OAuth session expired and could not be refreshed", CRT-0045): the
+ * stderr tail also carries the user's MCP servers, whose auth failures are not Claude's login.
+ */
 export function loginProblem(text: string): string | null {
-  if (/not logged in|please run \/login|\/login\b|invalid api key|authentication[_ ]error|oauth token|401\b|unauthori[sz]ed/i.test(text)) {
+  if (/not logged in|please run \/login|\/login\b|invalid api key|authentication[_ ]error|oauth token|oauth session expired|^failed to authenticate\b|401\b|unauthori[sz]ed/im.test(text)) {
     return CLAUDE_NOT_LOGGED_IN;
   }
   return null;
