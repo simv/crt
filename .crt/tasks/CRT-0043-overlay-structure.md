@@ -1,10 +1,10 @@
 ---
 id: CRT-0043
 title: Overlay structure — one /__crt/ API client, shared helpers, tokens everywhere, and ui.ts split into tested modules
-status: backlog
+status: in_progress
 priority: low
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-24T12:15:00+08:00
+updated: 2026-09-28T12:50:00+08:00
 url: null
 route: null
 session: null
@@ -82,3 +82,4 @@ No page capture: from the code review in session e145e7ac, 2026-09-24. Dead-code
 
 ## Log
 - 2026-09-24T12:15+08:00 — filed by hand from the code review in session e145e7ac (Simon's request).
+- 2026-09-28T12:50+08:00 — claimed by /crt:next, session de8d860f-ac0e-498c-bd0c-19c3cc1e310d, branch crt/CRT-0043-overlay-structure (worktree `.claude/worktrees/CRT-0043` off origin/main b87a064). CRT-0041 is lower-numbered and `backlog` on main, but on its own branch it is `blocked` on a Claude login, and `claude auth status --json` still says `loggedIn: false`, so a retry would block again; took CRT-0043 instead. The task's line numbers predate CRT-0038/0039 (ui.ts is now 1942 lines); the concerns it names are all still there.
