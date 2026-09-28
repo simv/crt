@@ -1,10 +1,10 @@
 ---
 id: CRT-0042
 title: Server module boundaries and single sources — routes.ts, split init.ts, typed errors, one write_task shape, one skill list
-status: backlog
+status: in_progress
 priority: normal
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-24T12:15:00+08:00
+updated: 2026-09-28T11:55:00+08:00
 url: null
 route: null
 session: null
@@ -97,3 +97,4 @@ Considered and deferred, with reasons:
 
 ## Log
 - 2026-09-24T12:15+08:00 — filed by hand from the code review in session e145e7ac (Simon's request).
+- 2026-09-28T11:55+08:00 — claimed by /crt:next, session 34dee5f6-5467-4b2b-ad34-0fb31cd7442b, branch crt/CRT-0042-server-module-boundaries (worktree .claude/worktrees/CRT-0042 off origin/main). Picked over CRT-0041 (lowest backlog ID on main) because CRT-0041 is blocked on its own branch and its blocker, a logged-out Claude Code, still holds (claude auth status: loggedIn false).
