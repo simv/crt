@@ -1,10 +1,10 @@
 ---
 id: CRT-0040
 title: Provider CLI plumbing in one place — spawn, line reader, stderr tail, version parsing and the preflight skeleton
-status: review
+status: done
 priority: normal
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-28T08:58:00+08:00
+updated: 2026-09-28T08:59:00+08:00
 url: null
 route: null
 session: null
@@ -73,3 +73,5 @@ No page capture: from the code review in session e145e7ac, 2026-09-24. The revie
 - 2026-09-28T08:58+08:00 — verified: line count of `src/providers/*.ts` — before (main c0610d3) 3,659 lines in 9 files, 2,809 code lines; after 3,647 lines in 11 files (−12, with the new `version.ts` 59 and `format.ts` 26), 2,745 code lines (−64). N-11 re-measure: `acp.ts` 810 → 768 lines, still over 400; re-measure after CRT-0041 as the Notes say.
 - 2026-09-28T08:58+08:00 — verified: Windows — `npm run check` exit 0 (typecheck, lint, 57 files / 751 unit tests, build). One earlier run lost `antigravity.test.ts` conformance (EPERM removing the session dir while the killed tree let go) and the stub "take your time" 600 ms timing test, neither touched here; both files green 3/3 alone and the full check green again. `npx playwright test --workers=2` 73/74: the one failure is `embedded.spec.ts` "the ES module loader bundled into a page…", whose F-91 line expects no dev server on the probed ports while other sessions held :3001 and :8080 ("found 2 dev servers") — environmental. After the ACP fix, `e2e/chat.spec.ts` 23/23 (codex, ad-hoc ACP, antigravity included). Ubuntu is the PR's CI `check (ubuntu)` / `e2e (ubuntu)`, logged below when it reports.
 - 2026-09-28T08:58+08:00 — ready for review: changed packages/server/src/providers/{exec,codex,antigravity,acp,gemini,claude}.ts, new packages/server/src/providers/{version,format}.ts, packages/server/src/intake-message.ts (exports `IMAGES_DROPPED_LINE`), new packages/server/test/providers/{exec-streams,version,format}.test.ts, CLAUDE.md (entry-point list names version.ts / format.ts). `cliPreflight` runs `--version` through `exec.ts`'s `runExecutable`; Codex's `login status` stays in codex.ts. prd-reviewer: PR-READY WITH NOTES; both notes fixed (ACP flush above, requirement IDs on the 23 new test titles).
+- 2026-09-28T08:59+08:00 — CI: all 7 checks green on dddb545: `check (ubuntu-latest)`, `check (windows-latest)` and `e2e (ubuntu)` (embedded.spec included), plus CodeQL. This is the Ubuntu half of the last DoD row.
+- 2026-09-28T08:59+08:00 — done; closed in https://github.com/simv/crt/pull/96 (CI green on dddb545)
