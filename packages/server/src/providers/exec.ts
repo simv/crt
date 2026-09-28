@@ -8,12 +8,15 @@
  *     entry they point at is run with this process's own Node (`process.execPath`).
  *   • Interrupting a provider means killing its whole process tree (`taskkill /T /F` on Windows,
  *     a negative-pid group kill on POSIX), because agents spawn MCP servers and shells of their own.
+ *   • A session's agent is started by `spawnProvider`, its stdout read with `lineReader` and
+ *     `parseJsonLine`, its stderr kept in a `StderrTail` for the one-line failures (N-7).
  *
  * Only `providers/<id>.ts` and this file may spawn a provider (CLAUDE.md, F-63).
  */
-import { execFile, spawnSync } from "node:child_process";
+import { type ChildProcess, execFile, spawn, spawnSync } from "node:child_process";
 import { accessSync, constants, readFileSync, statSync } from "node:fs";
 import { posix, win32 } from "node:path";
+import type { Readable } from "node:stream";
 
 export interface Executable {
   /** What to pass to `spawn()`: a binary, or `process.execPath` when `via` is `shim`. */
@@ -204,6 +207,131 @@ export function runExecutable(
     );
     if (opts.input !== undefined) child.stdin?.end(opts.input);
   });
+}
+
+// ---- a session's agent process ------------------------------------------------------------------
+
+export interface ProviderSpawnOptions {
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+}
+
+/** What a driver needs from the OS; tests replace `spawn` to replay recordings in-process. */
+export interface ProcessDeps {
+  spawn: (exe: Executable, args: string[], opts: ProviderSpawnOptions) => ChildProcess;
+  killTree: (pid: number) => boolean;
+}
+
+/**
+ * Start a session's agent: `exe` plus `args`, no shell, no console window, all three streams piped,
+ * and on POSIX a process group of its own so `killProcessTree` takes the MCP server and the shells
+ * it started with it. Throws what `spawn` throws; a missing binary arrives as the `error` event.
+ */
+export function spawnProvider(exe: Executable, args: string[], opts: ProviderSpawnOptions): ChildProcess {
+  return spawn(exe.command, [...exe.args, ...args], {
+    cwd: opts.cwd,
+    env: opts.env,
+    shell: false,
+    windowsHide: true,
+    stdio: ["pipe", "pipe", "pipe"],
+    detached: process.platform !== "win32",
+  });
+}
+
+export const realProcessDeps: ProcessDeps = {
+  spawn: spawnProvider,
+  killTree: (pid) => killProcessTree(pid),
+};
+
+/** Splits text into lines as it arrives: `\n` ends a line and a `\r` before it is dropped (CRLF). */
+export class LineBuffer {
+  private rest = "";
+
+  constructor(private readonly onLine: (line: string) => void) {}
+
+  push(chunk: string): void {
+    this.rest += chunk;
+    let idx: number;
+    while ((idx = this.rest.indexOf("\n")) !== -1) {
+      const line = this.rest.slice(0, idx);
+      this.rest = this.rest.slice(idx + 1);
+      this.onLine(line.endsWith("\r") ? line.slice(0, -1) : line);
+    }
+  }
+
+  /** Deliver a last line that never got its `\n` (the process ended mid-line); a blank rest is dropped. */
+  flush(): void {
+    const line = this.rest;
+    this.rest = "";
+    if (line.trim()) this.onLine(line.endsWith("\r") ? line.slice(0, -1) : line);
+  }
+}
+
+/**
+ * Read `stream` (a child's stdout) line by line as UTF-8, a character split across chunks
+ * included. The last unterminated line arrives at `end`; drivers that handle `exit` before
+ * `end` call `flush()` on the returned buffer first.
+ */
+export function lineReader(stream: Readable | null | undefined, onLine: (line: string) => void): LineBuffer {
+  const lines = new LineBuffer(onLine);
+  if (!stream) return lines;
+  stream.setEncoding("utf8");
+  stream.on("data", (chunk: string) => lines.push(chunk));
+  stream.on("end", () => lines.flush());
+  return lines;
+}
+
+/**
+ * One line of a JSON-lines stream as the object it holds, or null for anything else: blank lines,
+ * log noise, a broken line. Never throws; unknown shapes are the caller's to ignore (F-53).
+ */
+export function parseJsonLine(line: string): Record<string, unknown> | null {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("{")) return null;
+  try {
+    const v = JSON.parse(trimmed) as unknown;
+    return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** How many stderr lines a session keeps. */
+export const STDERR_TAIL_LINES = 30;
+
+/**
+ * The last lines an agent wrote to stderr, for the log and the one-line failures (N-7). `noise`
+ * matches lines that stay in `lines()` but never reach `brief()` — Codex's tracing timestamps,
+ * Antigravity's warnings.
+ */
+export class StderrTail {
+  private readonly kept: string[] = [];
+
+  constructor(
+    private readonly noise: RegExp | null = null,
+    private readonly max = STDERR_TAIL_LINES,
+  ) {}
+
+  /** Add a chunk as it arrived; returns its non-blank lines. */
+  push(chunk: string): string[] {
+    const added = chunk.split(/\r?\n/).filter((line) => line.trim());
+    for (const line of added) {
+      this.kept.push(line);
+      if (this.kept.length > this.max) this.kept.shift();
+    }
+    return added;
+  }
+
+  /** Every kept line, oldest first. */
+  lines(): string[] {
+    return [...this.kept];
+  }
+
+  /** The last `n` lines that are not noise, as one `a | b` string for a message ("" when none). */
+  brief(n = 2): string {
+    const noise = this.noise;
+    return (noise ? this.kept.filter((line) => !noise.test(line)) : this.kept).slice(-n).join(" | ");
+  }
 }
 
 /**
