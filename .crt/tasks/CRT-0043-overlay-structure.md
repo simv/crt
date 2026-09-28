@@ -1,10 +1,10 @@
 ---
 id: CRT-0043
 title: Overlay structure — one /__crt/ API client, shared helpers, tokens everywhere, and ui.ts split into tested modules
-status: review
+status: done
 priority: low
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-28T13:54:00+08:00
+updated: 2026-09-28T13:56:00+08:00
 url: null
 route: null
 session: null
@@ -98,3 +98,5 @@ No page capture: from the code review in session e145e7ac, 2026-09-24. Dead-code
 - 2026-09-28T13:54+08:00 — verified: sizes from `npm run build`, gzip at the default level (level 9 in brackets) — before (main b87a064): overlay.js 126,489 B raw, 38,957 B gz (38,865); after (ac0fdf7): 124,523 B raw, 38,890 B gz (38,823). loader.js 6,633 B raw, 2,856 B gz, unchanged (≤ 5 KB, N-20).
 - 2026-09-28T13:54+08:00 — verified: `npm run check` green at ac0fdf7 (63 files, 802 tests; one earlier full run lost `providers/antigravity.test.ts`'s interrupt test to load, green twice alone — the known Windows timing flake). `npx playwright test --workers=2`: 73/74 on the final build, twice; the one failure is `embedded.spec.ts:177`'s F-91 line "no dev server on ports 3000, 5173, 8080…", because another session's apps hold :3000 and :8080 here (`netstat`) — environmental, the same failure on main's code in this checkout; CI's ubuntu e2e is the clean run and is checked before merge. `npm run screenshots` on the final build vs a fresh run of main's build (scratch worktree): arrival.png and marker-states.png byte-identical; select.png byte-identical to the committed file (main's own run differed in one 9×17 px spot); landing.png differs only in the footer clock; chat.png differs only in the transcript's scroll offset (6 px, the known `scrolledToStart` flake that main does not reproduce either) and the session id in the footer — no colour or layout change.
 - 2026-09-28T13:54+08:00 — ready for review: changed packages/overlay/src (new api.ts, dom-util.ts, storage.ts, send-plan.ts, styles.ts, provider-menu.ts, threads.ts, markers.ts, launcher.ts, tools.ts, popovers.ts, session-list.ts; ui.ts, chat.ts, capture.ts, health.ts, tokens.ts, annotations.ts, welcome.ts, selector.ts, popover.ts, index.ts and a few un-exports), packages/overlay/tsconfig.json and build.mjs, packages/server/src/routes.ts (plain-string paths), and tests (markdown, brand, new overlay-api, overlay-labels, overlay-modules, overlay-structure, send-plan). The reviewer should look at: the include rule for Quick note, the chat's new "Could not …" lines for non-2xx answers, the out-of-order imports in ui.ts and `useDefineForClassFields: false` (both there to keep the bundle from growing), and the `idle` colour question above. The PRD reviewer found nothing blocking.
+- 2026-09-28T13:56+08:00 — CI green on 1465ff9: check (ubuntu, windows), e2e (ubuntu) — the clean e2e run, embedded.spec's F-91 line included — and CodeQL.
+- 2026-09-28T13:56+08:00 — done; closed in https://github.com/simv/crt/pull/99
