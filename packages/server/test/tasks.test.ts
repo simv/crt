@@ -333,6 +333,29 @@ describe("createTask (F-23, F-31, F-32, F-34)", () => {
     expect(readdirSync(tasksDir)).toEqual([]);
   });
 
+  it("applies the write_task schema's minimums to the trimmed text: a 3-character title, a non-blank context (F-32, F-49)", () => {
+    expect(() => createTask(root, tasksDir, { ...input, title: " ab " }, NOW)).toThrow(TaskFormatError);
+    expect(() => createTask(root, tasksDir, { ...input, title: " ab " }, NOW)).toThrow(/title needs at least 3 characters/);
+    expect(() => createTask(root, tasksDir, { ...input, context: " \n " }, NOW)).toThrow(/context is required/);
+    expect(readdirSync(tasksDir)).toEqual([]);
+    expect(parseTask(readFileSync(createTask(root, tasksDir, { ...input, title: " abc " }, NOW).path, "utf8")).frontmatter.title).toBe("abc");
+  });
+
+  it("an invalid capture is a TaskFormatError listing every problem, the 400 write_task reads back (F-23, F-49)", () => {
+    const cap = writeCapture(root, samplePost());
+    writeFileSync(join(cap.dir, "capture.json"), JSON.stringify({ version: 1 }));
+    let error: unknown;
+    try {
+      createTask(root, tasksDir, { ...input, captureId: cap.id }, NOW);
+    } catch (err) {
+      error = err;
+    }
+    expect(error).toBeInstanceOf(TaskFormatError);
+    expect((error as TaskFormatError).message).toMatch(/^invalid capture: /);
+    expect((error as TaskFormatError).errors.length).toBeGreaterThan(1);
+    expect(readdirSync(tasksDir)).toEqual([]);
+  });
+
   it("keeps the v0.1 wording when no provider is given (F-48)", () => {
     const { provider: _provider, ...v01 } = input;
     const created = createTask(root, tasksDir, { ...v01, session: null }, NOW);

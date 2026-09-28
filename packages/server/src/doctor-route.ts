@@ -23,12 +23,13 @@
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { collectDoctorFacts, type DoctorFacts, type DoctorReport, type DoctorRow, doctorRows, pluginFact } from "./doctor.js";
+import { type CrtMode, readConfig } from "./config.js";
 import { json } from "./http.js";
-import { type CrtMode, readConfig } from "./init.js";
+import { DOCTOR_PATH } from "./routes.js";
 import type { ProviderRegistry } from "./session.js";
-import { isReachable, normalizeTarget } from "./target.js";
+import { isReachable, safeOrigin } from "./target.js";
 
-export const DOCTOR_PATH = "/__crt/doctor";
+export { DOCTOR_PATH };
 /** N-24: the default response is computed at most once per this. */
 export const DOCTOR_TTL_MS = 5_000;
 /** N-24: the plugin fact (a spawn) at most once per this. */
@@ -160,12 +161,7 @@ export class DoctorRoute {
 /** The F-76 label for the server's app URL: the config's source when it set this very origin, else `probe` (`(found)`). */
 function targetSource(root: string, target: string): "local" | "project" | "probe" {
   const config = readConfig(root);
-  if (config.target && config.targetSource) {
-    try {
-      if (normalizeTarget(config.target) === target) return config.targetSource;
-    } catch {
-      // an unparseable config value never matches
-    }
-  }
+  // An unparseable config value never matches.
+  if (config.targetSource && safeOrigin(config.target) === target) return config.targetSource;
   return "probe";
 }

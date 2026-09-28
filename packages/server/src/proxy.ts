@@ -66,16 +66,32 @@ import { dirname, join } from "node:path";
 import type { Duplex } from "node:stream";
 import { connect as tlsConnect } from "node:tls";
 import { CaptureValidationError, writeCapture } from "./captures.js";
-import { DOCTOR_PATH, DoctorRoute } from "./doctor-route.js";
+import type { CrtMode } from "./config.js";
+import { DoctorRoute } from "./doctor-route.js";
 import { applyCors, json, readJson } from "./http.js";
-import type { CrtMode } from "./init.js";
-import { decodeBody, EARLY_PATH, filterAcceptEncoding, injectOverlayTag, isHtml, OVERLAY_PATH, relaxCsp } from "./inject.js";
+import { decodeBody, filterAcceptEncoding, injectOverlayTag, isHtml, relaxCsp } from "./inject.js";
 import { renderLanding } from "./landing.js";
 import { MARK, MARK_DARK, MARK_SMALL } from "./marks.js";
 import { handleProviderRoute } from "./provider-routes.js";
+import {
+  CAPTURES_PATH,
+  CONFIG_PATH,
+  CRT_PREFIX,
+  DOCTOR_PATH,
+  EARLY_PATH,
+  FAVICON_PATH,
+  HEALTH_PATH,
+  INTERNAL_PREFIX,
+  isCrtPath,
+  LOADER_PATH,
+  OVERLAY_PATH,
+  PROVIDERS_PATH,
+  SESSIONS_PATH,
+  SHUTDOWN_PATH,
+} from "./routes.js";
 import { loginField, type ProviderRegistry } from "./session.js";
-import { handleInternalRoute, handleSessionRoute, INTERNAL_PREFIX, SESSIONS_PATH, type SessionRegistry } from "./sessions.js";
-import { countTaskFiles, listTasks } from "./tasks.js";
+import { handleInternalRoute, handleSessionRoute, type SessionRegistry } from "./sessions.js";
+import { countTaskFiles, taskCounts } from "./tasks.js";
 
 export interface ProxyOptions {
   /**
@@ -133,25 +149,12 @@ export const OVERLAY_TIMEOUT_MS = 10_000;
 /** F-94: the wait between CRT opening the app and the "never loaded the CRT loader" line. */
 export const LOADER_TIMEOUT_MS = 15_000;
 
-export const SHUTDOWN_PATH = "/__crt/internal/shutdown";
-
-export const CRT_PREFIX = "/__crt";
-export const CAPTURES_PATH = `${CRT_PREFIX}/captures`;
-/** F-94/F-96: the IIFE loader, `dist/loader.js`, next to the overlay bundle. */
-export const LOADER_PATH = `${CRT_PREFIX}/loader.js`;
-/** PRD-polish F-112: the favicon the landing page links, `dist/favicon.svg`, next to the overlay bundle. */
-export const FAVICON_PATH = `${CRT_PREFIX}/favicon.svg`;
 /** F-112: the brand files the build copies into dist/ (copy-intake.mjs) — the favicon and its PNG fallbacks (Should). */
 const BRAND_ASSETS = new Map<string, { file: string; type: string }>([
   [FAVICON_PATH, { file: "favicon.svg", type: "image/svg+xml" }],
   [`${CRT_PREFIX}/favicon-32.png`, { file: "favicon-32.png", type: "image/png" }],
   [`${CRT_PREFIX}/favicon-16.png`, { file: "favicon-16.png", type: "image/png" }],
 ]);
-
-/** F-4: a request or upgrade CRT answers itself; it never reaches the target. */
-function isCrtPath(url: string): boolean {
-  return url === CRT_PREFIX || url.startsWith(CRT_PREFIX + "/");
-}
 
 /** The server plus the one call embedded mode needs from serve.ts (F-94). */
 export interface CrtServer extends Server {
@@ -164,9 +167,8 @@ export interface CrtServer extends Server {
  * registry, the doctor route's last report — never a fresh one) and the marks from marks.ts.
  */
 function landingPage(req: IncomingMessage, opts: ProxyOptions, state: RouteState): string {
-  // Health's count (every task file) and, from the well-formed ones, how many are still backlog.
-  const tasks = opts.tasksDir ? countTaskFiles(opts.tasksDir) : 0;
-  const backlog = opts.tasksDir ? listTasks(opts.tasksDir).filter((t) => t.status === "backlog").length : 0;
+  // Health's count (every task file) and, from the listable ones, how many are still backlog — one pass.
+  const { files: tasks, backlog } = opts.tasksDir ? taskCounts(opts.tasksDir) : { files: 0, backlog: 0 };
   const resolution = opts.providers?.resolve(null) ?? null;
   return renderLanding({
     version: opts.version ?? null,
@@ -184,7 +186,7 @@ function landingPage(req: IncomingMessage, opts: ProxyOptions, state: RouteState
     markSmall: MARK_SMALL,
     // F-94: the timer fired with neither the loader nor the overlay requested — the third hero state.
     loaderMissing: state.warned.loader && state.overlay.loader === 0 && state.overlay.fetched === 0,
-    sessions: opts.sessions ? opts.sessions.list().filter((s) => s.state !== "ended" && s.state !== "error").length : 0,
+    sessions: opts.sessions?.openCount() ?? 0,
     providers: opts.providers && resolution ? { active: resolution.provider, rows: opts.providers.status() } : null,
     doctor: state.doctor.cached(),
   });
@@ -466,7 +468,7 @@ function contentTypeOf(value: string | string[] | undefined): string | null {
  * require-trusted-types-for (the overlay assigns innerHTML), or a policy in a <meta http-equiv>
  * tag (headers are all the proxy rewrites). Returns what to say.
  */
-export function unrelaxableCsp(headerCsp: string | null, html: string): { why: string; policy: string } | null {
+function unrelaxableCsp(headerCsp: string | null, html: string): { why: string; policy: string } | null {
   if (headerCsp) {
     const l = headerCsp.toLowerCase();
     if (l.includes("'strict-dynamic'")) return { why: "'strict-dynamic'", policy: headerCsp };
@@ -644,11 +646,11 @@ async function handleCrtRoute(
     }
     return;
   }
-  if (path === `${CRT_PREFIX}/health`) {
+  if (path === HEALTH_PATH) {
     json(res, 200, healthPayload(opts, state.overlay));
     return;
   }
-  if (path === `${CRT_PREFIX}/providers` || path === `${CRT_PREFIX}/config`) {
+  if (path === PROVIDERS_PATH || path === CONFIG_PATH) {
     if (!opts.providers) {
       json(res, 503, { ok: false, error: "providers are not enabled on this server" });
       return;
@@ -696,7 +698,7 @@ async function handleCrtRoute(
  * skills and the e2e assertions. `provider` is what a new session would run on right now (F-43
  * with no request value) and `login` its F-74 state; both are null / "unchecked" without a registry.
  */
-export function healthPayload(opts: ProxyOptions, overlay: OverlayStats): Record<string, unknown> {
+function healthPayload(opts: ProxyOptions, overlay: OverlayStats): Record<string, unknown> {
   const resolution = opts.providers?.resolve(null) ?? null;
   return {
     ok: true,
@@ -710,7 +712,7 @@ export function healthPayload(opts: ProxyOptions, overlay: OverlayStats): Record
     tasks: opts.tasksDir ? countTaskFiles(opts.tasksDir) : 0,
     provider: resolution?.provider ?? null,
     login: resolution && opts.providers ? loginField(resolution, opts.providers) : "unchecked",
-    sessions: opts.sessions ? opts.sessions.list().filter((s) => s.state !== "ended" && s.state !== "error").length : 0,
+    sessions: opts.sessions?.openCount() ?? 0,
     overlay: { ...overlay },
   };
 }

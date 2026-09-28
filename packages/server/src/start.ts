@@ -19,9 +19,12 @@
  * `.crt/tasks/` is set up only after the F-100 plan and a question on a terminal, or under
  * `--yes`; a non-interactive run without it refuses with one line.
  */
+import type { CrtMode } from "./config.js";
 import { CrtError } from "./errors.js";
-import type { CrtMode } from "./init.js";
+import type { Prompter } from "./prompt.js";
 import { normalizeTarget, parseTargetAnswer, type ProbeHit, shortTarget } from "./target.js";
+
+export type { Prompter, WaitOutcome } from "./prompt.js";
 
 /** What `GET /__crt/health` on a busy port told us (F-73); null when the occupant is not a CRT. */
 export interface CrtHealth {
@@ -33,19 +36,6 @@ export interface CrtHealth {
   sessions: number;
   /** F-93; null from a pre-v0.4 server (which is a proxy). */
   mode: CrtMode | null;
-}
-
-export type WaitOutcome = { kind: "ready" } | { kind: "answer"; text: string };
-
-/** The terminal side of a prompt (prompt.ts); tests script it. */
-export interface Prompter {
-  /** Print `question`, return the trimmed answer ("" for Enter alone). Ctrl+C throws `CrtError("cancelled", 130)` (F-77). */
-  ask(question: string): Promise<string>;
-  /**
-   * F-71 wait loop: print `line`, then return `ready` as soon as `check` answers true (polled every
-   * 2 s) or `answer` when the developer presses Enter (retry, "") or types something else.
-   */
-  waitFor(line: string, check: () => Promise<boolean>): Promise<WaitOutcome>;
 }
 
 export interface StartDeps {

@@ -4,11 +4,10 @@
  * proxy.ts decides *when* to call them.
  */
 import { brotliDecompressSync, gunzipSync, inflateRawSync, inflateSync } from "node:zlib";
+import { EARLY_PATH, OVERLAY_PATH } from "./routes.js";
 
-export const OVERLAY_PATH = "/__crt/overlay.js";
 export const OVERLAY_TAG = `<script src="${OVERLAY_PATH}" defer></script>`;
 /** F-20: a ~1 KB blocking script that hooks console/errors before the page's own scripts run. */
-export const EARLY_PATH = "/__crt/early.js";
 export const EARLY_TAG = `<script src="${EARLY_PATH}"></script>`;
 export const INJECT_TAGS = EARLY_TAG + OVERLAY_TAG;
 

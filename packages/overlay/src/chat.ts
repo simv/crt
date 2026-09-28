@@ -17,19 +17,24 @@
  * sandbox" badge when `sandboxed`. The panel's own title stays "CRT" (F-64).
  * Framework-free; renders inside the overlay's Shadow DOM.
  */
-import type { IntakeSummary, SessionEvent, SessionInfo, SessionState } from "../../server/src/session-events.js";
-import { crtUrl } from "./base.js";
+import type { IntakeSummary, SessionEvent, SessionState } from "../../server/src/session-events.js";
+import { answerPermission, attachSessionCapture, closeSession, interruptSession, sendSessionMessage, sessionEventsUrl } from "./api.js";
+import { cssEscape, escapeHtml, STATE_LABEL } from "./dom-util.js";
 import { ACCEPT_LINE, ACCEPT_REPLY, endsWithAcceptLine, summarizeProposal } from "./proposal.js";
-import { ACCENT } from "./tokens.js";
+import { ACCENT, ERROR, EXPERIMENTAL, FAIL, INK, OK, PILL } from "./tokens.js";
 
-export const SESSIONS_ENDPOINT = "/__crt/sessions";
 /** What the panel calls the agent before its `init` event has arrived. */
 const UNKNOWN_AGENT = "the agent";
 
-export type InitEvent = Extract<SessionEvent, { type: "init" }>;
+type InitEvent = Extract<SessionEvent, { type: "init" }>;
 
 export { ACCEPT_LINE, ACCEPT_REPLY, endsWithAcceptLine };
 
+/**
+ * The chat panel's stylesheet, appended to the overlay's (colours from tokens.ts, F-112). The head
+ * draws `idle` in the task green (`PILL.task`) while the marker pill draws it in `PILL.idle` blue:
+ * kept as it was — which one is right is an open design question (CRT-0043).
+ */
 export const CHAT_CSS = `
   .chat { display: flex; flex-direction: column; width: 100%; height: min(60vh, 560px); border-radius: 12px; background: #fff;
           overflow: hidden; }
@@ -40,10 +45,10 @@ export const CHAT_CSS = `
   .chat-head .agent { color: #555; }
   .chat-head .agent:empty { display: none; }
   .chat-head .state { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #eee; color: #555; }
-  .chat-head .state[data-state="running"], .chat-head .state[data-state="starting"] { background: #fff3cd; color: #7a5a00; }
+  .chat-head .state[data-state="running"], .chat-head .state[data-state="starting"] { background: ${PILL.running[0]}; color: ${PILL.running[1]}; }
   .chat-head .state[data-state="waiting"] { background: ${ACCENT}; color: #fff; }
-  .chat-head .state[data-state="idle"] { background: #d9f5e3; color: #0a5b2b; }
-  .chat-head .state[data-state="error"] { background: #fde2e2; color: #8b0000; }
+  .chat-head .state[data-state="idle"] { background: ${PILL.task[0]}; color: ${PILL.task[1]}; }
+  .chat-head .state[data-state="error"] { background: ${PILL.error[0]}; color: ${PILL.error[1]}; }
   .chat-head .spacer { flex: 1; }
   .chat-head button { padding: 4px 8px; border-radius: 6px; font-size: 12px; }
   .chat-head button:hover { background: #eee; }
@@ -51,7 +56,7 @@ export const CHAT_CSS = `
   .chat-head button[hidden] { display: none; }
   .chat-log { flex: 1; overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; scroll-behavior: smooth; }
   .msg { max-width: 92%; padding: 8px 10px; border-radius: 10px; line-height: 1.45; word-wrap: break-word; overflow-wrap: anywhere; }
-  .msg.user { align-self: flex-end; background: #111; color: #fff; white-space: pre-wrap; }
+  .msg.user { align-self: flex-end; background: ${INK}; color: #fff; white-space: pre-wrap; }
   .msg.user .imgs { display: block; margin-top: 4px; font-size: 11px; opacity: .75; }
   .fold { display: block; margin-top: 6px; white-space: normal; }
   .fold-pill { display: inline-flex; align-items: center; padding: 2px 9px; border: 0; border-radius: 999px; font: inherit; font-size: 11px; line-height: 1.5; color: inherit; cursor: pointer; }
@@ -81,7 +86,7 @@ export const CHAT_CSS = `
   .tool summary::before { content: "▸"; color: #999; } .tool[open] summary::before { content: "▾"; }
   .tool summary:hover { background: #f3f3f5; }
   .tool .dot { width: 6px; height: 6px; border-radius: 3px; background: #ccc; flex: none; }
-  .tool.done .dot { background: #2e9e5b; } .tool.error .dot { background: #c00; }
+  .tool.done .dot { background: ${OK}; } .tool.error .dot { background: ${FAIL}; }
   .tool .out { padding: 4px 4px 4px 18px; white-space: pre-wrap; color: #777; }
   .perm { align-self: stretch; border: 1px solid ${ACCENT}; border-radius: 10px; padding: 8px 10px; background: #fff5f8; }
   .perm .t { font-weight: 600; margin-bottom: 4px; }
@@ -89,20 +94,20 @@ export const CHAT_CSS = `
               font-size: 12px; white-space: pre-wrap; max-height: 120px; overflow: auto; }
   .perm .btns { display: flex; gap: 6px; }
   .perm button { padding: 5px 12px; border-radius: 8px; font-weight: 600; }
-  .perm button.allow { background: #111; color: #fff; }
+  .perm button.allow { background: ${INK}; color: #fff; }
   .perm button.deny { background: #eee; }
   .perm .done { font-size: 12px; color: #555; }
   .perm.resolved { border-color: rgba(0,0,0,.12); background: #fafafa; }
   .sys { align-self: center; font-size: 11px; color: #888; text-align: center; }
   .thinking { align-self: flex-start; font-size: 12px; color: #888; padding: 2px 10px; }
   .thinking::after { content: "…"; animation: crt-blink 1s steps(2) infinite; }
-  .sys.error { color: #b00020; font-weight: 600; align-self: stretch; text-align: left; padding: 6px 10px; background: #fde2e2; border-radius: 8px; }
-  .chat-task { padding: 8px 10px; background: #d9f5e3; color: #0a5b2b; font-size: 12px; border-top: 1px solid rgba(0,0,0,.06); }
+  .sys.error { color: ${ERROR}; font-weight: 600; align-self: stretch; text-align: left; padding: 6px 10px; background: ${PILL.error[0]}; border-radius: 8px; }
+  .chat-task { padding: 8px 10px; background: ${PILL.task[0]}; color: ${PILL.task[1]}; font-size: 12px; border-top: 1px solid rgba(0,0,0,.06); }
   .chat-task[hidden] { display: none; }
   .chat-task code { font-family: ui-monospace, Menlo, Consolas, monospace; user-select: all; }
   .chat-accept { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-top: 1px solid rgba(0,0,0,.08); background: #fafafa; font-size: 12px; color: #555; }
   .chat-accept[hidden] { display: none; }
-  .chat-accept button { padding: 6px 16px; border-radius: 8px; background: #111; color: #fff; font-weight: 600; }
+  .chat-accept button { padding: 6px 16px; border-radius: 8px; background: ${INK}; color: #fff; font-weight: 600; }
   .chat-accept button:hover { background: #333; }
   .chat-input { display: flex; gap: 6px; padding: 8px; border-top: 1px solid rgba(0,0,0,.08); }
   .chat-input textarea { flex: 1; min-height: 38px; max-height: 120px; resize: vertical; font: inherit; padding: 8px; border-radius: 8px;
@@ -113,8 +118,8 @@ export const CHAT_CSS = `
   .chat-foot { padding: 6px 10px; font-size: 11px; color: #777; border-top: 1px solid rgba(0,0,0,.06); background: #fafafa;
                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .chat-foot code { font-family: ui-monospace, Menlo, Consolas, monospace; user-select: all; color: #333; }
-  .chat-foot .badge { display: inline-block; padding: 0 6px; border-radius: 999px; background: #e8f0fe; color: #1a4d99; font-weight: 600; }
-  .chat-foot .badge.experimental { background: #fff3cd; color: #7a5200; }
+  .chat-foot .badge { display: inline-block; padding: 0 6px; border-radius: 999px; background: #e8f0fe; color: ${PILL.idle[1]}; font-weight: 600; }
+  .chat-foot .badge.experimental { background: ${EXPERIMENTAL[0]}; color: ${EXPERIMENTAL[1]}; }
 `;
 
 export interface ChatSnapshot {
@@ -133,12 +138,6 @@ export type QuietOutcome =
   | { kind: "task"; id: string; path: string }
   /** The panel opened itself: the agent asked a question, needs a permission, or failed. */
   | { kind: "attention"; reason: string };
-
-/** F-56: which provider a new session should run on (the request-body value, F-43 step 1). */
-export interface StartOptions {
-  quick?: boolean;
-  provider?: string | null;
-}
 
 export interface ChatCallbacks {
   onVisibility(open: boolean): void;
@@ -241,10 +240,6 @@ export class ChatPanel {
     el.title = text;
   }
 
-  sessionIdOf(): string | null {
-    return this.sessionId;
-  }
-
   snapshot(): ChatSnapshot {
     return { sessionId: this.sessionId, state: this.state, taskId: this.taskId, provider: this.init?.provider ?? null, quiet: this.quiet, events: this.events.slice() };
   }
@@ -263,56 +258,11 @@ export class ChatPanel {
     return this.init?.displayName ?? UNKNOWN_AGENT;
   }
 
-  /** F-13/F-24: start an intake session for a saved capture and open the panel on it (or follow it quietly, F-14). */
-  async startFromCapture(captureId: string, opts: StartOptions = {}): Promise<string> {
-    const id = await ChatPanel.createSession(captureId, opts);
-    if (opts.quick) this.follow(id);
-    else this.open(id);
-    return id;
-  }
-
-  /**
-   * N-2 warm start: boot the session while the capture is still being rasterised, then
-   * `attachCapture` once it is saved (or `abandon` if the capture failed).
-   */
-  static warmStart(opts: StartOptions = {}): Promise<string> {
-    return ChatPanel.createSession(null, opts);
-  }
-
+  /** N-2: a warm session gets its capture once it is saved; then the panel opens on it (or follows it quietly, F-14). */
   async attachCapture(sessionId: string, captureId: string, opts: { quick?: boolean } = {}): Promise<void> {
-    const res = await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${sessionId}/capture`), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ captureId }),
-    });
-    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-    if (!res.ok || !data.ok) throw new Error(data.error ?? `CRT server answered ${res.status}`);
+    await attachSessionCapture(sessionId, captureId);
     if (opts.quick) this.follow(sessionId);
     else this.open(sessionId);
-  }
-
-  static async abandon(sessionId: string): Promise<void> {
-    await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${sessionId}`), { method: "DELETE" }).catch(() => undefined);
-  }
-
-  /** F-30: the server's recent intake sessions, newest first. */
-  static async listSessions(): Promise<SessionInfo[]> {
-    const res = await fetch(crtUrl(SESSIONS_ENDPOINT));
-    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; sessions?: SessionInfo[]; error?: string };
-    if (!res.ok || !data.ok || !data.sessions) throw new Error(data.error ?? `CRT server answered ${res.status}`);
-    return data.sessions;
-  }
-
-  static async createSession(captureId: string | null, opts: StartOptions): Promise<string> {
-    const res = await fetch(crtUrl(SESSIONS_ENDPOINT), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      // F-56/F-43 step 1: the per-send provider, only when the developer picked one for this send.
-      body: JSON.stringify({ ...(captureId ? { captureId } : {}), ...(opts.quick ? { quick: true } : {}), ...(opts.provider ? { provider: opts.provider } : {}) }),
-    });
-    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; id?: string; error?: string };
-    if (!res.ok || !data.ok || !data.id) throw new Error(data.error ?? `CRT server answered ${res.status}`);
-    return data.id;
   }
 
   /** Attach to an existing session (replays its transcript) and show the panel. */
@@ -359,13 +309,6 @@ export class ChatPanel {
     }
   }
 
-  /** Whether the server still has a session (a reload re-attaches only live ones, F-66). */
-  static async alive(sessionId: string): Promise<boolean> {
-    return fetch(crtUrl(`${SESSIONS_ENDPOINT}/${sessionId}`))
-      .then((r) => r.ok)
-      .catch(() => false);
-  }
-
   /** Stop listening and drop the DOM (the owner forgot this thread; the server session is untouched). */
   dispose(): void {
     this.detach();
@@ -382,28 +325,20 @@ export class ChatPanel {
     }
   }
 
+  /** F-25: a reply; a failed one says so in the chat. */
   async send(text: string): Promise<void> {
     if (!this.sessionId || !text.trim()) return;
-    const res = await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${this.sessionId}/messages`), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text }),
-    });
-    if (!res.ok) this.system(`Could not send (${res.status})`, true);
+    await sendSessionMessage(this.sessionId, text).catch((err: unknown) => this.unreachable("send", err));
   }
 
   async interrupt(): Promise<void> {
     if (!this.sessionId) return;
-    await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${this.sessionId}/interrupt`), { method: "POST" });
+    await interruptSession(this.sessionId);
   }
 
   async respond(permissionId: string, behavior: "allow" | "deny"): Promise<void> {
     if (!this.sessionId) return;
-    await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${this.sessionId}/permission`), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: permissionId, behavior }),
-    });
+    await answerPermission(this.sessionId, permissionId, behavior);
   }
 
   /** F-29/F-66 "Discard": close the server-side session, hide the panel, and tell the owner to drop the thread. */
@@ -423,7 +358,7 @@ export class ChatPanel {
     this.init = null;
     this.renderAgent();
     this.show(false);
-    if (id) await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${id}`), { method: "DELETE" }).catch(() => undefined);
+    if (id) await closeSession(id).catch(() => undefined);
     this.callbacks.onDiscard();
   }
 
@@ -431,7 +366,7 @@ export class ChatPanel {
 
   private connect(): void {
     if (!this.sessionId) return;
-    const source = new EventSource(crtUrl(`${SESSIONS_ENDPOINT}/${this.sessionId}/events?after=${this.lastSeq}`));
+    const source = new EventSource(sessionEventsUrl(this.sessionId, this.lastSeq));
     this.source = source;
     this.live = false;
     source.addEventListener("live", () => (this.live = true));
@@ -647,7 +582,7 @@ export class ChatPanel {
   private renderState(): void {
     const s = this.state ?? "starting";
     this.stateEl.dataset.state = s;
-    this.stateEl.textContent = { starting: "starting", running: "thinking…", waiting: "needs permission", idle: "your turn", ended: "ended", error: "error" }[s];
+    this.stateEl.textContent = STATE_LABEL[s];
     const over = s === "ended" || s === "error";
     this.input.disabled = over;
     this.sendBtn.disabled = over;
@@ -774,7 +709,7 @@ function userBubble(text: string, images: string[], intake?: IntakeSummary): HTM
 }
 
 /** PRD-chat §5.1: the note for a page-level chat; else one line per annotation, `#n` on each when several. */
-export function intakeWords(intake: IntakeSummary): string {
+function intakeWords(intake: IntakeSummary): string {
   if (intake.note) return intake.note;
   const many = intake.annotations.length > 1;
   const lines = intake.annotations.map((a) => (a.note ? `${many ? `#${a.n} ` : ""}${a.note}` : `#${a.n} · ${a.label}`));
@@ -925,12 +860,4 @@ function inline(text: string): string {
         .replace(/(^|[\s(])\*([^*]+)\*(?=[\s).,;:!?]|$)/g, "$1<em>$2</em>");
     })
     .join("");
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-}
-
-function cssEscape(s: string): string {
-  return typeof CSS !== "undefined" && CSS.escape ? CSS.escape(s) : s.replace(/["\\]/g, "\\$&");
 }

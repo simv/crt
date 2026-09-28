@@ -6,8 +6,8 @@
  */
 import { request } from "node:http";
 import { createServer } from "node:net";
-import { isMode } from "./init.js";
-import { SHUTDOWN_PATH } from "./proxy.js";
+import { isMode } from "./config.js";
+import { HEALTH_PATH, SHUTDOWN_PATH } from "./routes.js";
 import type { CrtHealth } from "./start.js";
 
 /** F-73: a cold Node server on Windows can take longer than a few hundred ms to answer its first request. */
@@ -31,7 +31,7 @@ export function isPortFree(port: number): Promise<boolean> {
  */
 export async function fetchHealth(port: number, timeoutMs = HEALTH_TIMEOUT_MS): Promise<CrtHealth | null> {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const body = await get(port, "/__crt/health", timeoutMs);
+    const body = await get(port, HEALTH_PATH, timeoutMs);
     if (body === null) continue;
     return parseHealth(body);
   }

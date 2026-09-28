@@ -5,9 +5,9 @@
  * moved to `.crt/tasks/assets/<TASK-ID>/` (M3), so pruning only ever hits unsent/abandoned ones.
  */
 import { randomBytes } from "node:crypto";
-import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { type CaptureBundle, type CapturePost, validateCapturePost } from "./capture-schema.js";
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
+import { type CaptureBundle, type CapturePost, validateCaptureBundle, validateCapturePost } from "./capture-schema.js";
 
 export const CAPTURES_DIRNAME = "captures";
 export const PRUNE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
@@ -40,6 +40,33 @@ export class CaptureValidationError extends Error {
     this.name = "CaptureValidationError";
     this.errors = errors;
   }
+}
+
+/**
+ * A capture that cannot be read or is not a valid bundle (F-23, F-24): the session routes answer
+ * 404; `createTask` turns it into a `TaskFormatError`, the 400 `write_task` reads back.
+ */
+export class CaptureNotFoundError extends Error {
+  /** The read error, or every validation error of `capture.json`. */
+  readonly errors: string[];
+  constructor(dir: string, cause: string, errors?: string[]) {
+    super(`capture ${basename(dir)} not found: ${cause}`);
+    this.name = "CaptureNotFoundError";
+    this.errors = errors ?? [this.message];
+  }
+}
+
+/** `<dir>/capture.json`, validated; throws `CaptureNotFoundError`. */
+export function readCapture(dir: string): CaptureBundle {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(join(dir, "capture.json"), "utf8"));
+  } catch (err) {
+    throw new CaptureNotFoundError(dir, (err as Error).message);
+  }
+  const errors = validateCaptureBundle(raw);
+  if (errors.length) throw new CaptureNotFoundError(dir, `invalid capture.json (${errors[0]})`, errors);
+  return raw as CaptureBundle;
 }
 
 /**

@@ -11,6 +11,9 @@
 //   integrations/react.js    the React entry (`claude-review-tool/react`, F-97): an ES module with
 //                            `react` external and "use client" kept as its first statement
 // The no-op modules and the .d.ts files next to them come from packages/server/scripts/integrations.mjs.
+// tsconfig.json sets useDefineForClassFields to false: the overlay's classes extend nothing, so
+// [[Set]] fields behave the same, and es2020 output assigns them instead of calling a defineProperty
+// helper once per field (CRT-0043 kept overlay.js from growing when ui.ts became several classes).
 import { build } from "esbuild";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

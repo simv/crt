@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CaptureBundle } from "../src/capture-schema.js";
-import { writeCapture } from "../src/captures.js";
-import { buildIntakeMessage, CaptureNotFoundError, FIRST_MESSAGE_HEADING, prependInstructions, QUICK_NOTE_INSTRUCTIONS, readCaptureBundle, renderIntakeText, summarizeCapture, summarizeIntake } from "../src/intake-message.js";
+import { CaptureNotFoundError, readCapture, writeCapture } from "../src/captures.js";
+import { buildIntakeMessage, FIRST_MESSAGE_HEADING, prependInstructions, QUICK_NOTE_INSTRUCTIONS, renderIntakeText, summarizeCapture, summarizeIntake } from "../src/intake-message.js";
 import { PNG_B64, sampleBundle, samplePost } from "./helpers/sample-capture.js";
 
 let root: string;
@@ -124,7 +124,7 @@ describe("first intake message (F-24)", () => {
   });
 
   it("rejects a missing or invalid capture", () => {
-    expect(() => readCaptureBundle(join(root, "nope"))).toThrow(CaptureNotFoundError);
+    expect(() => readCapture(join(root, "nope"))).toThrow(CaptureNotFoundError);
     expect(() => buildIntakeMessage(join(root, "nope"))).toThrow(/not found/);
   });
 });

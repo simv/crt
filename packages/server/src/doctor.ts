@@ -17,15 +17,19 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { type CrtMode, detectIntegration, type Framework, ignoreEntriesPresent, type InstructionFile, instructionsStatus, INTEGRATION_CANDIDATES, isInitialised, README_FILE, readConfig } from "./init.js";
+import { type CrtMode, readConfig } from "./config.js";
+import { isInitialised, missingIgnoreLines } from "./init.js";
+import { type InstructionFile, instructionsStatus, README_FILE } from "./instructions.js";
+import { detectIntegration, type Framework, INTEGRATION_CANDIDATES } from "./integration.js";
 import { fetchHealth, isPortFree } from "./probes.js";
 import { findProjectRoot } from "./project.js";
-import { findOnPath, runExecutable } from "./providers/exec.js";
+import { findOnPath, firstLine, runExecutable } from "./providers/exec.js";
 import { preflightPasses } from "./providers/types.js";
 import { describeResolution, loginWord, ProviderRegistry, type ProviderStatus, type Resolution } from "./session.js";
+import { installedPluginVersion } from "./setup.js";
 import { type CrtHealth, sameProject } from "./start.js";
 import { countTaskFiles } from "./tasks.js";
-import { isReachable, normalizeTarget, probeAll } from "./target.js";
+import { isReachable, probeAll, safeOrigin } from "./target.js";
 
 export const MIN_NODE_MAJOR = 20;
 
@@ -217,7 +221,7 @@ export async function collectDoctorFacts(opts: CollectOptions): Promise<DoctorFa
           tasks: countTaskFiles(tasksDir),
           config: existsSync(join(crtDir, "config.json")),
           localConfig: existsSync(join(crtDir, "config.local.json")),
-          ignore: ignoreEntriesPresent(root),
+          ignore: missingIgnoreLines(root).length === 0,
         }
       : null,
     mode: { mode, source: opts.mode !== undefined && opts.mode !== config.mode ? null : config.modeSource },
@@ -230,12 +234,8 @@ export async function collectDoctorFacts(opts: CollectOptions): Promise<DoctorFa
   };
   if (opts.target) {
     if (config.target && config.targetSource) {
-      let origin = config.target;
-      try {
-        origin = normalizeTarget(config.target);
-      } catch {
-        // an unparseable value: probe it as written, which fails, so the row says "not responding"
-      }
+      // An unparseable value is probed as written, which fails, so the row says "not responding".
+      const origin = safeOrigin(config.target) ?? config.target;
       facts.target = { origin, source: config.targetSource, up: await isReachable(origin) };
     } else {
       const hits = await probeAll();
@@ -282,25 +282,8 @@ export async function pluginFact(env: NodeJS.ProcessEnv): Promise<NonNullable<Do
   const claude = findOnPath("claude", process.platform, env);
   if (!claude) return { claudeOnPath: false };
   const r = await runExecutable(claude, ["plugin", "list", "--json"], { env, timeoutMs: 10_000 });
-  if (r.status !== 0) return { claudeOnPath: true, installed: null, error: r.error ?? r.stderr.trim().split(/\r?\n/)[0] ?? `exit ${r.status}` };
+  if (r.status !== 0) return { claudeOnPath: true, installed: null, error: r.error ?? firstLine(r.stderr) ?? `exit ${r.status}` };
   return { claudeOnPath: true, installed: installedPluginVersion(r.stdout) };
-}
-
-/** The `crt@crt` entry's version in `claude plugin list --json` output, or null (absent, or not parseable). */
-export function installedPluginVersion(stdout: string): string | null {
-  try {
-    const parsed = JSON.parse(stdout) as unknown;
-    const list = Array.isArray(parsed) ? parsed : parsed && typeof parsed === "object" && Array.isArray((parsed as { plugins?: unknown }).plugins) ? (parsed as { plugins: unknown[] }).plugins : [];
-    for (const item of list) {
-      if (item && typeof item === "object" && (item as { id?: unknown }).id === "crt@crt") {
-        const v = (item as { version?: unknown }).version;
-        return typeof v === "string" ? v : "?";
-      }
-    }
-  } catch {
-    // not JSON
-  }
-  return null;
 }
 
 /** Everything `crt doctor` prints, and its exit code. */

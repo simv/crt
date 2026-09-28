@@ -12,11 +12,10 @@
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { json, readJson } from "./http.js";
-import { LOCAL_CONFIG_FILE, MODEL_RE, writeLocalConfig } from "./init.js";
+import { LOCAL_CONFIG_FILE, MODEL_RE, writeLocalConfig } from "./config.js";
+import { CONFIG_PATH, PROVIDERS_PATH } from "./routes.js";
 import type { ProviderRegistry } from "./session.js";
 
-export const PROVIDERS_PATH = "/__crt/providers";
-export const CONFIG_PATH = "/__crt/config";
 const MAX_BODY = 64 * 1024;
 
 /** Returns false when the path is neither route. */

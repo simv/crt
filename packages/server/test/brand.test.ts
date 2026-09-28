@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ACCENT, ACCENT_HOVER, BADGE, BEZEL_DARK, DANGER, ERROR, EXPERIMENTAL, GLASS, IDLE, INK, OK, PILL, WARN } from "../../overlay/src/tokens.js";
+import { ACCENT, ACCENT_HOVER, BADGE, BEZEL_DARK, DANGER, ERROR, EXPERIMENTAL, FAIL, GLASS, IDLE, INK, OK, PILL, WARN } from "../../overlay/src/tokens.js";
 import { OVERLAY_CSS } from "../../overlay/src/ui.js";
 
 // PRD-polish F-112 / N-25 (M20): the brand files under docs/brand/ — the mark from the chosen
@@ -159,6 +159,7 @@ describe("the tokens feed the overlay's CSS (PRD-polish F-112, decision 7)", () 
       [WARN]: 3,
       [DANGER]: 1,
       [ERROR]: 3,
+      [FAIL]: 3, // CRT-0043: the "#c00" literals became a token
       [IDLE]: 1,
       [PILL.running[0]]: 4, // twice as the running pill (ui, chat), twice as the experimental badge
       [PILL.running[1]]: 2,

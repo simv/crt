@@ -44,6 +44,33 @@ describe("renderMarkdown (F-25)", () => {
     );
   });
 
+  // CRT-0043: renderMarkdown is the overlay's XSS boundary — agent text becomes innerHTML. The only
+  // tags it may emit are its own, with no attribute but the checkbox's, and none from the input.
+  it("never lets a tag or an attribute through: <script>, event handlers and quotes are escaped in every block kind", () => {
+    const attacks = ["<script>alert(1)</script>", '"><img src=x onerror=alert(1)>', "<svg/onload=alert(1)>", "' onmouseover='alert(1)"];
+    for (const a of attacks) {
+      for (const src of [a, `# ${a}`, `- ${a}`, `1. ${a}`, `- [x] ${a}`, `**${a}**`, `_${a}_`, `\`${a}\``, `\`\`\`\n${a}\n\`\`\``]) {
+        const html = renderMarkdown(src);
+        expect(html, src).not.toMatch(/<(script|img|svg)\b/i);
+        // Every tag in the output is one the renderer writes itself, so no attribute came from the input.
+        for (const tag of html.match(/<[^>]+>/g) ?? []) {
+          expect(tag, src).toMatch(/^<\/?(p|br|h[1-3]|ul|ol|li|li class="task"|pre|code|strong|em)>$|^<input type="checkbox" disabled( checked)?>$/);
+        }
+      }
+    }
+  });
+
+  it("drops a fence's info string rather than putting it in an attribute", () => {
+    expect(renderMarkdown('```js" onload="alert(1)\nx\n```')).toBe("<pre><code>x</code></pre>");
+  });
+
+  it("renders no links: Markdown links, raw anchors and bare URLs stay text (no javascript: URL can reach an href)", () => {
+    expect(renderMarkdown("[click](javascript:alert(1))")).toBe("<p>[click](javascript:alert(1))</p>");
+    expect(renderMarkdown('<a href="javascript:alert(1)">x</a>')).toBe("<p>&lt;a href=&quot;javascript:alert(1)&quot;&gt;x&lt;/a&gt;</p>");
+    expect(renderMarkdown("see https://example.com/?a=1&b=2")).toBe("<p>see https://example.com/?a=1&amp;b=2</p>");
+    expect(renderMarkdown("![img](https://example.com/x.png)")).not.toContain("<img");
+  });
+
   it("renders every prefix of a streamed message without throwing (a frame can land mid-fence or mid-emphasis, N-3)", () => {
     const text = "## Plan\nSome **bold** and `code`.\n\n```js\nlet x = 1;\n```\n- [ ] one\n- [x] two\n\n1. first\n2. second\n";
     for (let i = 0; i <= text.length; i++) expect(() => renderMarkdown(text.slice(0, i))).not.toThrow();

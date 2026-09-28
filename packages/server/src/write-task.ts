@@ -10,6 +10,7 @@
  */
 import { z } from "zod/v4";
 import type { WriteTaskRequest } from "./session-events.js";
+import { TASK_PRIORITIES } from "./tasks.js";
 
 export const CRT_MCP_SERVER = "crt";
 export const WRITE_TASK_TOOL = "write_task";
@@ -34,12 +35,18 @@ export const writeTaskShape = {
   ask: z.string().min(1).describe(`The change requested, precisely${HEADINGS}`),
   definitionOfDone: z.array(z.string().min(1)).min(1).describe(`Checkable items, one per entry; the server renders them as - [ ] checkboxes${HEADINGS}`),
   notes: z.string().optional().describe(`Constraints, hunches, non-goals, alternatives considered${HEADINGS}`),
-  priority: z.enum(["low", "normal", "high"]).optional().describe("Default normal"),
+  priority: z.enum(TASK_PRIORITIES).optional().describe("Default normal"),
   tags: z.array(z.string()).optional().describe("Short lowercase tags, e.g. ['cart', 'pricing']"),
   files: z.array(z.string()).optional().describe("Project-relative source files identified during intake"),
 };
 
 export const writeTaskSchema = z.object(writeTaskShape);
+
+/** `A` and `B` accept each other and name the same keys, so an optional field on one side only fails too. */
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? ([keyof A] extends [keyof B] ? ([keyof B] extends [keyof A] ? true : false) : false) : false) : false;
+// Compile-time: the schema and `WriteTaskRequest` (session-events.ts, where the overlay imports it)
+// are one shape; a field added to one only fails `npm run typecheck` here.
+true satisfies Same<z.infer<typeof writeTaskSchema>, WriteTaskRequest>;
 
 /** MCP `tools/list` input schema (F-49). */
 export function writeTaskJsonSchema(): Record<string, unknown> {
@@ -59,7 +66,7 @@ export function writeTaskErrorText(reason: string): string {
 /** Validate a tool call's arguments; the error is one line naming the first bad field. */
 export function parseWriteTaskRequest(input: unknown): { ok: true; value: WriteTaskRequest } | { ok: false; error: string } {
   const r = writeTaskSchema.safeParse(input);
-  if (r.success) return { ok: true, value: r.data as WriteTaskRequest };
+  if (r.success) return { ok: true, value: r.data };
   const first = r.error.issues[0];
   const where = first?.path.length ? `${first.path.join(".")}: ` : "";
   return { ok: false, error: `${where}${first?.message ?? "invalid write_task arguments"}` };

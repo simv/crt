@@ -273,6 +273,15 @@ export function parseJsonLine(line: string): Record<string, unknown> | null {
   }
 }
 
+/** The first non-blank line of a command's output, trimmed; null when there is none (a one-line failure reason). */
+export function firstLine(text: string): string | null {
+  const line = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .find(Boolean);
+  return line ?? null;
+}
+
 export const STDERR_TAIL_LINES = 30;
 
 /**

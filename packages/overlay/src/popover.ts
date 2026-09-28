@@ -8,6 +8,7 @@
  * the popover never leaves the viewport. When no side fits (a huge element, a tiny window) the
  * right-hand position is clamped on both axes, which keeps the popover reachable.
  */
+import { clamp } from "./dom-util.js";
 
 export interface Box {
   x: number;
@@ -48,8 +49,4 @@ export function placePopover(anchor: Box, size: Size, viewport: Size, gap = POPO
   const above = anchor.y - gap - size.height;
   if (fitsY(above)) return { x: clampX(anchor.x), y: above, side: "above" };
   return { x: clampX(right), y: clampY(anchor.y), side: "right" };
-}
-
-function clamp(n: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, n));
 }

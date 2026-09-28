@@ -5,7 +5,7 @@
  * `ensureInitialised` — never silently: the F-100 plan and a question on a terminal, `--yes`
  * otherwise, else one refusal line; nothing here creates `.crt/`, N-19), prune stale captures
  * when `.crt/captures/` exists, resolve the mode
- * (init.ts `resolveMode`: `crt proxy` / `--mode` / config, default embedded), choose the target
+ * (config.ts `resolveMode`: `crt proxy` / `--mode` / config, default embedded), choose the target
  * (start.ts `chooseTarget` — in proxy mode found, remembered, asked for, or waited on; in
  * embedded mode the soft form: the app URL CRT opens, never waited for), wire the session
  * registry, bind the server to 127.0.0.1 (start.ts `bindPort` — reusing or stepping around a
@@ -25,9 +25,10 @@ import { existsSync, readFileSync } from "node:fs";
 import type { Server } from "node:http";
 import { relative, resolve } from "node:path";
 import { capturesDir, pruneCaptures } from "./captures.js";
+import { type CrtMode, readConfig, resolveMode, writeLocalConfig } from "./config.js";
 import { collectDoctorFacts, doctorRows, hasDevScript, renderRow } from "./doctor.js";
 import { CrtError } from "./errors.js";
-import { applyInit, type CrtMode, isInitialised, planInit, readConfig, renderPlan, resolveMode, writeLocalConfig } from "./init.js";
+import { applyInit, isInitialised, planInit, renderPlan } from "./init.js";
 import { fetchHealth, isPortFree, requestShutdown } from "./probes.js";
 import { findProjectRoot } from "./project.js";
 import { sdkVersion } from "./providers/claude.js";
@@ -36,7 +37,7 @@ import { describeResolution, loginField, ProviderRegistry } from "./session.js";
 import { SessionRegistry } from "./sessions.js";
 import { bindPort, chooseTarget, type CrtHealth, ensureInitialised, type Prompter, type StartDeps } from "./start.js";
 import { countTaskFiles, parseFrontmatter } from "./tasks.js";
-import { isReachable, normalizeTarget, PROBE_PORTS, probeAll } from "./target.js";
+import { isReachable, PROBE_PORTS, probeAll, safeOrigin } from "./target.js";
 import { packageVersion } from "./version.js";
 
 export interface ServeOptions {
@@ -267,19 +268,10 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
       projectRoot,
       provider: resolution.provider,
       providers,
-      openSessions: () => sessions.list().filter((s) => s.state !== "ended" && s.state !== "error").length,
+      openSessions: () => sessions.openCount(),
       close,
     },
   };
-}
-
-function safeOrigin(value: string | null): string | null {
-  if (!value) return null;
-  try {
-    return normalizeTarget(value);
-  } catch {
-    return null;
-  }
 }
 
 /**
