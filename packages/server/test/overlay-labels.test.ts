@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { ElementInfo } from "../src/capture-schema.js";
 import type { ProviderRow } from "../src/session-events.js";
-import type { Annotation } from "../../overlay/src/annotations.js";
-import { describeAnnotation, providerState, threadState } from "../../overlay/src/ui.js";
+import { type Annotation, describeAnnotation } from "../../overlay/src/annotations.js";
+import { providerState } from "../../overlay/src/provider-menu.js";
+import { threadState } from "../../overlay/src/threads.js";
 
 // CRT-0043: the overlay's pure labels — a thread's marker state (F-67), a provider row's state
 // (F-45/F-56) and an annotation's one-line description (the popover head and the thread title,
-// F-65/F-66) — pinned before ui.ts is split into modules.
+// F-65/F-66) — pinned (from ui.ts) before ui.ts was split into modules.
 
 function info(o: Partial<ElementInfo>): ElementInfo {
   return { selector: "div", tag: "div", id: "", components: [], ...o } as ElementInfo;

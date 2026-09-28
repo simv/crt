@@ -18,7 +18,7 @@ export interface CaptureResult {
 }
 
 /** F-15 page metadata. */
-export function pageInfo(timestamp = new Date()): PageInfo {
+function pageInfo(timestamp = new Date()): PageInfo {
   return {
     url: location.href,
     pathname: location.pathname,
@@ -40,7 +40,7 @@ function currentInfo(el: Element | null, snapshot: ElementInfo | null): ElementI
   return null;
 }
 
-export function markerFor(a: Annotation): MarkerSpec {
+function markerFor(a: Annotation): MarkerSpec {
   const rect = a.element?.isConnected ? viewportRectOf(a.element) : toViewportRect(a.pageRect);
   return {
     n: a.n,

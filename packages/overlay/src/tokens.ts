@@ -1,6 +1,6 @@
 /**
  * The overlay's colours in one place (PRD-polish F-112, §5.1, decision 7) — the brand's inputs.
- * The stylesheets (`ui.ts`, `chat.ts`, `welcome.ts`) and `screenshot.ts`'s marker drawing
+ * The stylesheets (`styles.ts`, `chat.ts`, `welcome.ts`) and `screenshot.ts`'s marker drawing
  * interpolate them, and no overlay module repeats one as a literal (CRT-0043); the rendered CSS is
  * byte-for-byte what it was when the values were literals (test/brand.test.ts pins every site). The brand files under docs/brand/ carry INK, GLASS,
  * BEZEL_DARK and ACCENT as literals — the same test pins them equal — and the landing page (server

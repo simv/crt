@@ -33,7 +33,7 @@ const STYLE_PROPS = [
   "grid-area",
 ] as const;
 
-export function rectOf(el: Element): Rect {
+function rectOf(el: Element): Rect {
   const r = el.getBoundingClientRect();
   return { x: round(r.left), y: round(r.top), width: round(r.width), height: round(r.height) };
 }

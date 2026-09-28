@@ -26,7 +26,7 @@ import { ACCENT, ERROR, EXPERIMENTAL, FAIL, INK, OK, PILL } from "./tokens.js";
 /** What the panel calls the agent before its `init` event has arrived. */
 const UNKNOWN_AGENT = "the agent";
 
-export type InitEvent = Extract<SessionEvent, { type: "init" }>;
+type InitEvent = Extract<SessionEvent, { type: "init" }>;
 
 export { ACCEPT_LINE, ACCEPT_REPLY, endsWithAcceptLine };
 
@@ -709,7 +709,7 @@ function userBubble(text: string, images: string[], intake?: IntakeSummary): HTM
 }
 
 /** PRD-chat §5.1: the note for a page-level chat; else one line per annotation, `#n` on each when several. */
-export function intakeWords(intake: IntakeSummary): string {
+function intakeWords(intake: IntakeSummary): string {
   if (intake.note) return intake.note;
   const many = intake.annotations.length > 1;
   const lines = intake.annotations.map((a) => (a.note ? `${many ? `#${a.n} ` : ""}${a.note}` : `#${a.n} · ${a.label}`));

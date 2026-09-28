@@ -30,16 +30,18 @@ export function safeGetJson(which: StorageArea, key: string): unknown {
   }
 }
 
-/** Store `value`; null removes the key. */
-export function safeSet(which: StorageArea, key: string, value: string | null): void {
+export function safeSet(which: StorageArea, key: string, value: string): void {
   try {
-    if (value === null) area(which).removeItem(key);
-    else area(which).setItem(key, value);
+    area(which).setItem(key, value);
   } catch {
     // storage unavailable or full: the value lives for this page load only
   }
 }
 
 export function safeRemove(which: StorageArea, key: string): void {
-  safeSet(which, key, null);
+  try {
+    area(which).removeItem(key);
+  } catch {
+    // storage unavailable: nothing was stored
+  }
 }

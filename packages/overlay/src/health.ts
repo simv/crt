@@ -11,7 +11,7 @@ import { CRT_ORIGIN, crtUrl } from "./base.js";
 import { safeGetJson, safeSet } from "./storage.js";
 
 /** Per tab: the server this tab first loaded from, to spot a `crt serve` from another session (F-81 Should). */
-export const SERVER_KEY = "crt.server.v1";
+const SERVER_KEY = "crt.server.v1";
 
 /** The F-78 payload, as the overlay reads it (PRD-embedded F-93: `mode`, `app`, `overlay.loader`; `mode` is absent from a pre-v0.4 server, which is a proxy). */
 export interface HealthPayload {

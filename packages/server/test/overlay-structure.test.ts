@@ -57,6 +57,10 @@ describe("overlay structure (CRT-0043)", () => {
     expect(tokens.tint("#2e9e5b", 1)).toBe("rgba(46,158,91,1)");
   });
 
+  it("keeps ui.ts to composing its parts: at most 700 lines", () => {
+    expect(readFileSync(join(SRC, "ui.ts"), "utf8").trimEnd().split("\n").length).toBeLessThanOrEqual(700);
+  });
+
   it("builds the status line as DOM: showStatus never assigns innerHTML", () => {
     const ui = source("ui.ts");
     const start = ui.indexOf("private showStatus(");

@@ -15,7 +15,7 @@ import type { HealthPayload } from "./health.js";
 import { safeGet, safeSet } from "./storage.js";
 import { INK } from "./tokens.js";
 
-export const WELCOME_KEY_PREFIX = "crt.welcome.v1:";
+const WELCOME_KEY_PREFIX = "crt.welcome.v1:";
 
 export function welcomeKey(projectRoot: string): string {
   return WELCOME_KEY_PREFIX + projectRoot;

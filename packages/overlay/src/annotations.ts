@@ -16,9 +16,9 @@
  * other change is persisted at once.
  */
 import type { ElementInfo, Rect } from "../../server/src/capture-schema.js";
-import { describeElement } from "./element.js";
+import { describeElement, labelOf } from "./element.js";
 import { isOverlayNode } from "./selector.js";
-import { safeGetJson, safeSet } from "./storage.js";
+import { safeGetJson, safeRemove, safeSet } from "./storage.js";
 
 export type AnnotationKind = "select" | "box" | "pin";
 
@@ -49,7 +49,7 @@ type Persisted = Omit<Annotation, "element" | "elements"> & { elements: ElementI
 const STORAGE_KEY = "crt.annotations.v1";
 const MAX_BOX_ELEMENTS = 10; // F-9
 /** N-3: how long a note edit waits before it is written to sessionStorage. */
-export const PERSIST_DEBOUNCE_MS = 250;
+const PERSIST_DEBOUNCE_MS = 250;
 
 export type Listener = (annotations: Annotation[]) => void;
 
@@ -217,7 +217,8 @@ export class AnnotationStore {
       ...rest,
       elements: elements.map((b) => b.info),
     }));
-    safeSet("session", STORAGE_KEY, data.length ? JSON.stringify(data) : null);
+    if (data.length) safeSet("session", STORAGE_KEY, JSON.stringify(data));
+    else safeRemove("session", STORAGE_KEY);
   }
 
   private restore(): void {
@@ -248,7 +249,23 @@ function resolveBySelector(info: ElementInfo | null): Element | null {
   }
 }
 
-export function toPageRect(r: { left?: number; x?: number; top?: number; y?: number; width: number; height: number }): Rect {
+/** F-65/F-66: one line for a popover head or a thread title — `ProductCard · article.card`, `Box 120×80 · 2 elements (section#hero)`, `Pin at 10, 20`. */
+export function describeAnnotation(a: Annotation): string {
+  if (a.kind === "select") {
+    const info = a.elementInfo;
+    const comp = info?.components[0]?.name;
+    const label = a.element ? labelOf(a.element) : (info?.selector ?? "element");
+    return comp ? `${comp} · ${label}` : label;
+  }
+  if (a.kind === "box") {
+    const first = a.elements[0]?.info;
+    const what = first ? `${first.tag}${first.id ? "#" + first.id : ""}` : "region";
+    return `Box ${Math.round(a.pageRect.width)}×${Math.round(a.pageRect.height)} · ${a.elements.length} element${a.elements.length === 1 ? "" : "s"} (${what})`;
+  }
+  return `Pin at ${Math.round(a.pageRect.x)}, ${Math.round(a.pageRect.y)}`;
+}
+
+function toPageRect(r: { left?: number; x?: number; top?: number; y?: number; width: number; height: number }): Rect {
   const x = r.left ?? r.x ?? 0;
   const y = r.top ?? r.y ?? 0;
   return { x: x + window.scrollX, y: y + window.scrollY, width: r.width, height: r.height };
@@ -263,7 +280,7 @@ export function toViewportRect(r: Rect): Rect {
  * when at least half of its own area lies inside the box, so page-sized containers that merely
  * overlap the box are not reported; if nothing qualifies, the deepest element at the box centre is.
  */
-export function elementsInBox(box: Rect): Element[] {
+function elementsInBox(box: Rect): Element[] {
   const bx2 = box.x + box.width;
   const by2 = box.y + box.height;
   const inside: { el: Element; area: number }[] = [];
