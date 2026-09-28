@@ -1,10 +1,10 @@
 ---
 id: CRT-0040
 title: Provider CLI plumbing in one place — spawn, line reader, stderr tail, version parsing and the preflight skeleton
-status: backlog
+status: in_progress
 priority: normal
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-24T12:15:00+08:00
+updated: 2026-09-28T08:28:00+08:00
 url: null
 route: null
 session: null
@@ -63,3 +63,4 @@ No page capture: from the code review in session e145e7ac, 2026-09-24. The revie
 
 ## Log
 - 2026-09-24T12:15+08:00 — filed by hand from the code review in session e145e7ac (Simon's request).
+- 2026-09-28T08:28+08:00 — claimed by /crt:next, session 8a010845-cc99-44a6-b00b-b817ead4c228, branch crt/CRT-0040-provider-process-helpers (worktree .claude/worktrees/CRT-0040)
