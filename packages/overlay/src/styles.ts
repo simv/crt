@@ -5,7 +5,7 @@
  * hex counts and the length, so a move that changes a byte fails there. ui.ts re-exports it.
  */
 import { CHAT_CSS } from "./chat.js";
-import { ACCENT, ACCENT_HOVER, DANGER, ERROR, EXPERIMENTAL, FAIL, IDLE, INK, OK, PILL, tint, WARN } from "./tokens.js";
+import { ACCENT, ACCENT_HOVER, ACCENT_WASH, DANGER, ERROR, EXPERIMENTAL, FAIL, IDLE, INK, INK_90, OK, PILL, WARN } from "./tokens.js";
 import { WELCOME_CSS } from "./welcome.js";
 
 export const OVERLAY_CSS = `${WELCOME_CSS}
@@ -103,13 +103,13 @@ export const OVERLAY_CSS = `${WELCOME_CSS}
   .pill[data-state="error"] { background: ${PILL.error[0]}; color: ${PILL.error[1]}; }
   .layer { position: fixed; inset: 0; pointer-events: auto; cursor: crosshair; touch-action: none; }
   .layer[hidden] { display: none; }
-  .hover { position: fixed; pointer-events: none; border: 2px solid ${ACCENT}; background: ${tint(ACCENT, 0.08)};
+  .hover { position: fixed; pointer-events: none; border: 2px solid ${ACCENT}; background: ${ACCENT_WASH};
            border-radius: 2px; display: none; }
   .hover-label { position: fixed; pointer-events: none; display: none; padding: 3px 7px; border-radius: 6px;
                  background: ${INK}; color: #fff; font-size: 11px; font-family: ui-monospace, Menlo, Consolas, monospace;
                  max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hover-label b { color: #ffd166; font-weight: 600; }
-  .drag { position: fixed; pointer-events: none; border: 2px dashed ${ACCENT}; background: ${tint(ACCENT, 0.08)}; display: none; }
+  .drag { position: fixed; pointer-events: none; border: 2px dashed ${ACCENT}; background: ${ACCENT_WASH}; display: none; }
   /* Markers sit below popovers: an open popover is the topmost thing on the page (F-65); close it to reach a badge under it. */
   .markers { position: fixed; inset: 0; pointer-events: none; }
   .mark { position: fixed; border: 2px solid ${ACCENT}; border-radius: 2px; }
@@ -133,7 +133,7 @@ export const OVERLAY_CSS = `${WELCOME_CSS}
   .mark-state { position: fixed; pointer-events: auto; cursor: pointer; transform: translateY(-50%); box-shadow: 0 2px 6px rgba(0,0,0,.2);
                 max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
   .hint { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); pointer-events: none; padding: 6px 12px;
-          border-radius: 999px; background: ${tint(INK, 0.9)}; color: #fff; font-size: 12px; }
+          border-radius: 999px; background: ${INK_90}; color: #fff; font-size: 12px; }
   .hint[hidden] { display: none; }
   /* F-65/F-66: popovers — one per annotation beside its element, page-level ones docked above the toolbar. */
   .pops { position: fixed; inset: 0; pointer-events: none; }

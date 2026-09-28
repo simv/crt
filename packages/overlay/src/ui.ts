@@ -18,22 +18,26 @@
  * session state. Several threads run at once and one popover is open at a time; page-level chats
  * (F-68) dock above the toolbar because they have no element. Product chrome stays "CRT" (F-64).
  */
+// Out of order on purpose: esbuild emits modules in import order, and gzip only matches text within
+// 32 KB, so the stylesheet comes first and the parts that build the popovers and lists (its class
+// names) right after it (CRT-0043 kept overlay.js no larger gzipped than the single ui.ts was). The
+// rest is alphabetical.
+import { OVERLAY_CSS } from "./styles.js";
+import { readPageThreads, rememberOpenThread, type Thread, Threads, threadState, type ThreadSummary } from "./threads.js";
+import { buildAnnotationPop, buildPagePop, type ComposeState, patchAnnotationPop, patchPagePop, wirePops } from "./popovers.js";
+import { ProviderMenu, UNKNOWN_AGENT } from "./provider-menu.js";
+import { SessionList } from "./session-list.js";
 import type { Annotation, AnnotationStore } from "./annotations.js";
 import { closeSession, onRequestFailure, postCapture, type SendResult, type StartOptions, startSession } from "./api.js";
 import { CRT_ORIGIN } from "./base.js";
 import { capture } from "./capture.js";
 import type { QuietOutcome } from "./chat.js";
 import { cssEscape, messageOf, setStyle, STATE_LABEL, type StatusPart, statusNode } from "./dom-util.js";
-import { CHECKING_TOOLTIP, type HealthPayload, type HealthState } from "./health.js";
+import { CHECKING_TOOLTIP } from "./health.js";
 import { Launcher } from "./launcher.js";
 import { Markers, Positioner } from "./markers.js";
 import { placePopover } from "./popover.js";
-import { buildAnnotationPop, buildPagePop, type ComposeState, patchAnnotationPop, patchPagePop, wirePops } from "./popovers.js";
-import { ProviderMenu, UNKNOWN_AGENT } from "./provider-menu.js";
-import { canQuickNote, planSend, type SendOptions } from "./send-plan.js";
-import { SessionList } from "./session-list.js";
-import { OVERLAY_CSS } from "./styles.js";
-import { readPageThreads, rememberOpenThread, type Thread, Threads, threadState, type ThreadSummary } from "./threads.js";
+import { planSend, type SendOptions } from "./send-plan.js";
 import { type Tool, Tools } from "./tools.js";
 import { buildWelcome, markWelcomeSeen, shouldShowWelcome, welcomeCopy, welcomeSeen } from "./welcome.js";
 
@@ -46,14 +50,16 @@ export class OverlayUI {
   readonly store: AnnotationStore;
   /** F-56: which agent the next Send runs on (`window.__crt.providers`). */
   readonly providers: ProviderMenu;
-  private readonly tools: Tools;
-  private readonly launcher: Launcher;
+  /** F-8…F-10: the Select / Box / Pin tools. */
+  readonly tools: Tools;
+  /** F-7, F-81: the launcher and its health dot. */
+  readonly launcher: Launcher;
   private readonly markers: Markers;
   private readonly positioner = new Positioner(() => this.positionAll());
   /** F-66: every live thread. */
-  private readonly threads: Threads;
+  readonly threads: Threads;
   /** F-30: the toolbar's session list. */
-  private readonly sessions: SessionList;
+  readonly sessions: SessionList;
   private busy = false;
   private open = false;
   private draggingLauncher = false;
@@ -208,17 +214,8 @@ export class OverlayUI {
     this.positionDocked();
   }
 
-  currentTool(): Tool | null {
-    return this.tools.current();
-  }
-
   setTool(tool: Tool | null): void {
     this.tools.set(tool);
-  }
-
-  /** Programmatic hover for the Select tool (tests). */
-  hoverAt(x: number, y: number): Element | null {
-    return this.tools.hoverAt(x, y);
   }
 
   /** A tool was armed — a popover over the page would swallow the click (F-65) — or put away. */
@@ -296,11 +293,6 @@ export class OverlayUI {
     }
   }
 
-  /** F-14: a quick note needs words, since there is no conversation to add them; `n` defaults to the most recent unsent annotation. */
-  canQuickNote(n?: number): boolean {
-    return canQuickNote(this.store.all(), { n });
-  }
-
   private onQuiet(outcome: QuietOutcome, sessionId: string): void {
     if (outcome.kind === "task") {
       this.showStatus(["Task ", { b: outcome.id }, " written to ", { code: outcome.path }], { link: sessionId });
@@ -325,19 +317,9 @@ export class OverlayUI {
 
   // ---- threads (F-66, F-67, F-68) --------------------------------------------------------------
 
-  /** Every live thread, oldest first (tests). */
-  threadSummaries(): ThreadSummary[] {
-    return this.threads.summaries();
-  }
-
   /** The thread whose popover is open, else the most recent one (what `window.__crt.chat` drives). */
   currentThread(): Thread | null {
     return this.threads.current(this.openPop);
-  }
-
-  /** F-30/F-66: open a session — its own popover when it has one, else a docked page-level popover. */
-  openSession(sessionId: string): void {
-    this.threads.open(sessionId);
   }
 
   // ---- popovers (F-65, F-68) -------------------------------------------------------------------
@@ -446,16 +428,11 @@ export class OverlayUI {
     this.threads.retitle();
   }
 
-  /** F-30: the toolbar's Sessions list. */
-  toggleSessions(force?: boolean): Promise<void> {
-    return this.sessions.toggle(force);
-  }
-
   // ---- launcher health (F-81) and the welcome card (F-82) ---------------------------------------
 
   /** F-81: health is read at mount (the launcher also reads it when the tab is visible again); F-82: the card may follow. */
   private wireHealth(): void {
-    void Promise.all([this.checkHealth(), this.providersReady]).then(() => {
+    void Promise.all([this.launcher.checkHealth(), this.providersReady]).then(() => {
       if (this.welcomeEl) return;
       const gate = { health: this.launcher.health, inIframe: window.top !== window, restored: this.restored, seen: welcomeSeen };
       if (shouldShowWelcome(gate)) this.showWelcome();
@@ -464,22 +441,14 @@ export class OverlayUI {
 
   /** A CRT request just failed: re-read health so the dot says whether the server is gone (F-81). */
   private noteFailure(): void {
-    void this.checkHealth();
-  }
-
-  checkHealth(): Promise<HealthPayload | "failed"> {
-    return this.launcher.checkHealth();
-  }
-
-  /** The dot's state as painted (tests). */
-  healthState(): HealthState {
-    return this.launcher.healthState();
+    void this.launcher.checkHealth();
   }
 
   /** F-82: show the card now, whatever the suppression rules say (`window.__crt.welcome()`). */
   async welcome(): Promise<void> {
-    if (this.launcher.health === null || this.launcher.health === "failed") await this.checkHealth();
-    if (this.launcher.health === null || this.launcher.health === "failed") return;
+    const unknown = () => this.launcher.health === null || this.launcher.health === "failed";
+    if (unknown()) await this.launcher.checkHealth();
+    if (unknown()) return;
     if (!this.providers.payload) await this.providers.load(false).catch(() => undefined);
     this.showWelcome();
   }
@@ -519,7 +488,7 @@ export class OverlayUI {
       if (!btn) return;
       const tool = btn.dataset.tool as Tool | undefined;
       if (tool) {
-        this.setTool(this.currentTool() === tool ? null : tool);
+        this.setTool(this.tools.current() === tool ? null : tool);
         return;
       }
       if (btn.dataset.action === "clear") {
@@ -528,14 +497,14 @@ export class OverlayUI {
       } else if (btn.dataset.action === "chat") {
         this.togglePageChat();
       } else if (btn.dataset.action === "sessions") {
-        void this.toggleSessions();
+        void this.sessions.toggle();
       } else if (btn.dataset.action === "agent") {
         void this.providers.toggle();
       }
     });
     this.status.addEventListener("click", (e) => {
       const btn = (e.target as Element).closest<HTMLButtonElement>("button");
-      if (btn?.dataset.status === "chat") this.openSession(btn.dataset.session ?? this.currentThread()?.sessionId ?? "");
+      if (btn?.dataset.status === "chat") this.threads.open(btn.dataset.session ?? this.currentThread()?.sessionId ?? "");
     });
     // Keys typed into the dock must not reach the host page's shortcuts.
     for (const type of ["keydown", "keyup", "keypress"] as const) {

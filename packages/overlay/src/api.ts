@@ -6,14 +6,19 @@
  * caller needs is missing. Each failure is reported to the `onRequestFailure` listener, which the
  * overlay uses to re-read health (PRD-setup F-81: "after any failed CRT request").
  *
- * The paths are the server's own constants (`routes.ts` imports nothing, so the bundle gains a few
- * strings). `health.ts` keeps its fetch — it is what the listener runs — and `loader.ts` stays
- * self-contained (N-20).
+ * `health.ts` keeps its fetch — it is what the listener runs — and `loader.ts` stays self-contained
+ * (N-20).
  */
 import type { CapturePost } from "../../server/src/capture-schema.js";
-import { CAPTURES_PATH, CONFIG_PATH, PROVIDERS_PATH, SESSIONS_PATH } from "../../server/src/routes.js";
 import type { ProvidersPayload, SessionInfo } from "../../server/src/session-events.js";
 import { crtUrl } from "./base.js";
+
+// The routes the overlay calls. The server's routes.ts names them too and a test pins the two
+// equal (test/overlay-structure.test.ts); importing routes.ts would ship every CRT path.
+export const CAPTURES_PATH = "/__crt/captures";
+export const SESSIONS_PATH = "/__crt/sessions";
+export const PROVIDERS_PATH = "/__crt/providers";
+export const CONFIG_PATH = "/__crt/config";
 
 /** F-13: where the server wrote a capture. */
 export interface SendResult {

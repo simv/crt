@@ -6,9 +6,11 @@
  * N-7 problem line) and the project this tab first saw (sessionStorage, the "different project"
  * Should), so ui.ts only wires the triggers and paints the result.
  */
-import { HEALTH_PATH } from "../../server/src/routes.js";
 import { CRT_ORIGIN, crtUrl } from "./base.js";
 import { safeGetJson, safeSet } from "./storage.js";
+
+/** PRD-setup F-78 (routes.ts `HEALTH_PATH`; test/overlay-structure.test.ts pins the two equal). */
+export const HEALTH_PATH = "/__crt/health";
 
 /** Per tab: the server this tab first loaded from, to spot a `crt serve` from another session (F-81 Should). */
 const SERVER_KEY = "crt.server.v1";

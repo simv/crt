@@ -11,8 +11,8 @@
 import type { CaptureBundle } from "../../server/src/capture-schema.js";
 import type { ProvidersPayload, SessionInfo } from "../../server/src/session-events.js";
 import { type Annotation, AnnotationStore } from "./annotations.js";
-import { CRT_ORIGIN, EMBEDDED_MODE } from "./base.js";
 import { listSessions, type SendResult } from "./api.js";
+import { CRT_ORIGIN, EMBEDDED_MODE } from "./base.js";
 import { capture } from "./capture.js";
 import type { ChatSnapshot } from "./chat.js";
 import { detectComponents, detectFramework } from "./component.js";
@@ -20,6 +20,7 @@ import { clearConsoleEntries, consoleEntries, installConsoleHooks } from "./cons
 import { describeElement } from "./element.js";
 import { clearNetworkEntries, installNetworkHooks, networkEntries } from "./network-hook.js";
 import { selectorFor, xpathFor } from "./selector.js";
+import { canQuickNote } from "./send-plan.js";
 import type { HealthPayload, HealthState } from "./health.js";
 import { OverlayUI, type SendOptions, type ThreadSummary, type Tool } from "./ui.js";
 
@@ -131,8 +132,8 @@ function mount(): void {
     toggle: (force) => ui.toggle(force),
     isOpen: () => ui.isOpen(),
     setTool: (tool) => ui.setTool(tool),
-    currentTool: () => ui.currentTool(),
-    hoverAt: (x, y) => ui.hoverAt(x, y),
+    currentTool: () => ui.tools.current(),
+    hoverAt: (x, y) => ui.tools.hoverAt(x, y),
     annotations: () => store.all().map(summary),
     addSelect: (target) => store.addSelect(resolve(target)).n,
     addBox: (rect) => store.addBox(rect).n,
@@ -145,8 +146,8 @@ function mount(): void {
       return { bundle: r.bundle, imageNames: Object.keys(r.images) };
     },
     send: (opts) => ui.sendToAgent(opts),
-    canQuickNote: (n) => ui.canQuickNote(n),
-    threads: () => ui.threadSummaries(),
+    canQuickNote: (n) => canQuickNote(store.all(), { n }),
+    threads: () => ui.threads.summaries(),
     togglePop: (n, force) => ui.togglePop(n, force),
     togglePageChat: (force) => ui.togglePageChat(force),
     providers: {
@@ -165,19 +166,19 @@ function mount(): void {
     clearConsole: () => clearConsoleEntries(),
     networkEntries: () => networkEntries(),
     clearNetwork: () => clearNetworkEntries(),
-    checkHealth: () => ui.checkHealth(),
-    healthState: () => ui.healthState(),
+    checkHealth: () => ui.launcher.checkHealth(),
+    healthState: () => ui.launcher.healthState(),
     welcome: () => ui.welcome(),
     crtOrigin: () => CRT_ORIGIN,
     embeddedMode: () => EMBEDDED_MODE,
     sessions: {
-      toggle: (force) => ui.toggleSessions(force),
+      toggle: (force) => ui.sessions.toggle(force),
       list: () => listSessions(),
     },
     chat: {
       snapshot: () => current()?.snapshot() ?? empty,
       isOpen: () => current()?.isOpen() ?? false,
-      open: (id) => ui.openSession(id),
+      open: (id) => ui.threads.open(id),
       show: (open) => current()?.show(open),
       send: (text) => current()?.send(text) ?? Promise.resolve(),
       respond: (id, behavior) => current()?.respond(id, behavior) ?? Promise.resolve(),

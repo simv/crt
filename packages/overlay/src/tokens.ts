@@ -40,11 +40,7 @@ export const PILL = {
 } as const;
 /** The "experimental" badge on a provider row, `[background, text]`. */
 export const EXPERIMENTAL = ["#fff3cd", "#7a5200"] as const;
-
-/** A token at `alpha`, written the way the stylesheet always has: `tint(ACCENT, 0.08)` is `rgba(255,61,113,.08)`. */
-export function tint(hex: string, alpha: number): string {
-  const h = hex.slice(1);
-  const full = h.length === 3 ? h.replace(/./g, "$&$&") : h;
-  const [r, g, b] = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16));
-  return `rgba(${r},${g},${b},${String(alpha).replace(/^0\./, ".")})`;
-}
+/** ACCENT at 8%: the fill of the Select outline and of a Box being drawn (a test pins it to ACCENT). */
+export const ACCENT_WASH = "rgba(255,61,113,.08)";
+/** INK at 90%: the tool hint's pill (a test pins it to INK). */
+export const INK_90 = "rgba(17,17,17,.9)";
