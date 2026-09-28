@@ -33,9 +33,10 @@
  */
 import type { ProviderRow, ProvidersPayload, SessionInfo, SessionState } from "../../server/src/session-events.js";
 import { type Annotation, AnnotationStore, toViewportRect } from "./annotations.js";
-import { CRT_ORIGIN, crtUrl } from "./base.js";
-import { capture, send, type SendResult } from "./capture.js";
-import { CHAT_CSS, ChatPanel, type QuietOutcome, type StartOptions } from "./chat.js";
+import { closeSession, fetchProviders, isSessionAlive, listSessions, onRequestFailure, postCapture, saveProvider, type SendResult, startSession, type StartOptions } from "./api.js";
+import { CRT_ORIGIN } from "./base.js";
+import { capture } from "./capture.js";
+import { CHAT_CSS, ChatPanel, type QuietOutcome } from "./chat.js";
 import { nearestComponentName } from "./component.js";
 import { labelOf } from "./element.js";
 import { CHECKING_TOOLTIP, crtPort, deriveHealth, fetchHealth, type HealthPayload, type HealthState, rememberServer } from "./health.js";
@@ -54,8 +55,6 @@ const PROVIDER_KEY = "crt.provider.v1";
 const PAGE_THREADS_KEY = "crt.pagechats.v1";
 /** F-66: the session whose popover was open, per tab, so a reload re-opens it. */
 const OPEN_KEY = "crt.open.v1";
-export const PROVIDERS_ENDPOINT = "/__crt/providers";
-export const CONFIG_ENDPOINT = "/__crt/config";
 const EDGE = 16;
 /** What the toolbar calls the agent before the server has said which one it is. */
 const UNKNOWN_AGENT = "the agent";
@@ -398,7 +397,8 @@ export class OverlayUI {
     this.placeLauncher(); // needs the launcher's real height, so after mount
     this.render();
     void this.restoreThreads(); // a reload re-attaches every thread (F-66)
-    this.providersReady = this.loadProviders(false).catch(() => this.noteFailure()); // F-56: label the Send buttons with the active agent
+    onRequestFailure(() => this.noteFailure()); // F-81: any failed CRT request re-reads health
+    this.providersReady = this.loadProviders(false).catch(() => undefined); // F-56: label the Send buttons with the active agent
     this.wireHealth();
   }
 
@@ -486,14 +486,14 @@ export class OverlayUI {
     hostPop?.classList.add("sending");
     this.showStatus("Capturing page…");
     this.render();
-    const warm = ChatPanel.warmStart(start).catch(() => null);
+    const warm = startSession(null, start).catch(() => null);
     try {
       const result = await capture(this.store, { ids, ...(note ? { note } : {}) });
       this.showStatus(`Sending to ${escapeHtml(name)}…`);
-      const sent = await send(result);
+      const sent = await postCapture(result);
       this.showStatus(`Capture saved: <code>${escapeHtml(sent.dir)}</code>`, false, !quick);
       try {
-        const sessionId = (await warm) ?? (await ChatPanel.createSession(sent.id, start));
+        const sessionId = (await warm) ?? (await startSession(sent.id, start));
         const thread = this.addThread(sessionId, ids);
         if (thread.annotationIds.length) this.store.setSession(thread.annotationIds, sessionId);
         else this.persistPageThreads();
@@ -511,9 +511,8 @@ export class OverlayUI {
       }
       return sent;
     } catch (err) {
-      void warm.then((id) => (id ? ChatPanel.abandon(id) : undefined));
+      void warm.then((id) => (id ? closeSession(id).catch(() => undefined) : undefined));
       this.showStatus(`Send failed: ${escapeHtml(err instanceof Error ? err.message : String(err))}`, true);
-      this.noteFailure();
       throw err;
     } finally {
       this.busy = false;
@@ -674,7 +673,7 @@ export class OverlayUI {
     await Promise.all(
       [...groups].map(async ([sessionId, ids]) => {
         if (this.threadFor(sessionId)) return;
-        if (await ChatPanel.alive(sessionId)) {
+        if (await isSessionAlive(sessionId)) {
           const thread = this.addThread(sessionId, ids);
           if (sessionId === wanted) thread.chat.open(sessionId);
           else thread.chat.watch(sessionId);
@@ -1007,10 +1006,7 @@ export class OverlayUI {
 
   /** `GET /__crt/providers`, with `?refresh=1` to re-run the server's preflight (F-56, F-57). */
   async loadProviders(refresh: boolean): Promise<ProvidersPayload> {
-    const res = await fetch(crtUrl(`${PROVIDERS_ENDPOINT}${refresh ? "?refresh=1" : ""}`));
-    const data = (await res.json().catch(() => ({}))) as Partial<ProvidersPayload> & { error?: string };
-    if (!res.ok || !data.ok || !data.providers || !data.active) throw new Error(data.error ?? `CRT server answered ${res.status}`);
-    this.providers = data as ProvidersPayload;
+    this.providers = await fetchProviders(refresh);
     this.render();
     this.renderHealth(); // the tooltip names the agent and carries its N-7 line (F-81)
     return this.providers;
@@ -1039,7 +1035,6 @@ export class OverlayUI {
       const why = into.querySelector(".why");
       if (why) why.textContent = `Could not list agents: ${err instanceof Error ? err.message : String(err)}`;
       into.classList.remove("refreshing");
-      this.noteFailure();
     }
   }
 
@@ -1100,14 +1095,8 @@ export class OverlayUI {
 
   /** F-57 `PUT /__crt/config { provider }`: the server writes the local file and replaces its active provider. */
   async rememberProvider(id: string): Promise<void> {
-    const res = await fetch(crtUrl(CONFIG_ENDPOINT), {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ provider: id }),
-    });
-    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; active?: string; error?: string };
-    if (!res.ok || !data.ok) throw new Error(data.error ?? `CRT server answered ${res.status}`);
-    if (this.providers && data.active) this.providers = { ...this.providers, active: data.active };
+    const active = await saveProvider(id);
+    if (this.providers && active) this.providers = { ...this.providers, active };
   }
 
   // ---- session list (F-30) ---------------------------------------------------------------------
@@ -1126,10 +1115,9 @@ export class OverlayUI {
     this.render();
     let list: SessionInfo[];
     try {
-      list = await ChatPanel.listSessions();
+      list = await listSessions();
     } catch (err) {
       this.sessions.querySelector(".empty")!.textContent = `Could not list sessions: ${err instanceof Error ? err.message : String(err)}`;
-      this.noteFailure();
       return;
     }
     this.renderSessions(list);

@@ -1,29 +1,20 @@
 /**
  * Capture engine (PRD F-13, F-15…F-22; F-65, F-68): freeze an annotation set into a
- * CaptureBundle with screenshots, then POST it to the CRT server, which writes
+ * CaptureBundle with screenshots; `api.ts` POSTs it to the CRT server, which writes
  * `.crt/captures/<id>/`. F-65 sends one annotation (or a chosen subset) per capture, keeping the
  * badge numbers the developer sees; F-68 sends no annotations and a page-level `note`.
  */
-import type { AnnotationInfo, CaptureBundle, CapturePost, ElementInfo, PageInfo } from "../../server/src/capture-schema.js";
+import type { AnnotationInfo, CaptureBundle, ElementInfo, PageInfo } from "../../server/src/capture-schema.js";
 import { type Annotation, type AnnotationStore, toViewportRect } from "./annotations.js";
-import { crtUrl } from "./base.js";
 import { detectFramework } from "./component.js";
 import { consoleEntries } from "./console-hook.js";
 import { describeElement } from "./element.js";
 import { networkEntries } from "./network-hook.js";
 import { type MarkerSpec, takeScreenshots } from "./screenshot.js";
 
-export const CAPTURES_ENDPOINT = "/__crt/captures";
-
 export interface CaptureResult {
   bundle: CaptureBundle;
   images: Record<string, string>;
-}
-
-export interface SendResult {
-  id: string;
-  dir: string;
-  files: string[];
 }
 
 /** F-15 page metadata. */
@@ -113,19 +104,4 @@ export async function capture(store: AnnotationStore, opts: CaptureOptions = {})
 
 function isInfo(x: ElementInfo | null): x is ElementInfo {
   return x !== null;
-}
-
-/** F-13: POST the capture; the server assigns the id and returns where it was written. */
-export async function send(result: CaptureResult): Promise<SendResult> {
-  const body: CapturePost = { bundle: result.bundle, images: result.images };
-  const res = await fetch(crtUrl(CAPTURES_ENDPOINT), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = (await res.json().catch(() => ({}))) as Partial<SendResult> & { ok?: boolean; error?: string };
-  if (!res.ok || !data.ok || !data.id || !data.dir) {
-    throw new Error(data.error ?? `CRT server answered ${res.status}`);
-  }
-  return { id: data.id, dir: data.dir, files: data.files ?? [] };
 }

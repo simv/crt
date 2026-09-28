@@ -17,12 +17,11 @@
  * sandbox" badge when `sandboxed`. The panel's own title stays "CRT" (F-64).
  * Framework-free; renders inside the overlay's Shadow DOM.
  */
-import type { IntakeSummary, SessionEvent, SessionInfo, SessionState } from "../../server/src/session-events.js";
-import { crtUrl } from "./base.js";
+import type { IntakeSummary, SessionEvent, SessionState } from "../../server/src/session-events.js";
+import { answerPermission, attachSessionCapture, closeSession, interruptSession, sendSessionMessage, sessionEventsUrl } from "./api.js";
 import { ACCEPT_LINE, ACCEPT_REPLY, endsWithAcceptLine, summarizeProposal } from "./proposal.js";
 import { ACCENT } from "./tokens.js";
 
-export const SESSIONS_ENDPOINT = "/__crt/sessions";
 /** What the panel calls the agent before its `init` event has arrived. */
 const UNKNOWN_AGENT = "the agent";
 
@@ -134,12 +133,6 @@ export type QuietOutcome =
   /** The panel opened itself: the agent asked a question, needs a permission, or failed. */
   | { kind: "attention"; reason: string };
 
-/** F-56: which provider a new session should run on (the request-body value, F-43 step 1). */
-export interface StartOptions {
-  quick?: boolean;
-  provider?: string | null;
-}
-
 export interface ChatCallbacks {
   onVisibility(open: boolean): void;
   onQuiet(outcome: QuietOutcome): void;
@@ -241,10 +234,6 @@ export class ChatPanel {
     el.title = text;
   }
 
-  sessionIdOf(): string | null {
-    return this.sessionId;
-  }
-
   snapshot(): ChatSnapshot {
     return { sessionId: this.sessionId, state: this.state, taskId: this.taskId, provider: this.init?.provider ?? null, quiet: this.quiet, events: this.events.slice() };
   }
@@ -263,56 +252,11 @@ export class ChatPanel {
     return this.init?.displayName ?? UNKNOWN_AGENT;
   }
 
-  /** F-13/F-24: start an intake session for a saved capture and open the panel on it (or follow it quietly, F-14). */
-  async startFromCapture(captureId: string, opts: StartOptions = {}): Promise<string> {
-    const id = await ChatPanel.createSession(captureId, opts);
-    if (opts.quick) this.follow(id);
-    else this.open(id);
-    return id;
-  }
-
-  /**
-   * N-2 warm start: boot the session while the capture is still being rasterised, then
-   * `attachCapture` once it is saved (or `abandon` if the capture failed).
-   */
-  static warmStart(opts: StartOptions = {}): Promise<string> {
-    return ChatPanel.createSession(null, opts);
-  }
-
+  /** N-2: a warm session gets its capture once it is saved; then the panel opens on it (or follows it quietly, F-14). */
   async attachCapture(sessionId: string, captureId: string, opts: { quick?: boolean } = {}): Promise<void> {
-    const res = await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${sessionId}/capture`), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ captureId }),
-    });
-    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-    if (!res.ok || !data.ok) throw new Error(data.error ?? `CRT server answered ${res.status}`);
+    await attachSessionCapture(sessionId, captureId);
     if (opts.quick) this.follow(sessionId);
     else this.open(sessionId);
-  }
-
-  static async abandon(sessionId: string): Promise<void> {
-    await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${sessionId}`), { method: "DELETE" }).catch(() => undefined);
-  }
-
-  /** F-30: the server's recent intake sessions, newest first. */
-  static async listSessions(): Promise<SessionInfo[]> {
-    const res = await fetch(crtUrl(SESSIONS_ENDPOINT));
-    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; sessions?: SessionInfo[]; error?: string };
-    if (!res.ok || !data.ok || !data.sessions) throw new Error(data.error ?? `CRT server answered ${res.status}`);
-    return data.sessions;
-  }
-
-  static async createSession(captureId: string | null, opts: StartOptions): Promise<string> {
-    const res = await fetch(crtUrl(SESSIONS_ENDPOINT), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      // F-56/F-43 step 1: the per-send provider, only when the developer picked one for this send.
-      body: JSON.stringify({ ...(captureId ? { captureId } : {}), ...(opts.quick ? { quick: true } : {}), ...(opts.provider ? { provider: opts.provider } : {}) }),
-    });
-    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; id?: string; error?: string };
-    if (!res.ok || !data.ok || !data.id) throw new Error(data.error ?? `CRT server answered ${res.status}`);
-    return data.id;
   }
 
   /** Attach to an existing session (replays its transcript) and show the panel. */
@@ -359,13 +303,6 @@ export class ChatPanel {
     }
   }
 
-  /** Whether the server still has a session (a reload re-attaches only live ones, F-66). */
-  static async alive(sessionId: string): Promise<boolean> {
-    return fetch(crtUrl(`${SESSIONS_ENDPOINT}/${sessionId}`))
-      .then((r) => r.ok)
-      .catch(() => false);
-  }
-
   /** Stop listening and drop the DOM (the owner forgot this thread; the server session is untouched). */
   dispose(): void {
     this.detach();
@@ -382,28 +319,20 @@ export class ChatPanel {
     }
   }
 
+  /** F-25: a reply; a failed one says so in the chat. */
   async send(text: string): Promise<void> {
     if (!this.sessionId || !text.trim()) return;
-    const res = await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${this.sessionId}/messages`), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text }),
-    });
-    if (!res.ok) this.system(`Could not send (${res.status})`, true);
+    await sendSessionMessage(this.sessionId, text).catch((err: unknown) => this.unreachable("send", err));
   }
 
   async interrupt(): Promise<void> {
     if (!this.sessionId) return;
-    await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${this.sessionId}/interrupt`), { method: "POST" });
+    await interruptSession(this.sessionId);
   }
 
   async respond(permissionId: string, behavior: "allow" | "deny"): Promise<void> {
     if (!this.sessionId) return;
-    await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${this.sessionId}/permission`), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: permissionId, behavior }),
-    });
+    await answerPermission(this.sessionId, permissionId, behavior);
   }
 
   /** F-29/F-66 "Discard": close the server-side session, hide the panel, and tell the owner to drop the thread. */
@@ -423,7 +352,7 @@ export class ChatPanel {
     this.init = null;
     this.renderAgent();
     this.show(false);
-    if (id) await fetch(crtUrl(`${SESSIONS_ENDPOINT}/${id}`), { method: "DELETE" }).catch(() => undefined);
+    if (id) await closeSession(id).catch(() => undefined);
     this.callbacks.onDiscard();
   }
 
@@ -431,7 +360,7 @@ export class ChatPanel {
 
   private connect(): void {
     if (!this.sessionId) return;
-    const source = new EventSource(crtUrl(`${SESSIONS_ENDPOINT}/${this.sessionId}/events?after=${this.lastSeq}`));
+    const source = new EventSource(sessionEventsUrl(this.sessionId, this.lastSeq));
     this.source = source;
     this.live = false;
     source.addEventListener("live", () => (this.live = true));

@@ -12,8 +12,9 @@ import type { CaptureBundle } from "../../server/src/capture-schema.js";
 import type { ProvidersPayload, SessionInfo } from "../../server/src/session-events.js";
 import { type Annotation, AnnotationStore } from "./annotations.js";
 import { CRT_ORIGIN, EMBEDDED_MODE } from "./base.js";
-import { capture, type SendResult } from "./capture.js";
-import { ChatPanel, type ChatSnapshot } from "./chat.js";
+import { listSessions, type SendResult } from "./api.js";
+import { capture } from "./capture.js";
+import type { ChatSnapshot } from "./chat.js";
 import { detectComponents, detectFramework } from "./component.js";
 import { clearConsoleEntries, consoleEntries, installConsoleHooks } from "./console-hook.js";
 import { describeElement } from "./element.js";
@@ -171,7 +172,7 @@ function mount(): void {
     embeddedMode: () => EMBEDDED_MODE,
     sessions: {
       toggle: (force) => ui.toggleSessions(force),
-      list: () => ChatPanel.listSessions(),
+      list: () => listSessions(),
     },
     chat: {
       snapshot: () => current()?.snapshot() ?? empty,

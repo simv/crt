@@ -6,9 +6,9 @@
  * N-7 problem line) and the project this tab first saw (sessionStorage, the "different project"
  * Should), so ui.ts only wires the triggers and paints the result.
  */
+import { HEALTH_PATH } from "../../server/src/routes.js";
 import { CRT_ORIGIN, crtUrl } from "./base.js";
 
-export const HEALTH_ENDPOINT = "/__crt/health";
 /** Per tab: the server this tab first loaded from, to spot a `crt serve` from another session (F-81 Should). */
 export const SERVER_KEY = "crt.server.v1";
 
@@ -70,7 +70,7 @@ export function deriveHealth(i: HealthInputs): HealthView {
 /** `GET /__crt/health`; "failed" for a network error or a non-2xx answer (F-81 `unreachable`). */
 export async function fetchHealth(): Promise<HealthPayload | "failed"> {
   try {
-    const res = await fetch(crtUrl(HEALTH_ENDPOINT), { cache: "no-store" });
+    const res = await fetch(crtUrl(HEALTH_PATH), { cache: "no-store" });
     if (!res.ok) return "failed";
     const data = (await res.json()) as HealthPayload;
     return data && data.ok ? data : "failed";
