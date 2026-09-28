@@ -40,6 +40,7 @@ import { nearestComponentName } from "./component.js";
 import { labelOf } from "./element.js";
 import { CHECKING_TOOLTIP, crtPort, deriveHealth, fetchHealth, type HealthPayload, type HealthState, rememberServer } from "./health.js";
 import { placePopover } from "./popover.js";
+import { canQuickNote, planSend, type SendOptions } from "./send-plan.js";
 import { ACCENT, ACCENT_HOVER, DANGER, ERROR, EXPERIMENTAL, IDLE, INK, OK, PILL, WARN } from "./tokens.js";
 import { isOverlayNode } from "./selector.js";
 import { buildWelcome, markWelcomeSeen, shouldShowWelcome, WELCOME_CSS, welcomeCopy, welcomeSeen } from "./welcome.js";
@@ -261,16 +262,7 @@ interface MarkerEls {
   at: string;
 }
 
-export interface SendOptions {
-  /** F-65: the annotation to send; the most recent unsent one when omitted. */
-  n?: number;
-  /** F-14 quick note. */
-  quick?: boolean;
-  /** F-65: also send every other unsent annotation in the same capture (F-11 grouping). */
-  include?: boolean;
-  /** F-68: a page-level chat — no annotations, this message as the bundle's note. */
-  message?: string;
-}
+export type { SendOptions };
 
 export class OverlayUI {
   readonly host: HTMLElement;
@@ -481,18 +473,7 @@ export class OverlayUI {
     const quick = opts.quick === true;
     if (this.busy) throw new Error("already sending");
     const page = opts.message !== undefined;
-    let ids: string[] = [];
-    let note: string | undefined;
-    if (page) {
-      note = opts.message!.trim();
-      if (!note) throw new Error("nothing to send: type a message first");
-    } else {
-      const primary = opts.n !== undefined ? this.store.get(opts.n) : this.store.unsent().at(-1);
-      if (!primary) throw new Error(opts.n !== undefined ? `no annotation ${opts.n}` : "nothing to send: add an annotation first");
-      if (primary.sessionId) throw new Error(`annotation ${primary.n} was already sent`);
-      ids = [primary.id, ...(opts.include ? this.store.unsent().filter((a) => a.id !== primary.id).map((a) => a.id) : [])];
-      if (quick && !ids.every((id) => this.store.byId(id)?.note.trim())) throw new Error("quick note needs a note on every annotation");
-    }
+    const { ids, note } = planSend(this.store.all(), opts);
     this.store.flush(); // N-3: a note typed just now is persisted before the send
     this.busy = true;
     this.setTool(null);
@@ -543,8 +524,7 @@ export class OverlayUI {
 
   /** F-14: a quick note needs words, since there is no conversation to add them; `n` defaults to the most recent unsent annotation. */
   canQuickNote(n?: number): boolean {
-    const a = n !== undefined ? this.store.get(n) : this.store.unsent().at(-1);
-    return !!a && a.sessionId === null && a.note.trim() !== "";
+    return canQuickNote(this.store.all(), { n });
   }
 
   private onQuiet(outcome: QuietOutcome, sessionId: string): void {
@@ -948,6 +928,7 @@ export class OverlayUI {
     const active = this.root.activeElement as HTMLElement | null;
     const activeId = active?.closest<HTMLElement>(".pop")?.dataset.id;
     const unsent = this.store.unsent();
+    const all = this.store.all();
     const provider = this.sendProvider();
     const name = this.providerName(provider);
     for (const a of items) {
@@ -969,17 +950,16 @@ export class OverlayUI {
       const sendBtn = pop.querySelector("[data-action=send]") as HTMLButtonElement;
       this.labelSend(sendBtn, provider, name);
       sendBtn.disabled = this.busy;
-      const quickable = a.note.trim() !== "" && (!included || others.every((o) => o.note.trim() !== ""));
-      (pop.querySelector("[data-action=quick]") as HTMLButtonElement).disabled = this.busy || !quickable;
+      (pop.querySelector("[data-action=quick]") as HTMLButtonElement).disabled = this.busy || !canQuickNote(all, { n: a.n, include: included });
       (pop.querySelector("[data-action=delete]") as HTMLButtonElement).disabled = this.busy;
       pop.classList.toggle("threaded", a.sessionId !== null && this.threads.some((t) => t.pop === pop));
     }
     // F-68: the page-level compose box.
     const pageSend = this.pagePop.querySelector("[data-action=send]") as HTMLButtonElement;
     this.labelSend(pageSend, provider, name);
-    const message = (this.pagePop.querySelector("textarea") as HTMLTextAreaElement).value.trim();
-    pageSend.disabled = this.busy || message === "";
-    (this.pagePop.querySelector("[data-action=quick]") as HTMLButtonElement).disabled = this.busy || message === "";
+    const message = (this.pagePop.querySelector("textarea") as HTMLTextAreaElement).value;
+    pageSend.disabled = this.busy || message.trim() === "";
+    (this.pagePop.querySelector("[data-action=quick]") as HTMLButtonElement).disabled = this.busy || !canQuickNote(all, { message });
     (this.pagePop.querySelector("textarea") as HTMLTextAreaElement).placeholder = `Ask ${name} about this page…`;
     for (const t of this.threads) t.chat.setTitle(this.threadTitle(t.annotationIds));
   }
