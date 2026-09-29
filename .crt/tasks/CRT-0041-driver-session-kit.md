@@ -1,10 +1,10 @@
 ---
 id: CRT-0041
 title: A driver kit for sessions — one emitter, turn queue, permission broker and init event; task_written recorded by the registry
-status: review
+status: done
 priority: normal
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-29T11:26:00+08:00
+updated: 2026-09-29T11:29:00+08:00
 url: null
 route: null
 session: null
@@ -88,3 +88,4 @@ No page capture: from the code review in session e145e7ac, 2026-09-24. The Codex
 - 2026-09-29T11:26+08:00 — verified (DoD 6): I ran a manual Claude intake in the trial app (C:\Projects\Claude\tool-validation, `next dev -p 3100`, its `<CrtDevTools />` loader) against `crt serve --port 4400` from this branch's build (embedded; provider claude, login ok; Claude Code 2.1.270, claude-opus-5). I drove the overlay headlessly with Playwright: select `[data-testid="cart-total"]`, a note, Send; the agent read the source and proposed; I replied "Yes, that's right. Write the task." The agent called `mcp__crt__write_task`, CRT-0022-cart-total-ignores-the-applied-save10.md landed in the trial app's .crt/tasks (`crt task CRT-0022 --validate` passes; `provider: claude`, `session:` = the Claude session id), and the panel showed "Task CRT-0022 written to …" and the task card. The marker read CRT-0022 and the session ended `idle` with `taskId` CRT-0022. `npm run check` green again (64 files, 817 passed, 2 skipped); `npm run e2e -- --workers=2` 74/74 — on this tree, identical in code to the 2026-09-28 run after the merge.
 - 2026-09-29T11:26+08:00 — Claude's SSE order, now recorded live (DoD 4 said "by construction"): the write turn ran `user → state:running → init → state:running → assistant_start → state:running → tool_use(mcp__crt__write_task) → task_written → assistant_end → tool_result`. So `task_written` comes right after the write_task `tool_use` and before the tool's answer, as for every other provider. The stream had exactly one `task_written` and the server log exactly one `crt: task CRT-0022 written to …` line. The second `init` at the start of the reply turn is unchanged from `main`: the Claude driver emits one per SDK `system/init` message there too.
 - 2026-09-29T11:26+08:00 — ready for review: changed packages/server/src/providers/driver-core.ts (new), claude.ts, codex.ts, antigravity.ts, acp.ts, gemini.ts, stub.ts, detect.ts, types.ts, packages/server/src/session.ts, sessions.ts, session-events.ts, write-task.ts, mcp-stdio.ts; tests driver-core.test.ts (new), conformance.ts, codex.test.ts, session.test.ts, sessions.test.ts, e2e/chat.spec.ts; CLAUDE.md (driver-core.ts in the entry points). The behaviour changes, all named in the 2026-09-28 Log: the listener fix; the stub's `task_written` now comes before its `tool_result`; the stub logs the task once; a card settled by teardown makes no passing `running`; the stub's variant-mismatch errors come after the echo; and the timeout text names the configured timeout. The branch includes `main` up to #99.
+- 2026-09-29T11:29+08:00 — PR https://github.com/simv/crt/pull/100 CI green (changes, check (windows-latest), check (ubuntu-latest), e2e (ubuntu)) — done; closed in https://github.com/simv/crt/pull/100
