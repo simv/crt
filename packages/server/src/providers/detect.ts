@@ -16,7 +16,7 @@
  * Pure: everything it consults is passed in, so F-60 covers every table row without a machine.
  */
 import { readdirSync } from "node:fs";
-import { type PreflightResult, preflightPasses, preflightState, type ProviderProfile } from "./types.js";
+import { NO_PREFLIGHT, type PreflightResult, preflightPasses, preflightState, type ProviderProfile } from "./types.js";
 
 /** The provider auto-detection falls back to: Claude Code (Goal 2). */
 export const DEFAULT_PROVIDER = "claude";
@@ -56,7 +56,7 @@ export function scanMarkers(root: string, profiles: ProviderProfile[]): Record<s
 
 export function detectProvider(input: DetectInput): Decision {
   const { profiles, env } = input;
-  const preflight = (id: string): PreflightResult => input.preflights[id] ?? { installed: false, loggedIn: "unknown", version: null, problem: "no preflight" };
+  const preflight = (id: string): PreflightResult => input.preflights[id] ?? NO_PREFLIGHT;
   const passes = (p: ProviderProfile) => preflightPasses(preflight(p.id));
   const markers = scanMarkers(input.root, profiles);
   const found = (p: ProviderProfile, names: string[]) => names.filter((m) => markers[p.id]?.includes(m));

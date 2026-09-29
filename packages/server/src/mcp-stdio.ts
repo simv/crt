@@ -18,7 +18,7 @@ import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import { INTERNAL_WRITE_TASK_PATH } from "./routes.js";
 import type { WriteTaskRequest } from "./session-events.js";
-import { CRT_MCP_SERVER, parseWriteTaskRequest, WRITE_TASK_DESCRIPTION, WRITE_TASK_TOOL, writeTaskJsonSchema } from "./write-task.js";
+import { CRT_MCP_SERVER, parseWriteTaskRequest, WRITE_TASK_DESCRIPTION, WRITE_TASK_TOOL, writeTaskErrorText, writeTaskJsonSchema, writeTaskResultText } from "./write-task.js";
 
 export { INTERNAL_WRITE_TASK_PATH };
 /** Newest first. `initialize` echoes the client's version when it is here, else `[0]`. */
@@ -176,15 +176,15 @@ export class McpStdioServer {
 
   private async callWriteTask(args: unknown): Promise<ToolResult> {
     const parsed = parseWriteTaskRequest(args ?? {});
-    if (!parsed.ok) return { content: [{ type: "text", text: `write_task failed: ${parsed.error}` }], isError: true };
+    if (!parsed.ok) return { content: [{ type: "text", text: writeTaskErrorText(parsed.error) }], isError: true };
     let r: ForwardResult;
     try {
       r = await this.forward(parsed.value, this.target);
     } catch (err) {
       r = { ok: false, error: (err as Error).message };
     }
-    if (!r.ok) return { content: [{ type: "text", text: r.error === STALE_TOKEN_LINE ? r.error : `write_task failed: ${r.error}` }], isError: true };
-    return { content: [{ type: "text", text: `Task ${r.id} written to ${r.path}` }] };
+    if (!r.ok) return { content: [{ type: "text", text: r.error === STALE_TOKEN_LINE ? r.error : writeTaskErrorText(r.error) }], isError: true };
+    return { content: [{ type: "text", text: writeTaskResultText(r) }] };
   }
 }
 

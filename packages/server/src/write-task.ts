@@ -1,10 +1,12 @@
 /**
  * The `write_task` tool as every agent sees it (PRD F-24, F-32; PRD-providers §5.3, F-49): one
- * name, one description, one input schema, whichever way the call arrives — in-process through
- * the Agent SDK for Claude (`providers/claude.ts`) or over stdio through `crt mcp`
- * (`mcp-stdio.ts`) for every other provider. Both paths validate with `parseWriteTaskRequest`
- * and hand the same `WriteTaskRequest` to the same `writeTask` in `sessions.ts`, so a task file
- * is identical whichever route wrote it (§5.3, tested in sessions.test.ts).
+ * name, one description, one input schema, and one answer text, whichever way the call arrives —
+ * in-process through the Agent SDK for Claude (`providers/claude.ts`) or over stdio through
+ * `crt mcp` (`mcp-stdio.ts`) for every other provider. Both paths check the arguments against
+ * `writeTaskShape` — the SDK's MCP server does it for the in-process tool before its handler runs,
+ * `parseWriteTaskRequest` does it for `crt mcp` and again for the internal route — and hand the
+ * same `WriteTaskRequest` to the same `writeTask` in `sessions.ts`, which records `task_written`.
+ * So a task file is identical whichever route wrote it (§5.3, tested in sessions.test.ts).
  */
 import { z } from "zod/v4";
 import type { WriteTaskRequest } from "./session-events.js";
@@ -49,6 +51,16 @@ true satisfies Same<z.infer<typeof writeTaskSchema>, WriteTaskRequest>;
 /** MCP `tools/list` input schema (F-49). */
 export function writeTaskJsonSchema(): Record<string, unknown> {
   return z.toJSONSchema(writeTaskSchema) as Record<string, unknown>;
+}
+
+/** What the agent reads back when the task was written, on both routes. */
+export function writeTaskResultText(written: { id: string; path: string }): string {
+  return `Task ${written.id} written to ${written.path}`;
+}
+
+/** What the agent reads back when the write failed, on both routes: the reason after one fixed prefix. */
+export function writeTaskErrorText(reason: string): string {
+  return `write_task failed: ${reason}`;
 }
 
 /** Validate a tool call's arguments; the error is one line naming the first bad field. */

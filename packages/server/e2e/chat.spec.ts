@@ -161,6 +161,8 @@ test.describe("chat panel (F-24, F-25, F-26, F-28, F-29)", () => {
     await expect(shadow(page, ".chat-task b")).toHaveText(/^CRT-\d{4}$/);
     const snap = await page.evaluate(() => window.__crt.chat.snapshot());
     const written = snap.events.find((e) => e.type === "task_written") as Extract<SessionEvent, { type: "task_written" }>;
+    // CRT-0041: one owner — the registry's write records it once, whichever route the agent took.
+    expect(snap.events.filter((e) => e.type === "task_written")).toHaveLength(1);
     expect(snap.taskId).toBe(written.id);
     // F-67: the marker shows the task id once it is written.
     await expect(shadow(page, ".mark-state")).toHaveText(written.id);
@@ -338,6 +340,7 @@ test.describe("chat panel (F-24, F-25, F-26, F-28, F-29)", () => {
     expect((snap.events[0] as { text: string }).text).toContain("Quick note (F-14)");
     expect(snap.events.some((e) => e.type === "permission")).toBe(false);
     const written = snap.events.find((e) => e.type === "task_written") as Extract<SessionEvent, { type: "task_written" }>;
+    expect(snap.events.filter((e) => e.type === "task_written")).toHaveLength(1); // CRT-0041
 
     // The transcript is still there behind the "open chat" link.
     await shadow(page, ".status button[data-status=chat]").click();
@@ -852,12 +855,16 @@ test.describe("provider UX on the stub axis (F-46, F-47, F-49, F-56, F-57, F-61)
     const log = readFileSync(join(await projectRoot(page), "crt-serve.log"), "utf8");
     expect(log).toContain(STALE_TOKEN_LINE);
     expect(log).not.toMatch(/Bearer\s+\S/);
-    expect(log).not.toMatch(/[A-Za-z0-9_-]{43}/); // a 32-byte base64url token never reaches the log
+    // A 32-byte base64url token (exactly 43 characters) never reaches the log. Bounded, as in the CLI
+    // specs below: since CRT-0041 the registry logs `task … written to .crt/tasks/<ID>-<slug>.md` for
+    // stub sessions too, and a long slug is a run of the same characters.
+    const token = /(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/;
+    expect(log).not.toMatch(token);
     // Nor does it reach the page: the session info and events carry no token.
     const snap = await page.evaluate(() => window.__crt.chat.snapshot());
     const info = await (await page.request.get(`${CRT_ORIGIN}/__crt/sessions/${snap.sessionId}`)).text();
     expect(info).not.toMatch(/token/i);
-    expect(JSON.stringify(snap.events)).not.toMatch(/[A-Za-z0-9_-]{43}/);
+    expect(JSON.stringify(snap.events)).not.toMatch(token);
   });
 });
 

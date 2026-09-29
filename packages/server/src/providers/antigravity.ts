@@ -58,8 +58,9 @@ import type { ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { ProviderCapabilities, SessionDriver, SessionEvent, SessionState, StartSessionOptions, UserInput } from "../session-events.js";
+import type { ProviderCapabilities, SessionDriver, SessionEvent, StartSessionOptions, UserInput } from "../session-events.js";
 import { CRT_MCP_SERVER, WRITE_TASK_TOOL } from "../write-task.js";
+import { createEmitter, createTurnQueue, initEvent } from "./driver-core.js";
 import { type Executable, lineReader, parseJsonLine, type ProcessDeps, realProcessDeps, resolveExecutable, StderrTail } from "./exec.js";
 import { describeUsage, summarize } from "./format.js";
 import type { PreflightOptions, PreflightResult, ProviderProfile } from "./types.js";
@@ -397,17 +398,7 @@ export class AgyMapper {
           return id === this.expectedConversation ? null : { kind: "fail", problem: antigravityCouldNotResume(this.expectedConversation) };
         }
         if (!id) return { kind: "fail", problem: "Antigravity started without a conversation id — cannot resume this session later" };
-        this.emit({
-          type: "init",
-          sessionId: this.opts.id,
-          nativeSessionId: id,
-          provider: antigravityProfile.id,
-          displayName: antigravityProfile.displayName,
-          model: event.init?.model ?? this.opts.model ?? null,
-          agentVersion: this.opts.agentVersion ?? null,
-          resumeCommand: antigravityProfile.resumeCommand(id),
-          capabilities: ANTIGRAVITY_CAPABILITIES,
-                });
+        this.emit(initEvent(antigravityProfile, this.opts, { nativeSessionId: id, model: event.init?.model ?? this.opts.model ?? null, agentVersion: this.opts.agentVersion ?? null }));
         return { kind: "conversation", conversationId: id };
       }
       case "step_update": {
@@ -482,36 +473,20 @@ export interface AntigravityProcessDeps extends ProcessDeps {
  * internal route, and the registry records `task_written` itself (§5.3).
  */
 export function startAntigravitySession(opts: StartSessionOptions, deps: AntigravityProcessDeps = realProcessDeps): SessionDriver {
-  const listeners = new Set<(e: SessionEvent) => void>();
+  const em = createEmitter(opts.log);
+  const { emit, setState } = em;
   const env = process.env;
   const log = opts.log ?? (() => undefined);
-  let state: SessionState = "starting";
-  let closed = false;
   let conversationId: string | null = null;
   let child: ChildProcess | null = null;
   let mapper: AgyMapper | null = null;
   let turnStarted = 0;
   let resolveTurn: (() => void) | null = null;
-  const queue: UserInput[] = [];
   const stderr = new StderrTail(/^warning:/i);
   const sessionDir = deps.sessionDir ? deps.sessionDir(opts) : antigravitySessionDir(opts.cwd, opts.id);
   let plugin: SessionPlugin | null = null;
   let hooksVerified = false;
 
-  const emit = (e: SessionEvent) => {
-    for (const fn of listeners) {
-      try {
-        fn(e);
-      } catch {
-        // a listener failing must not take the session down
-      }
-    }
-  };
-  const setState = (next: SessionState, detail?: string) => {
-    if (closed) return;
-    state = next;
-    emit(detail === undefined ? { type: "state", state: next } : { type: "state", state: next, detail });
-  };
   const killCurrent = () => {
     const pid = child?.pid;
     child = null;
@@ -525,11 +500,8 @@ export function startAntigravitySession(opts: StartSessionOptions, deps: Antigra
     }
   };
   const fail = (problem: string) => {
-    if (closed) return;
-    emit({ type: "error", message: problem });
-    setState("error", problem);
-    closed = true;
-    queue.length = 0;
+    if (!em.fail(problem)) return;
+    queue.clear();
     killCurrent();
     removeSessionDir();
     resolveTurn?.();
@@ -566,7 +538,7 @@ export function startAntigravitySession(opts: StartSessionOptions, deps: Antigra
     proc.stderr?.setEncoding("utf8");
     proc.stderr?.on("data", (chunk: string) => {
       for (const line of stderr.push(chunk)) {
-        if (child !== proc || closed) continue;
+        if (child !== proc || em.isClosed()) continue;
         const login = antigravityLoginProblem(line);
         if (login) {
           fail(login);
@@ -585,7 +557,8 @@ export function startAntigravitySession(opts: StartSessionOptions, deps: Antigra
       stdout.flush();
       if (child !== proc) return; // killed on purpose (interrupt, close, fail)
       child = null;
-      if (closed) return;
+      if (em.isClosed()) return;
+      const state = em.getState();
       if (turn.ended || state === "idle" || state === "starting") {
         // Died between turns: the next message resumes the conversation in a new process.
         log(`crt: agy exited with code ${code} between turns; stderr tail: ${stderr.lines().slice(-3).join(" | ")}`);
@@ -606,7 +579,7 @@ export function startAntigravitySession(opts: StartSessionOptions, deps: Antigra
   };
 
   const handle = (proc: ChildProcess, turn: AgyMapper, line: string) => {
-    if (closed || child !== proc) return;
+    if (em.isClosed() || child !== proc) return;
     const event = parseAgyLine(line);
     if (!event) return;
     const outcome = turn.handle(event, Date.now() - turnStarted);
@@ -620,7 +593,7 @@ export function startAntigravitySession(opts: StartSessionOptions, deps: Antigra
       }
       hooksVerified = true;
     }
-    if (turn.ended && !closed) {
+    if (turn.ended && !em.isClosed()) {
       setState("idle");
       resolveTurn?.();
     }
@@ -629,7 +602,7 @@ export function startAntigravitySession(opts: StartSessionOptions, deps: Antigra
   /** Write one message and wait for its `result` (or the process to die). */
   const runTurn = (input: UserInput): Promise<void> =>
     new Promise((resolve) => {
-      if (closed) return resolve();
+      if (em.isClosed()) return resolve();
       const proc = child ?? spawnProcess();
       if (!proc || !mapper) return resolve();
       turnStarted = Date.now();
@@ -642,34 +615,17 @@ export function startAntigravitySession(opts: StartSessionOptions, deps: Antigra
       proc.stdin?.write(antigravityUserLine(input.text));
     });
 
-  let busy = false;
-  const pump = async () => {
-    if (busy) return;
-    busy = true;
-    try {
-      while (queue.length && !closed) await runTurn(queue.shift()!);
-    } finally {
-      busy = false;
-    }
-  };
-  const enqueue = (input: UserInput) => {
-    if (closed) return;
-    emit({ type: "user", text: input.text, images: (input.images ?? []).map((i) => i.label) });
-    queue.push(input);
-    void pump();
-  };
+  const queue = createTurnQueue(runTurn, em);
   if (opts.first) {
     const first = opts.first;
-    queueMicrotask(() => enqueue(first));
+    queueMicrotask(() => queue.enqueue(first));
   }
 
   return {
     id: opts.id,
-    send(u) {
-      enqueue(u);
-    },
+    send: (u) => queue.enqueue(u),
     async interrupt() {
-      if (closed || !child?.pid || state !== "running") return;
+      if (em.isClosed() || !child?.pid || em.getState() !== "running") return;
       const proc = child;
       child = null;
       deps.killTree(proc.pid!);
@@ -680,18 +636,13 @@ export function startAntigravitySession(opts: StartSessionOptions, deps: Antigra
     },
     respondPermission: () => false, // F-46 sandboxed: there are no cards
     close() {
-      if (closed) return;
-      closed = true;
-      queue.length = 0;
+      if (em.isClosed()) return;
+      queue.clear();
       killCurrent();
       removeSessionDir();
-      state = "ended";
-      emit({ type: "state", state: "ended" });
+      setState("ended");
       resolveTurn?.();
     },
-    onEvent(fn) {
-      listeners.add(fn);
-      return () => listeners.delete(fn);
-    },
+    onEvent: em.onEvent,
   };
 }

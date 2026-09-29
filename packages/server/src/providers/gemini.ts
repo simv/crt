@@ -122,15 +122,10 @@ export const geminiProfile: ProviderProfile = {
   preflight: geminiPreflight,
   resumeCommand: (sessionId) => `gemini --resume ${sessionId}`,
   start: (opts) =>
-    startAcpSession(opts, {
-      id: "gemini",
-      displayName: "Gemini",
-      capabilities: GEMINI_CAPABILITIES,
-      resumeCommand: geminiProfile.resumeCommand,
+    startAcpSession(opts, geminiProfile, {
       resolve: (o) => resolveExecutable("gemini", { command: o.command ?? null }),
       acpArgs: [...GEMINI_ACP_ARGS],
       modelArgs: (model) => ["-m", model],
-      experimental: GEMINI_EXPERIMENTAL,
       notFound: GEMINI_NOT_FOUND,
       loginProblem: geminiLoginProblem,
     }),

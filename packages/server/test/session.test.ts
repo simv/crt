@@ -140,7 +140,9 @@ describe.skipIf(!loggedIn)("Agent SDK session smoke test (F-24, F-25, F-28, F-47
       expect(init.model).toBeTruthy();
       expect(writes).toHaveLength(1);
       expect(writes[0]).toMatchObject({ title: "Smoke test task", definitionOfDone: ["works"] });
-      expect(events).toContainEqual({ type: "task_written", id: "CRT-9999", path: ".crt/tasks/CRT-9999-smoke-test-task.md" });
+      // CRT-0041: the registry's write records `task_written`; the driver only answers the agent.
+      expect(events.some((e) => e.type === "task_written")).toBe(false);
+      expect(events).toContainEqual(expect.objectContaining({ type: "tool_result", isError: false, summary: "Task CRT-9999 written to .crt/tasks/CRT-9999-smoke-test-task.md" }));
       const text = events.filter((e) => e.type === "text").map((e) => (e as { text: string }).text).join("");
       expect(text).toContain("DONE");
       expect(events.find((e) => e.type === "result")).toMatchObject({ ok: true });

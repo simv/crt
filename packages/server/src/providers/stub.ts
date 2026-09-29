@@ -7,7 +7,8 @@
  *
  *   init → streamed text → a pre-allowed tool (Read) → a tool that needs permission (Bash npm test,
  *   through the real F-26 policy) → text depending on Allow/Deny → result.
- *   Next developer message containing "accept" or "write" → `writeTask` → task_written → result.
+ *   Next developer message containing "accept" or "write" → `writeTask` (the registry records
+ *   task_written) → the tool's answer → result.
  *   Any other message → echoed back → result. `interrupt()` cuts the current turn short.
  *   A first message carrying the F-14 quick-note instructions skips the permission prompt and the
  *   DoD wait: Read, then `writeTask` straight away (unless the note says "ask me", which makes
@@ -23,9 +24,10 @@
  * sent it — instructions heading, no base64 — and reports a mismatch as an `error` event, so the
  * F-50/F-51 plumbing is exercised end to end without a real agent.
  */
-import { randomUUID } from "node:crypto";
 import { FIRST_MESSAGE_HEADING } from "../intake-message.js";
-import type { ProviderCapabilities, SessionDriver, SessionEvent, SessionState, StartSessionOptions, UserInput } from "../session-events.js";
+import type { ProviderCapabilities, SessionDriver, StartSessionOptions, UserInput } from "../session-events.js";
+import { writeTaskResultText } from "../write-task.js";
+import { createEmitter, createPermissionBroker, createTurnQueue, initEvent } from "./driver-core.js";
 import type { ProviderProfile } from "./types.js";
 
 const TICK_MS = 15;
@@ -91,26 +93,16 @@ export const STUB_PROPOSALS = {
 } as const;
 
 export function startStubSession(opts: StartSessionOptions, variant: StubVariant = "default"): SessionDriver {
-  const caps = stubCapabilities(variant);
-  const listeners = new Set<(e: SessionEvent) => void>();
-  const pending = new Map<string, { settle: (behavior: "allow" | "deny", by: "user" | "timeout" | "session") => void }>();
-  let state: SessionState = "starting";
-  let closed = false;
+  const profile = makeStubProfile(variant);
+  const caps = profile.capabilities;
+  const em = createEmitter(opts.log);
+  const { emit, setState } = em;
+  const permissions = createPermissionBroker({ ...em, timeoutMs: opts.permissionTimeoutMs });
   let turn = 0; // increments on interrupt/close so a running script notices and stops
-  let busy = false;
-  const queue: string[] = [];
   let n = 0;
 
-  const emit = (e: SessionEvent) => {
-    for (const fn of listeners) fn(e);
-  };
-  const setState = (next: SessionState, detail?: string) => {
-    if (closed) return;
-    state = next;
-    emit(detail === undefined ? { type: "state", state: next } : { type: "state", state: next, detail });
-  };
   const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-  const cancelled = (t: number) => closed || t !== turn;
+  const cancelled = (t: number) => em.isClosed() || t !== turn;
 
   const say = async (t: number, text: string) => {
     const messageId = `stub-msg-${++n}`;
@@ -129,8 +121,9 @@ export function startStubSession(opts: StartSessionOptions, variant: StubVariant
     const decision = caps.permissions === "interactive" ? opts.decide(name, input) : { kind: "allow" as const };
     let allowed = decision.kind === "allow";
     if (decision.kind === "ask") {
-      allowed = await askPermission(t, name, label, input);
+      const answer = await permissions.ask({ toolName: name, title: label, detail: String(input.command ?? input.file_path ?? JSON.stringify(input)) });
       if (cancelled(t)) return false;
+      allowed = answer.behavior === "allow";
     }
     if (!allowed) return false;
     emit({ type: "tool_use", id, name, label });
@@ -139,36 +132,8 @@ export function startStubSession(opts: StartSessionOptions, variant: StubVariant
     return true;
   };
 
-  const askPermission = (t: number, toolName: string, title: string, input: Record<string, unknown>): Promise<boolean> =>
-    new Promise((resolve) => {
-      const id = randomUUID();
-      const timeoutMs = opts.permissionTimeoutMs ?? 5 * 60 * 1000;
-      const timer = setTimeout(() => settle("deny", "timeout"), timeoutMs);
-      const settle = (behavior: "allow" | "deny", by: "user" | "timeout" | "session") => {
-        if (!pending.delete(id)) return;
-        clearTimeout(timer);
-        emit({ type: "permission_resolved", id, behavior, by });
-        if (!cancelled(t) && pending.size === 0) setState("running");
-        resolve(behavior === "allow");
-      };
-      pending.set(id, { settle });
-      emit({ type: "permission", id, toolName, title, detail: String(input.command ?? input.file_path ?? JSON.stringify(input)), expiresAt: Date.now() + timeoutMs });
-      setState("waiting");
-    });
-
   /** F-47: the stub is its own agent, so the native id is CRT's. */
-  const emitInit = () =>
-    emit({
-      type: "init",
-      sessionId: opts.id,
-      nativeSessionId: opts.id,
-      provider: "stub",
-      displayName: "Claude",
-      model: opts.model ?? "stub-model",
-      agentVersion: variant === "default" ? "stub" : `stub-${variant}`,
-      resumeCommand: `claude --resume ${opts.id}`,
-      capabilities: caps,
-    });
+  const emitInit = () => emit(initEvent(profile, opts, { nativeSessionId: opts.id, model: opts.model ?? "stub-model", agentVersion: variant === "default" ? "stub" : `stub-${variant}` }));
 
   /** The variant's checks on what the registry sent (F-50, F-51); a mismatch is an `error` event. */
   const checkFirst = (first: UserInput) => {
@@ -204,10 +169,9 @@ export function startStubSession(opts: StartSessionOptions, variant: StubVariant
     return { component, file };
   };
 
-  const firstTurn = async (first: { text: string; images?: Array<{ label: string }> }) => {
+  const firstTurn = async (first: UserInput) => {
     const t = turn;
     const { component, file } = subject(first.text);
-    emit({ type: "user", text: first.text, images: (first.images ?? []).map((i) => i.label) });
     await sleep(TICK_MS);
     if (cancelled(t)) return;
     emitInit();
@@ -227,8 +191,8 @@ export function startStubSession(opts: StartSessionOptions, variant: StubVariant
   };
 
   /** F-14: the quick-note script. Note text decides whether the stub writes or asks. */
-  const quickTurn = async (t: number, first: { text: string; images?: Array<{ label: string }> }) => {
-    emit({ type: "user", text: first.text, images: (first.images ?? []).map((i) => i.label) });
+  const quickTurn = async (first: UserInput) => {
+    const t = turn;
     await sleep(TICK_MS);
     if (cancelled(t)) return;
     emitInit();
@@ -258,8 +222,8 @@ export function startStubSession(opts: StartSessionOptions, variant: StubVariant
         tags: ["cart", "pricing"],
         files: ["src/components/Cart.tsx"],
       });
-      emit({ type: "tool_result", id, isError: false, summary: `Task ${written.id} written to ${written.path}` });
-      emit({ type: "task_written", id: written.id, path: written.path });
+      // The registry recorded `task_written` when the write succeeded (sessions.ts, CRT-0041).
+      emit({ type: "tool_result", id, isError: false, summary: writeTaskResultText(written) });
       await say(t, `Written **${written.id}** at \`${written.path}\`.`);
     } catch (err) {
       emit({ type: "tool_result", id, isError: true, summary: (err as Error).message });
@@ -289,69 +253,39 @@ export function startStubSession(opts: StartSessionOptions, variant: StubVariant
     finish(t, true);
   };
 
-  const pump = async () => {
-    if (busy) return;
-    busy = true;
-    try {
-      while (queue.length && !closed) await laterTurn(queue.shift()!);
-    } finally {
-      busy = false;
-    }
-  };
-
+  // The first message (the capture, or on a warm start the first send()) runs the intake script.
   let started = false;
-  const begin = (first: UserInput) => {
+  const runTurn = (input: UserInput): Promise<void> => {
+    if (started) return laterTurn(input.text);
     started = true;
-    busy = true;
-    checkFirst(first);
+    checkFirst(input);
     // F-14/F-51: quick-note mode is the sentinel as the *last* paragraph — the intake instructions
     // themselves mention it, and in the first-message channel they are part of this text.
-    const script = isQuickNote(first.text) ? quickTurn(turn, first) : firstTurn(first);
-    void script.finally(() => {
-      busy = false;
-      void pump();
-    });
+    return isQuickNote(input.text) ? quickTurn(input) : firstTurn(input);
   };
+  const queue = createTurnQueue(runTurn, em);
   if (opts.first) {
     const first = opts.first;
-    queueMicrotask(() => begin(first));
+    queueMicrotask(() => queue.enqueue(first));
   }
 
   return {
     id: opts.id,
-    send(u) {
-      if (closed) return;
-      if (!started) {
-        begin(u); // warm start: this is the capture message
-        return;
-      }
-      emit({ type: "user", text: u.text, images: (u.images ?? []).map((i) => i.label) });
-      queue.push(u.text);
-      void pump();
-    },
+    send: (u) => queue.enqueue(u),
     async interrupt() {
-      if (closed || state === "idle") return;
+      if (em.isClosed() || em.getState() === "idle") return;
       turn++;
-      for (const p of [...pending.values()]) p.settle("deny", "session");
+      permissions.denyAll("session");
       emit({ type: "result", ok: false, durationMs: 0, costUsd: 0, errors: ["interrupted"] });
       setState("idle");
     },
-    respondPermission(id, behavior) {
-      const p = pending.get(id);
-      if (!p) return false;
-      p.settle(behavior, "user");
-      return true;
-    },
+    respondPermission: (id, behavior) => permissions.respond(id, behavior),
     close() {
-      if (closed) return;
+      if (em.isClosed()) return;
       turn++;
-      for (const p of [...pending.values()]) p.settle("deny", "session");
+      permissions.denyAll("session");
       setState("ended");
-      closed = true;
     },
-    onEvent(fn) {
-      listeners.add(fn);
-      return () => listeners.delete(fn);
-    },
+    onEvent: em.onEvent,
   };
 }
