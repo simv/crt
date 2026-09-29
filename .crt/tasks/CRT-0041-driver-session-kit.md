@@ -1,10 +1,10 @@
 ---
 id: CRT-0041
 title: A driver kit for sessions — one emitter, turn queue, permission broker and init event; task_written recorded by the registry
-status: blocked
+status: in_progress
 priority: normal
 created: 2026-09-24T12:15:00+08:00
-updated: 2026-09-28T17:18:00+08:00
+updated: 2026-09-29T11:19:00+08:00
 url: null
 route: null
 session: null
@@ -84,3 +84,4 @@ No page capture: from the code review in session e145e7ac, 2026-09-24. The Codex
 - 2026-09-28T17:18+08:00 — merged origin/main (23e6dc8: #98 server module boundaries, #99 overlay structure) into the branch. Two conflicts, the same one twice: `SessionRegistry.writeTaskFor` in sessions.ts and the registry duck in test/providers/conformance.ts. Kept #98's `StaleSessionError` and this task's delegation to `Entry.writeTask`, which records and logs `task_written`; #98's `writeTaskFor` had kept the old record and log lines, which would have made two owners again. After the merge, grep over packages/server/src finds `task_written` recorded only in `Entry.writeTask` (sessions.ts).
 - 2026-09-28T17:18+08:00 — re-verified after the merge (DoD 1–5 stay ticked): `npm run check` green (64 files, 817 passed, 2 skipped), including conformance for Codex, ACP, Antigravity and the stub, sessions.test.ts, permissions.test.ts, mcp-stdio.test.ts, provider-routes.test.ts and driver-core.test.ts; `npm run e2e -- --workers=2` 74/74. DoD 6 stays unticked: the manual Claude intake still cannot run.
 - 2026-09-28T17:18+08:00 — blocked: Claude Code is still logged out on this machine (`claude auth status --json` → `loggedIn: false` at 17:14 and 17:18), so the manual Claude intake in the trial app, the only unverified item, cannot run. Please run `claude` in a terminal and complete /login (check with `claude auth status`), then say so in ## Notes. Answer in ## Notes and re-run /crt:next CRT-0041.
+- 2026-09-29T11:19+08:00 — claimed by /crt:next, session 7f3d86f7-7da2-449b-bcf3-1cd4cabe70ca, branch crt/CRT-0041-driver-session-kit (retry: Simon answered in chat that he has logged in; `claude auth status --json` → `loggedIn: true`; worked in the worktree .claude/worktrees/CRT-0041-intake).
