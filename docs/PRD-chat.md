@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Built — M25–M27 landed (CRT-0030 as #84 and CRT-0031 as #85, both 2026-09-23; F-122 applied by CRT-0033 as #83 the same day); §10 ticked with evidence by M27; `0.7.0` released and promoted 2026-09-23; F-123 applied by CRT-0044 on 2026-09-24, after the release |
+| **Status** | Built — M25–M27 landed (CRT-0030 as #84 and CRT-0031 as #85, both 2026-09-23; F-122 applied by CRT-0033 as #83 the same day); §10 ticked with evidence by M27; `0.7.0` released and promoted 2026-09-23; F-123 applied by CRT-0044 on 2026-09-24, after the release, and shipped in `0.7.1` (2026-09-29) |
 | **Owner** | Simon (simv) |
 | **Repo** | https://github.com/simv/crt |
 | **Baseline** | `main` at 5fdcbd8 = v0.6.0 (PRD-polish M20–M24, CRT-0029) |
