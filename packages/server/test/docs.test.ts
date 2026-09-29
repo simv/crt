@@ -396,7 +396,7 @@ describe("F-107 (PRD-embedded, M18) across the front page and the docs: the four
       expect(read(page), page).not.toContain("Browse as usual** on `localhost:4400`");
       expect(read(page), page).not.toContain("reverse proxy + HTML injection");
     }
-    expect(readme.split("\n")[4]).toContain("v0.7.0.");
+    expect(readme.split("\n")[4]).toContain("v0.7.1.");
     expect(readme.split("\n")[4]).toContain("[docs/PRD-embedded.md](docs/PRD-embedded.md) (v0.4, embedded mode)");
   });
 });
