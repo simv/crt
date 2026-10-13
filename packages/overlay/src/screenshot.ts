@@ -44,12 +44,23 @@ export async function takeScreenshots(markers: MarkerSpec[]): Promise<Screenshot
   // The rasteriser's own fetches (fonts, images) go through the page's hooked fetch; their
   // failures are CRT's, not the page's, and must not reach the next capture (F-21).
   pauseNetworkLog();
+  // A strict app policy (`style-src` / `img-src` without 'unsafe-inline' / data:) stops the
+  // rasteriser, whose error alone does not say why; the directives it hit do (CRT-0046, F-16).
+  const blocked = new Set<string>();
+  const onViolation = (e: SecurityPolicyViolationEvent) => blocked.add(e.effectiveDirective);
+  document.addEventListener("securitypolicyviolation", onViolation);
   try {
     clean = await rasteriseViewport();
   } catch (err) {
-    result.error = `rasterisation failed: ${err instanceof Error ? err.message : String(err)}`;
+    const why = err instanceof Error ? err.message : String(err);
+    // Violation events are queued as tasks: let the ones the failure raised arrive.
+    await new Promise((r) => setTimeout(r, 0));
+    result.error = blocked.size
+      ? `rasterisation failed: the page's Content-Security-Policy blocked the screenshot (${Array.from(blocked).sort().join(", ")}): ${why}`
+      : `rasterisation failed: ${why}`;
     return result;
   } finally {
+    document.removeEventListener("securitypolicyviolation", onViolation);
     resumeNetworkLog();
   }
   const dpr = clean.width / window.innerWidth || 1;

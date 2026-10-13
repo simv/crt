@@ -6,6 +6,7 @@ import { expect, test } from "@playwright/test";
 import type { SessionEvent } from "../src/session-events.js";
 import { validateTaskText, writeIndex } from "../src/tasks.js";
 import { CRT_ORIGIN } from "../playwright.config.js";
+import { STRICT_STYLES_CSP } from "./fixture/server.mjs";
 import { FIXTURE_ORIGIN, health, scratch, shadow, startCrt, stopCrts } from "./helpers.js";
 
 // PRD-embedded M15 (the server/overlay half of F-110): embedded mode end to end.
@@ -219,6 +220,32 @@ test.describe("an embedded server of its own (F-91, F-93, F-94, F-96)", () => {
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect(shadow(page, ".launcher")).toBeVisible();
     await expect(pill).toHaveCount(0);
+    await page.unroute(`${FIXTURE}/embedded-bundle.js`);
+  });
+
+  test("under a strict app's style-src the loader's pill still renders styled (F-96, CRT-0046)", async ({ page }) => {
+    // Nothing listens on :4463 (PORTS.embedded), so the bundled loader shows its pill at once.
+    const built = await build({
+      stdin: { contents: `import { mountCrt } from ${JSON.stringify(LOADER_SRC)}; mountCrt({ port: 4463 });`, resolveDir: dirname(LOADER_SRC), loader: "ts" },
+      bundle: true,
+      format: "iife",
+      target: "es2020",
+      define: { "process.env.NODE_ENV": '"development"' },
+      write: false,
+    });
+    const bundle = built.outputFiles![0]!.text;
+    await page.route(`${FIXTURE}/embedded-bundle.js`, (route) => route.fulfill({ status: 200, contentType: "text/javascript; charset=utf-8", body: bundle }));
+    // The app's own response, with a strict app's policy added: the pill's inline <style> would be refused.
+    await page.route(`${FIXTURE}/embedded-bundled`, async (route) => {
+      const res = await route.fetch();
+      await route.fulfill({ response: res, headers: { ...res.headers(), "content-security-policy": STRICT_STYLES_CSP } });
+    });
+    await page.goto(`${FIXTURE}/embedded-bundled`);
+    const pill = page.locator("#crt-loader-pill .pill");
+    await expect(pill).toBeVisible();
+    expect(await pill.evaluate((el) => getComputedStyle(el).position)).toBe("fixed");
+    expect(await pill.evaluate((el) => getComputedStyle(el).borderRadius)).toBe("999px");
+    await page.unroute(`${FIXTURE}/embedded-bundled`);
     await page.unroute(`${FIXTURE}/embedded-bundle.js`);
   });
 });

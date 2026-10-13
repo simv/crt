@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import { CRT_PROXY_ORIGIN } from "../playwright.config.js";
+import { STRICT_STYLES_CSP } from "./fixture/server.mjs";
 import { shadow } from "./helpers.js";
 
 // Everything here goes through `crt proxy` in front of the fixture — the dedicated proxy-mode
@@ -146,4 +147,30 @@ test("a Deny or Stop whose request fails says so in the chat and adds no unhandl
     await page.unroute(answers);
     await page.evaluate(() => window.__crt.chat.discard());
   }
+});
+
+test("under a strict app's style-src the overlay still renders styled, and the page's policy is passed through unchanged (F-2, CRT-0046)", async ({ page }) => {
+  const blocked: string[] = [];
+  page.on("console", (m) => {
+    if (m.type() === "error" && /Content Security Policy/i.test(m.text()) && /style/i.test(m.text())) blocked.push(m.text());
+  });
+  const res = await page.goto("/csp-styles");
+  // Nothing about styles or images is loosened: script-src already allows 'self', so relaxCsp leaves the header as sent.
+  expect(res!.headers()["content-security-policy"]).toBe(STRICT_STYLES_CSP);
+  const launcher = shadow(page, ".launcher");
+  await expect(launcher).toBeVisible();
+  // Styled: the stylesheet pins the launcher and gives it its pill shape; unstyled it is an inline button in the flow.
+  expect(await launcher.evaluate((el) => getComputedStyle(el).position)).toBe("fixed");
+  expect((await launcher.boundingBox())!.height).toBeGreaterThanOrEqual(30);
+  await launcher.click();
+  await expect(shadow(page, ".toolbar")).toBeVisible();
+  expect(await shadow(page, ".toolbar").evaluate((el) => getComputedStyle(el).display)).not.toBe("block");
+  expect(blocked).toEqual([]);
+  // The screenshot stays best-effort (F-16): the rasteriser needs inline styles and data: images
+  // this policy refuses, and the bundle says so instead of a bare script error.
+  await page.evaluate(() => window.__crt.addSelect("#heading"));
+  const { bundle } = await page.evaluate(() => window.__crt.capture());
+  expect(bundle.screenshots.viewport).toBeNull();
+  expect(bundle.screenshots.error).toMatch(/^rasterisation failed: the page's Content-Security-Policy blocked the screenshot \(style-src[^)]*\): /);
+  expect(bundle.annotations[0]!.element!.selector).toBe("#heading");
 });
