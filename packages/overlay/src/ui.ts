@@ -38,6 +38,7 @@ import { Launcher } from "./launcher.js";
 import { Markers, Positioner } from "./markers.js";
 import { placePopover } from "./popover.js";
 import { planSend, type SendOptions } from "./send-plan.js";
+import { adoptCss } from "./sheet.js";
 import { type Tool, Tools } from "./tools.js";
 import { buildWelcome, markWelcomeSeen, shouldShowWelcome, welcomeCopy, welcomeSeen } from "./welcome.js";
 
@@ -90,7 +91,6 @@ export class OverlayUI {
     this.host.setAttribute("data-crt", "");
     this.root = this.host.attachShadow({ mode: "open" });
     this.root.innerHTML = `
-      <style>${OVERLAY_CSS}</style>
       <div class="layer" hidden>
         <div class="hover"></div><div class="hover-label"></div><div class="drag"></div>
       </div>
@@ -118,6 +118,7 @@ export class OverlayUI {
         <span class="health"></span> CRT <span class="count">0</span>
       </button>
     `;
+    adoptCss(this.root, OVERLAY_CSS);
     const q = <T extends HTMLElement>(sel: string) => this.root.querySelector(sel) as T;
     this.count = q(".launcher .count");
     this.dock = q(".dock");

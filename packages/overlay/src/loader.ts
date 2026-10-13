@@ -18,6 +18,7 @@
  */
 import { installConsoleHooks } from "./console-hook.js";
 import { installNetworkHooks } from "./network-hook.js";
+import { adoptCss } from "./sheet.js";
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -183,8 +184,6 @@ function mountPill(origin: string, retry: () => void): PillHandle {
   const host = document.createElement("div");
   host.id = PILL_HOST_ID;
   const root = host.attachShadow({ mode: "open" });
-  const style = document.createElement("style");
-  style.textContent = PILL_CSS;
   const pill = document.createElement("div");
   pill.className = "pill";
   pill.setAttribute("role", "status");
@@ -206,7 +205,8 @@ function mountPill(origin: string, retry: () => void): PillHandle {
   });
   pill.addEventListener("click", retry);
   pill.append(text, close);
-  root.append(style, pill);
+  root.append(pill);
+  adoptCss(root, PILL_CSS);
   return {
     show: () => {
       if (!host.isConnected) (document.body ?? document.documentElement).appendChild(host);

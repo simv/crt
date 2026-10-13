@@ -18,6 +18,8 @@
 //   GET  /csp-strict    HTML with a 'strict-dynamic' CSP: the injected overlay tag is blocked by the
 //                       browser even after CRT relaxes the header (PRD-setup F-80)
 //   GET  /csp-meta      HTML whose CSP sits in a <meta http-equiv> tag, which CRT cannot rewrite (F-80)
+//   GET  /csp-styles    HTML with a strict app's policy: styles and images only from 'self' or with a
+//                       nonce, scripts from 'self'. The overlay must render styled under it (CRT-0046)
 //   GET  /redirect      302 → http://localhost:<port>/ (absolute, points at the fixture itself)
 //   GET  /app           annotation playground: ids, classes, data-*, ARIA, a fixed header, long
 //                       scroll, a console.error + uncaught error, a failing fetch/XHR and a missing
@@ -67,6 +69,9 @@ const PAGE = `<!doctype html>
 </body>
 </html>
 `;
+
+/** A strict app's policy (CRT-0046): relaxCsp leaves it as it is, since script-src already allows 'self'. */
+export const STRICT_STYLES_CSP = "default-src 'self'; script-src 'self' 'nonce-abc'; style-src 'self' 'nonce-abc'; img-src 'self'";
 
 const APP_PAGE = `<!doctype html>
 <html lang="en">
@@ -488,6 +493,8 @@ export function startFixture(opts = {}) {
         return html(PAGE, { "content-security-policy": "default-src 'none'; script-src 'nonce-abc'" });
       case "/csp-strict":
         return html(PAGE, { "content-security-policy": "script-src 'nonce-abc' 'strict-dynamic'" });
+      case "/csp-styles":
+        return html(PAGE, { "content-security-policy": STRICT_STYLES_CSP });
       case "/csp-meta":
         return html(PAGE.replace("<title>", `<meta http-equiv="Content-Security-Policy" content="script-src 'none'">\n  <title>`));
       case "/redirect":
