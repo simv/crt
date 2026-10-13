@@ -1,10 +1,10 @@
 ---
 id: CRT-0046
 title: The panel and the pill render unstyled under a strict app's style-src
-status: review
+status: done
 priority: high
 created: 2026-10-13T11:15:00+08:00
-updated: 2026-10-13T11:40:00+08:00
+updated: 2026-10-13T11:35:00+08:00
 url: http://localhost:4400/
 route: /
 session: null
@@ -45,3 +45,6 @@ Screenshots under a policy without `'unsafe-inline'` styles and `data:` images r
 - 2026-10-13T11:40+08:00 — verified: `e2e/proxy.spec.ts` "under a strict app's style-src the overlay still renders styled, and the page's policy is passed through unchanged (F-2, CRT-0046)" passes; on the unfixed overlay it fails with `position` "static" for the launcher. `e2e/embedded.spec.ts` "under a strict app's style-src the loader's pill still renders styled (F-96, CRT-0046)" passes; on the unfixed loader it fails the same way. The capture under the policy is sent with `screenshots.error` "rasterisation failed: the page's Content-Security-Policy blocked the screenshot (style-src…)" and the annotation's selector `#heading`.
 - 2026-10-13T11:40+08:00 — verified: typecheck, lint and build green; `npm test` 815 passed, 3 skipped, 1 failed: `test/providers/exec.test.ts` "kills a process and its children …", which fails the same way on origin/main in this Linux cloud container (the process-group kill), so it is environmental. `npx playwright test` (Chromium at /opt/pw-browsers through a throwaway config, not committed) 75/76; the one failure, `embedded.spec.ts` "health says embedded … the ready and reuse lines …", passed on its own straight after and touches no changed code. The CI run is the clean one.
 - 2026-10-13T11:40+08:00 — ready for review: changed packages/overlay/src/{sheet (new),ui,loader,screenshot}.ts, packages/server/e2e/{proxy,embedded}.spec.ts, packages/server/e2e/fixture/server.{mjs,d.mts} (new `/csp-styles`), docs/troubleshooting.md; CRT-0047 filed.
+- 2026-10-13T11:30+08:00 — CI: all 7 checks green on e1e0adf (check ubuntu and windows, e2e ubuntu, CodeQL), so the two local-only failures above were environmental. Confirmed on Simon's machine: the branch build as `crt proxy` in front of the Jack of Clubs demo draws the panel styled on / and /c/riverbend, one constructed stylesheet and no inline `<style>`.
+- 2026-10-13T11:30+08:00 — prd-reviewer: PR-READY WITH NOTES. Acted on: the copied bundle-the-loader block in `embedded.spec.ts` is now one local helper, `routeBundledLoader`; the proxy test title cites F-16 for the screenshot assertion. Left: no PRD line names a strict `style-src` (a bug fix against F-2/F-96, PRD §risks "CSP headers" is the nearest text); the `adoptCss` fallback has no test (Vitest has no DOM, Chromium always takes the constructed path). Budgets: overlay.js +190 B gzipped, loader.js 2,909 B of the 5,120 B N-20 cap.
+- 2026-10-13T11:35+08:00 — done; closed in https://github.com/simv/crt/pull/108
