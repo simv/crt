@@ -2,7 +2,7 @@ import { build } from "esbuild";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import type { SessionEvent } from "../src/session-events.js";
 import { validateTaskText, writeIndex } from "../src/tasks.js";
 import { CRT_ORIGIN } from "../playwright.config.js";
@@ -30,6 +30,23 @@ const FIXTURE = FIXTURE_ORIGIN;
 const NEVER_LOADED = "crt: opened http://localhost:3999 but the page never loaded the CRT loader — add the integration (`crt init` prints the snippet, /crt:init applies it), or run `crt proxy`";
 
 test.afterEach(stopCrts);
+
+/**
+ * What an app's bundler does in development: the ESM loader entry, NODE_ENV defined, one call to
+ * mountCrt for `port`; the bundle is served at the fixture's /embedded-bundle.js (F-96 step 6).
+ */
+async function routeBundledLoader(page: Page, port: number): Promise<void> {
+  const built = await build({
+    stdin: { contents: `import { mountCrt } from ${JSON.stringify(LOADER_SRC)}; mountCrt({ port: ${port} });`, resolveDir: dirname(LOADER_SRC), loader: "ts" },
+    bundle: true,
+    format: "iife",
+    target: "es2020",
+    define: { "process.env.NODE_ENV": '"development"' },
+    write: false,
+  });
+  const bundle = built.outputFiles![0]!.text;
+  await page.route(`${FIXTURE}/embedded-bundle.js`, (route) => route.fulfill({ status: 200, contentType: "text/javascript; charset=utf-8", body: bundle }));
+}
 
 test.describe("embedded mode on the shared server (F-95, F-96)", () => {
   test.afterEach(async ({ page }) => {
@@ -176,17 +193,7 @@ test.describe("an embedded server of its own (F-91, F-93, F-94, F-96)", () => {
   });
 
   test("the ES module loader bundled into a page shows the pill once the server is gone and brings the overlay back on focus when it is running again (F-96)", async ({ page }) => {
-    // What an app's bundler does in development: the ESM entry, NODE_ENV defined, one call to mountCrt.
-    const built = await build({
-      stdin: { contents: `import { mountCrt } from ${JSON.stringify(LOADER_SRC)}; mountCrt({ port: 4462 });`, resolveDir: dirname(LOADER_SRC), loader: "ts" },
-      bundle: true,
-      format: "iife",
-      target: "es2020",
-      define: { "process.env.NODE_ENV": '"development"' },
-      write: false,
-    });
-    const bundle = built.outputFiles![0]!.text;
-    await page.route(`${FIXTURE}/embedded-bundle.js`, (route) => route.fulfill({ status: 200, contentType: "text/javascript; charset=utf-8", body: bundle }));
+    await routeBundledLoader(page, 4462);
 
     const root = scratch("embedded", "pill", 4462);
     const crt = startCrt(root, ["--yes", "--no-open"]);
@@ -225,16 +232,7 @@ test.describe("an embedded server of its own (F-91, F-93, F-94, F-96)", () => {
 
   test("under a strict app's style-src the loader's pill still renders styled (F-96, CRT-0046)", async ({ page }) => {
     // Nothing listens on :4463 (PORTS.embedded), so the bundled loader shows its pill at once.
-    const built = await build({
-      stdin: { contents: `import { mountCrt } from ${JSON.stringify(LOADER_SRC)}; mountCrt({ port: 4463 });`, resolveDir: dirname(LOADER_SRC), loader: "ts" },
-      bundle: true,
-      format: "iife",
-      target: "es2020",
-      define: { "process.env.NODE_ENV": '"development"' },
-      write: false,
-    });
-    const bundle = built.outputFiles![0]!.text;
-    await page.route(`${FIXTURE}/embedded-bundle.js`, (route) => route.fulfill({ status: 200, contentType: "text/javascript; charset=utf-8", body: bundle }));
+    await routeBundledLoader(page, 4463);
     // The app's own response, with a strict app's policy added: the pill's inline <style> would be refused.
     await page.route(`${FIXTURE}/embedded-bundled`, async (route) => {
       const res = await route.fetch();

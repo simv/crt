@@ -149,7 +149,7 @@ test("a Deny or Stop whose request fails says so in the chat and adds no unhandl
   }
 });
 
-test("under a strict app's style-src the overlay still renders styled, and the page's policy is passed through unchanged (F-2, CRT-0046)", async ({ page }) => {
+test("under a strict app's style-src the overlay still renders styled, and the page's policy is passed through unchanged; a capture goes without screenshots and says why (F-2, F-16, CRT-0046)", async ({ page }) => {
   const blocked: string[] = [];
   page.on("console", (m) => {
     if (m.type() === "error" && /Content Security Policy/i.test(m.text()) && /style/i.test(m.text())) blocked.push(m.text());
