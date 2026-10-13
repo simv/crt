@@ -149,7 +149,7 @@ test("a Deny or Stop whose request fails says so in the chat and adds no unhandl
   }
 });
 
-test("under a strict app's style-src the overlay still renders styled, and the page's policy is passed through unchanged; a capture goes without screenshots and says why (F-2, F-16, CRT-0046)", async ({ page }) => {
+test("under a strict app's style-src the overlay still renders styled, and the page's policy is passed through unchanged, and a capture still has its screenshots (F-2, F-16, CRT-0046, CRT-0047)", async ({ page }) => {
   const blocked: string[] = [];
   page.on("console", (m) => {
     if (m.type() === "error" && /Content Security Policy/i.test(m.text()) && /style/i.test(m.text())) blocked.push(m.text());
@@ -166,11 +166,13 @@ test("under a strict app's style-src the overlay still renders styled, and the p
   await expect(shadow(page, ".toolbar")).toBeVisible();
   expect(await shadow(page, ".toolbar").evaluate((el) => getComputedStyle(el).display)).not.toBe("block");
   expect(blocked).toEqual([]);
-  // The screenshot stays best-effort (F-16): the rasteriser needs inline styles and data: images
-  // this policy refuses, and the bundle says so instead of a bare script error.
+  // F-16 (CRT-0047): the screenshots are taken all the same, with the page's policy left as sent:
+  // the fonts go to the rasteriser as CSS text, and the SVG is drawn in CRT's own frame.
   await page.evaluate(() => window.__crt.addSelect("#heading"));
-  const { bundle } = await page.evaluate(() => window.__crt.capture());
-  expect(bundle.screenshots.viewport).toBeNull();
-  expect(bundle.screenshots.error).toMatch(/^rasterisation failed: the page's Content-Security-Policy blocked the screenshot \(style-src[^)]*\): /);
+  const { bundle, imageNames } = await page.evaluate(() => window.__crt.capture());
+  expect(bundle.screenshots).toEqual({ viewport: "viewport.png", annotated: "viewport-annotated.png", error: null });
+  expect(imageNames.sort()).toEqual(["ann-1.png", "viewport-annotated.png", "viewport.png"]);
+  // The rasteriser's frame is gone again.
+  expect(await page.locator("iframe").count()).toBe(0);
   expect(bundle.annotations[0]!.element!.selector).toBe("#heading");
 });

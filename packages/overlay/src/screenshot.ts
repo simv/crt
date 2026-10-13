@@ -9,9 +9,16 @@
  * One gap it has that html-to-image does not: it skips cross-origin stylesheets it cannot read, so
  * Google-Fonts-style `<link>` sheets lose their `@font-face` rules; `inlineCrossOriginFonts` below
  * closes that gap. Rationale and the trial-app comparison are in the task Log.
+ *
+ * A strict app policy (CRT-0047): without `'unsafe-inline'` in `style-src`, modern-screenshot's
+ * web-font step (a `<style>` in a scratch document) fails, so the font CSS is collected here and
+ * handed over as `font.cssText`; without `data:` in `img-src`, the SVG it draws cannot be loaded in
+ * the page, so it is drawn in CRT's rasteriser frame instead (`/__crt/raster`, server
+ * raster-frame.ts). Pages without such a policy take modern-screenshot's own path, unchanged.
  */
-import { domToCanvas } from "modern-screenshot";
+import { domToCanvas, domToForeignObjectSvg, type Options } from "modern-screenshot";
 import type { Rect } from "../../server/src/capture-schema.js";
+import { rasterFrameUrl } from "./api.js";
 import { pauseNetworkLog, resumeNetworkLog } from "./network-hook.js";
 import { isOverlayNode } from "./selector.js";
 import { ACCENT } from "./tokens.js";
@@ -44,13 +51,15 @@ export async function takeScreenshots(markers: MarkerSpec[]): Promise<Screenshot
   // The rasteriser's own fetches (fonts, images) go through the page's hooked fetch; their
   // failures are CRT's, not the page's, and must not reach the next capture (F-21).
   pauseNetworkLog();
+  // Probed before the listener below: the probes' own refusals are expected, not the reason a pass failed.
+  const policy = await pagePolicy();
   // A strict app policy (`style-src` / `img-src` without 'unsafe-inline' / data:) stops the
   // rasteriser, whose error alone does not say why; the directives it hit do (CRT-0046, F-16).
   const blocked = new Set<string>();
   const onViolation = (e: SecurityPolicyViolationEvent) => blocked.add(e.effectiveDirective);
   document.addEventListener("securitypolicyviolation", onViolation);
   try {
-    clean = await rasteriseViewport();
+    clean = await rasteriseViewport(policy);
   } catch (err) {
     const why = err instanceof Error ? err.message : String(err);
     // Violation events are queued as tasks: let the ones the failure raised arrive.
@@ -100,13 +109,15 @@ export async function takeScreenshots(markers: MarkerSpec[]): Promise<Screenshot
  * would move with that translate (a transformed ancestor becomes their containing block), so
  * they are tagged with their viewport position and re-anchored absolutely in the clone.
  */
-async function rasteriseViewport(): Promise<HTMLCanvasElement> {
+async function rasteriseViewport(policy: PagePolicy): Promise<HTMLCanvasElement> {
   const sx = window.scrollX;
   const sy = window.scrollY;
   const tagged = sx || sy ? tagFixedElements() : [];
-  const fontStyle = await inlineCrossOriginFonts();
+  // Under a strict style-src neither modern-screenshot's scratch <style> nor ours below would apply.
+  const fontStyle = policy.inlineStyles ? await inlineCrossOriginFonts() : null;
   try {
-    return await domToCanvas(document.documentElement, {
+    const options: Options = {
+      ...(policy.inlineStyles ? {} : { font: await fontOption() }),
       width: window.innerWidth,
       height: window.innerHeight,
       scale: Math.min(window.devicePixelRatio || 1, 2),
@@ -127,11 +138,184 @@ async function rasteriseViewport(): Promise<HTMLCanvasElement> {
           el.removeAttribute(FIXED_ATTR);
         }
       },
-    });
+    };
+    if (policy.dataImages) return await domToCanvas(document.documentElement, options);
+    return await rasteriseInFrame(await domToForeignObjectSvg(document.documentElement, options), options);
   } finally {
     for (const el of tagged) el.removeAttribute(FIXED_ATTR);
     fontStyle?.remove();
   }
+}
+
+interface PagePolicy {
+  /** A `<style>` element applies (no strict `style-src`). */
+  inlineStyles: boolean;
+  /** A `data:` image loads (no strict `img-src`). */
+  dataImages: boolean;
+}
+
+let policyProbe: Promise<PagePolicy> | null = null;
+
+/**
+ * What the page's Content-Security-Policy lets the rasteriser do, probed once per page: a `<style>`
+ * in a scratch document (it inherits the page's policy) gets no `sheet` when inline styles are
+ * refused, and a one-pixel `data:` image errors when `data:` images are. A refused probe logs one
+ * console line per directive, once.
+ */
+function pagePolicy(): Promise<PagePolicy> {
+  policyProbe ??= (async () => {
+    let inlineStyles = true;
+    try {
+      const doc = document.implementation.createHTMLDocument("");
+      const style = doc.createElement("style");
+      style.textContent = "a{}";
+      doc.head.appendChild(style);
+      inlineStyles = style.sheet !== null;
+    } catch {
+      // keep the default path
+    }
+    const img = new Image();
+    img.src = "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='1'%20height='1'/%3E";
+    const dataImages = await img.decode().then(
+      () => true,
+      () => false,
+    );
+    // Let the probes' violation events arrive before the capture starts listening for its own.
+    await new Promise((r) => setTimeout(r, 0));
+    return { inlineStyles, dataImages };
+  })();
+  return policyProbe;
+}
+
+/** The message type the rasteriser frame answers (server raster-frame.ts `RASTER_MESSAGE`). */
+const RASTER_MESSAGE = "crt-raster";
+let rasterSeq = 0;
+
+/**
+ * Draw modern-screenshot's SVG in CRT's rasteriser frame (CRT-0047): the frame loads it as the
+ * `data:` image the page's `img-src` refuses and posts back a PNG Blob, decoded here with
+ * `createImageBitmap` (no fetch, so no policy check). The same canvas `domToCanvas` would return:
+ * width × height at `scale`, on `backgroundColor`. A page whose `frame-src` refuses the frame
+ * gets no answer and fails on the timeout (the violation names `frame-src`).
+ */
+async function rasteriseInFrame(svg: SVGElement, options: Options): Promise<HTMLCanvasElement> {
+  const scale = options.scale ?? 1;
+  const width = Math.floor((options.width ?? window.innerWidth) * scale);
+  const height = Math.floor((options.height ?? window.innerHeight) * scale);
+  const redraws = Math.min(svg.querySelectorAll("img, image").length, 5);
+  // Control characters make the XML invalid (modern-screenshot's removeControlCharacter).
+  const text = new XMLSerializer().serializeToString(svg).replace(/[\u0000-\u0008\v\f\u000E-\u001F\uD800-\uDFFF\uFFFE\uFFFF]/gu, "");
+  const src = new URL(rasterFrameUrl(), location.href);
+  const frame = document.createElement("iframe");
+  frame.setAttribute("aria-hidden", "true");
+  frame.tabIndex = -1;
+  // CSSOM, not a style attribute: the page's style-src does not govern it.
+  Object.assign(frame.style, { position: "fixed", width: "0", height: "0", border: "0", visibility: "hidden", pointerEvents: "none" });
+  const id = ++rasterSeq;
+  let onMessage: ((e: MessageEvent) => void) | null = null;
+  let timer = 0;
+  try {
+    const png = await new Promise<Blob>((resolve, reject) => {
+      timer = window.setTimeout(() => reject(new Error(`the rasteriser frame at ${src.href} did not answer`)), options.timeout ?? 8000);
+      onMessage = (e: MessageEvent) => {
+        const m = e.data as { type?: unknown; id?: unknown; png?: unknown; error?: unknown } | null;
+        if (e.source !== frame.contentWindow || e.origin !== src.origin || !m || m.type !== RASTER_MESSAGE || m.id !== id) return;
+        if (m.png instanceof Blob) resolve(m.png);
+        else reject(new Error(`the rasteriser frame could not draw the page: ${String(m.error)}`));
+      };
+      window.addEventListener("message", onMessage);
+      frame.addEventListener("load", () => {
+        frame.contentWindow?.postMessage(
+          { type: RASTER_MESSAGE, id, svg: text, width, height, redraws, background: options.backgroundColor ?? null },
+          src.origin,
+        );
+      });
+      frame.src = src.href;
+      document.documentElement.appendChild(frame);
+    });
+    const bitmap = await createImageBitmap(png);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext("2d")!.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    return canvas;
+  } finally {
+    window.clearTimeout(timer);
+    if (onMessage) window.removeEventListener("message", onMessage);
+    frame.remove();
+  }
+}
+
+/** `font.cssText` when there is font CSS; `false` otherwise, since an empty cssText falls back to the web-font step. */
+async function fontOption(): Promise<Options["font"]> {
+  const cssText = await collectFontCss();
+  return cssText ? { cssText } : false;
+}
+
+/**
+ * The @font-face CSS for the families the page has loaded, every `url()` a data URL, for
+ * modern-screenshot's `font.cssText` (CRT-0047): its own web-font step needs a `<style>` a strict
+ * `style-src` refuses. Readable sheets give their rules (inside @media, @supports, @layer and
+ * @import too); cross-origin ones are fetched as in `inlineCrossOriginFonts`.
+ */
+async function collectFontCss(): Promise<string> {
+  const loaded = loadedFamilies();
+  if (!loaded.size) return "";
+  const key = Array.from(loaded).sort().join("|");
+  const blocks: string[] = [];
+  const walk = (rules: CSSRuleList, base: string, out: string[]) => {
+    for (const rule of Array.from(rules)) {
+      if (rule instanceof CSSFontFaceRule) out.push(rule.cssText);
+      else if (rule instanceof CSSImportRule) {
+        try {
+          if (rule.styleSheet) walk(rule.styleSheet.cssRules, rule.styleSheet.href ?? base, out);
+        } catch {
+          // a cross-origin @import: its faces fall back
+        }
+      } else if ("cssRules" in rule) walk((rule as CSSGroupingRule).cssRules, base, out);
+    }
+  };
+  for (const sheet of Array.from(document.styleSheets)) {
+    const base = sheet.href ?? location.href;
+    let rules: CSSRuleList | null = null;
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      // cross-origin
+    }
+    // Linked sheets are cached like inlineCrossOriginFonts' (an inline sheet is cheap to read again).
+    const cacheKey = `${sheet.href}\n${key}`;
+    let css = sheet.href ? fontCssCache.get(cacheKey) : undefined;
+    if (css === undefined) {
+      try {
+        if (rules) {
+          const faces: string[] = [];
+          walk(rules, base, faces);
+          css = faces.length ? await inlineFontFaces(faces.join("\n"), base, loaded) : "";
+        } else if (sheet.href) {
+          css = await inlineFontFaces(await (await fetch(sheet.href, { mode: "cors" })).text(), sheet.href, loaded);
+        } else css = "";
+      } catch {
+        css = "";
+      }
+      if (sheet.href) fontCssCache.set(cacheKey, css);
+    }
+    if (css) blocks.push(css);
+  }
+  return blocks.join("\n");
+}
+
+function loadedFamilies(): Set<string> {
+  const loaded = new Set<string>();
+  try {
+    document.fonts.forEach((f) => {
+      if (f.status === "loaded") loaded.add(f.family.replace(/^["']|["']$/g, ""));
+    });
+  } catch {
+    // no FontFaceSet: no fonts to embed
+  }
+  return loaded;
 }
 
 /** Inlined @font-face CSS per cross-origin stylesheet href (+ the families it was filtered for). */
@@ -146,14 +330,7 @@ const fontCssCache = new Map<string, string>();
  * the page's own traffic, not CRT's (N-4).
  */
 async function inlineCrossOriginFonts(): Promise<HTMLStyleElement | null> {
-  const loaded = new Set<string>();
-  try {
-    document.fonts.forEach((f) => {
-      if (f.status === "loaded") loaded.add(f.family.replace(/^["']|["']$/g, ""));
-    });
-  } catch {
-    return null;
-  }
+  const loaded = loadedFamilies();
   if (!loaded.size) return null;
   const key = Array.from(loaded).sort().join("|");
   const blocks: string[] = [];

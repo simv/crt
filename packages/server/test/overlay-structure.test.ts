@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import * as tokens from "../../overlay/src/tokens.js";
+import { RASTER_MESSAGE } from "../src/raster-frame.js";
 import * as routes from "../src/routes.js";
 
 // CRT-0043: the overlay's structure rules, read from the source. One /__crt/ client, one copy of
@@ -43,6 +44,10 @@ describe("overlay structure (CRT-0043)", () => {
     const consts = readFileSync(join(import.meta.dirname, "..", "src", "routes.ts"), "utf8").match(/^export const .*$/gm) ?? [];
     expect(consts.length).toBeGreaterThan(10);
     for (const line of consts) expect(line, "a plain string, not a template").toMatch(/^export const \w+ = "[^"]*";$/);
+  });
+
+  it("posts the rasteriser frame the message type it answers (F-16, CRT-0047)", () => {
+    expect(source("screenshot.ts")).toContain(`const RASTER_MESSAGE = "${RASTER_MESSAGE}";`);
   });
 
   it("defines escapeHtml, cssEscape and clamp once, in dom-util.ts (F-17, F-25, F-65)", () => {
