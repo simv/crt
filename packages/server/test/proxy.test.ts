@@ -250,7 +250,8 @@ describe("CRT routes (F-4)", () => {
     expect(csp).toMatch(/^default-src 'none'; /);
     expect(csp).toContain("img-src data:");
     // The hash in the policy is the frame's one inline script, so nothing else would run there.
-    const script = /<script>([\s\S]*)<\/script>/.exec(RASTER_FRAME_HTML)![1]!;
+    const open = RASTER_FRAME_HTML.indexOf("<script>") + "<script>".length;
+    const script = RASTER_FRAME_HTML.slice(open, RASTER_FRAME_HTML.indexOf("</script>", open));
     expect(csp).toContain(`script-src 'sha256-${createHash("sha256").update(script).digest("base64")}'`);
     expect(script).toContain(`"${RASTER_MESSAGE}"`);
     const head = await raw("/__crt/raster", { method: "HEAD" });
