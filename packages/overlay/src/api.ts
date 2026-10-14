@@ -11,9 +11,14 @@
  * stays self-contained (N-20).
  */
 import type { CapturePost } from "../../server/src/capture-schema.js";
-import { CAPTURES_PATH, CONFIG_PATH, PROVIDERS_PATH, SESSIONS_PATH } from "../../server/src/routes.js";
+import { CAPTURES_PATH, CONFIG_PATH, PROVIDERS_PATH, RASTER_PATH, SESSIONS_PATH } from "../../server/src/routes.js";
 import type { PermissionBehavior, ProvidersPayload, SessionInfo } from "../../server/src/session-events.js";
 import { crtUrl } from "./base.js";
+
+/** F-16 (CRT-0047): the rasteriser frame screenshot.ts draws in under a strict `img-src` — a page, not a JSON call. */
+export function rasterFrameUrl(): string {
+  return crtUrl(RASTER_PATH);
+}
 
 /** F-13: where the server wrote a capture. */
 export interface SendResult {
