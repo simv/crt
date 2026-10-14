@@ -12,6 +12,9 @@
  *     nothing runs at start and the landing page never waits on it (N-24).
  *   • GET /__crt/loader.js serves dist/loader.js (F-94, F-96) with the F-6 CORS rules and no-store;
  *     health's `overlay.loader` counts it.
+ *   • GET /__crt/raster (F-16, CRT-0047, raster-frame.ts) serves the rasteriser frame under its own
+ *     policy, in both modes: where the app's policy refuses `data:` images the overlay draws its
+ *     screenshot there.
  *   • GET /__crt/favicon.svg (PRD-polish F-112) serves dist/favicon.svg — the mark the landing page links —
  *     with a day of cache and the F-6 CORS rules, in both modes; the PNG fallbacks sit beside it.
  *   • F-94: one 15 s timer per server, armed by `browserOpened(url)` (serve.ts calls it after opening
@@ -69,7 +72,7 @@ import { CaptureValidationError, writeCapture } from "./captures.js";
 import type { CrtMode } from "./config.js";
 import { DoctorRoute } from "./doctor-route.js";
 import { applyCors, json, readJson } from "./http.js";
-import { decodeBody, filterAcceptEncoding, injectOverlayTag, isHtml, relaxCsp } from "./inject.js";
+import { decodeBody, filterAcceptEncoding, injectOverlayTag, isHtml, relaxCsp, relaxFrameSrc } from "./inject.js";
 import { renderLanding } from "./landing.js";
 import { MARK, MARK_DARK, MARK_SMALL } from "./marks.js";
 import { handleProviderRoute } from "./provider-routes.js";
@@ -86,9 +89,11 @@ import {
   LOADER_PATH,
   OVERLAY_PATH,
   PROVIDERS_PATH,
+  RASTER_PATH,
   SESSIONS_PATH,
   SHUTDOWN_PATH,
 } from "./routes.js";
+import { RASTER_FRAME_CSP, RASTER_FRAME_HTML } from "./raster-frame.js";
 import { loginField, type ProviderRegistry } from "./session.js";
 import { handleInternalRoute, handleSessionRoute, type SessionRegistry } from "./sessions.js";
 import { countTaskFiles, taskCounts } from "./tasks.js";
@@ -411,7 +416,8 @@ function proxyHandlers(
           delete outHeaders["content-encoding"];
           outHeaders["content-length"] = String(body.length);
           const csp = outHeaders["content-security-policy"];
-          if (typeof csp === "string") outHeaders["content-security-policy"] = relaxCsp(csp);
+          // F-16 (CRT-0047): and the rasteriser frame, the one URL the screenshot needs under a strict img-src.
+          if (typeof csp === "string") outHeaders["content-security-policy"] = relaxFrameSrc(relaxCsp(csp), `http://${req.headers.host ?? "localhost"}`);
           const unrelaxable = unrelaxableCsp(typeof csp === "string" ? csp : null, html);
           if (unrelaxable) {
             // F-80 (Should): relaxCsp added 'self', but this policy ignores it; say so once.
@@ -644,6 +650,23 @@ async function handleCrtRoute(
       res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
       res.end(`CRT: ${asset.file} missing at ${file} — run \`npm run build\``);
     }
+    return;
+  }
+  if (path === RASTER_PATH) {
+    // F-16 (CRT-0047): the rasteriser frame, under its own policy rather than the app's.
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      res.setHeader("allow", "GET, HEAD");
+      json(res, 405, { ok: false, error: `GET ${path}` });
+      return;
+    }
+    const body = Buffer.from(RASTER_FRAME_HTML);
+    res.writeHead(200, {
+      "content-type": "text/html; charset=utf-8",
+      "content-length": String(body.length),
+      "content-security-policy": RASTER_FRAME_CSP,
+      "cache-control": "max-age=86400",
+    });
+    res.end(req.method === "HEAD" ? undefined : body);
     return;
   }
   if (path === HEALTH_PATH) {

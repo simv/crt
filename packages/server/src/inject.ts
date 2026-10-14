@@ -4,7 +4,7 @@
  * proxy.ts decides *when* to call them.
  */
 import { brotliDecompressSync, gunzipSync, inflateRawSync, inflateSync } from "node:zlib";
-import { EARLY_PATH, OVERLAY_PATH } from "./routes.js";
+import { EARLY_PATH, OVERLAY_PATH, RASTER_PATH } from "./routes.js";
 
 export const OVERLAY_TAG = `<script src="${OVERLAY_PATH}" defer></script>`;
 /** F-20: a ~1 KB blocking script that hooks console/errors before the page's own scripts run. */
@@ -101,3 +101,42 @@ export function relaxCsp(csp: string): string {
   }
   return directives.join("; ");
 }
+
+/**
+ * F-16 (CRT-0047): let the proxied page frame CRT's rasteriser, `/__crt/raster` on `origin`, and
+ * nothing else. Where the directive that governs frames (`frame-src`, else `child-src`, else
+ * `default-src`) already allows 'self' the policy is returned as is; otherwise that one URL is
+ * added (replacing a lone 'none'), or a `frame-src` is added beside a `default-src`. Only where the
+ * page's images directive (`img-src`, else `default-src`) refuses `data:`: elsewhere the overlay
+ * rasterises in the page and needs no frame.
+ */
+export function relaxFrameSrc(csp: string, origin: string): string {
+  const directives = csp
+    .split(";")
+    .map((d) => d.trim())
+    .filter(Boolean);
+  const find = (name: string) =>
+    directives.findIndex((d) => {
+      const l = d.toLowerCase();
+      return l === name || l.startsWith(name + " ");
+    });
+  const img = find("img-src") !== -1 ? find("img-src") : find("default-src");
+  if (img === -1 || /(^|\s)data:(\s|$)/i.test(directives[img]!)) return csp;
+  const source = `${origin}${RASTER_PATH}`;
+  const allows = (d: string) => /(^|\s)('self'|\*)(\s|$)/i.test(d) || d.split(/\s+/).includes(source);
+  const withSource = (sources: string) =>
+    [...sources.split(/\s+/).filter((t) => t && t.toLowerCase() !== "'none'"), source].join(" ");
+  const own = find("frame-src") !== -1 ? find("frame-src") : find("child-src");
+  if (own !== -1) {
+    const d = directives[own]!;
+    if (allows(d)) return csp;
+    const [name, ...sources] = d.split(/\s+/);
+    directives[own] = `${name} ${withSource(sources.join(" "))}`;
+    return directives.join("; ");
+  }
+  const def = find("default-src");
+  if (def === -1 || allows(directives[def]!)) return csp;
+  directives.push(`frame-src ${withSource(directives[def]!.replace(/^default-src\s*/i, ""))}`);
+  return directives.join("; ");
+}
+

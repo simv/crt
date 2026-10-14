@@ -18,6 +18,11 @@ export const EARLY_PATH = "/__crt/early.js";
 export const LOADER_PATH = "/__crt/loader.js";
 /** PRD-polish F-112: the favicon the landing page links, `dist/favicon.svg`, next to the overlay bundle. */
 export const FAVICON_PATH = "/__crt/favicon.svg";
+/**
+ * F-16 (CRT-0047): the rasteriser frame, a CRT page with its own policy that turns the overlay's SVG
+ * snapshot into a PNG where the app's policy refuses `data:` images (raster-frame.ts).
+ */
+export const RASTER_PATH = "/__crt/raster";
 /** PRD-setup F-78: version, project, tasks, provider, sessions and the overlay counters. */
 export const HEALTH_PATH = "/__crt/health";
 /** F-13, F-23: `POST` a capture bundle. */

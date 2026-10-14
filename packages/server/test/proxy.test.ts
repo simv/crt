@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, request as httpRequest, type IncomingHttpHeaders, type Server } from "node:http";
 import { connect } from "node:net";
@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { encodeFrame, readFrame, startFixture, type Fixture } from "../e2e/fixture/server.mjs";
 import { INJECT_TAGS, OVERLAY_TAG } from "../src/inject.js";
 import { createProxyServer, MAX_HTML_BODY, requestingOrigin } from "../src/proxy.js";
+import { RASTER_FRAME_CSP, RASTER_FRAME_HTML, RASTER_MESSAGE } from "../src/raster-frame.js";
 import { listen0 } from "./helpers/http.js";
 import { samplePost } from "./helpers/sample-capture.js";
 
@@ -99,7 +100,8 @@ describe("HTML injection (F-2)", () => {
 
   it("relaxes a Content-Security-Policy so the same-origin overlay can load", async () => {
     const r = await raw("/csp");
-    expect(r.headers["content-security-policy"]).toBe("default-src 'none'; script-src 'nonce-abc' 'self'");
+    // …and, since this policy refuses data: images, lets the page frame the rasteriser (F-16, CRT-0047).
+    expect(r.headers["content-security-policy"]).toBe(`default-src 'none'; script-src 'nonce-abc' 'self'; frame-src ${crt}/__crt/raster`);
   });
 
   it("leaves non-HTML responses untouched", async () => {
@@ -237,6 +239,26 @@ describe("CRT routes (F-4)", () => {
       expect(png.headers["cache-control"]).toBe("max-age=86400");
       expect(png.body.equals(faviconPng)).toBe(true);
     }
+  });
+
+  it("serves /__crt/raster, the rasteriser frame, under its own policy: one script by hash, data: images, HEAD allowed, other methods 405 (F-16, CRT-0047)", async () => {
+    const r = await raw("/__crt/raster");
+    expect(r.status).toBe(200);
+    expect(r.headers["content-type"]).toBe("text/html; charset=utf-8");
+    expect(r.body.toString()).toBe(RASTER_FRAME_HTML);
+    const csp = r.headers["content-security-policy"] as string;
+    expect(csp).toBe(RASTER_FRAME_CSP);
+    expect(csp).toMatch(/^default-src 'none'; /);
+    expect(csp).toContain("img-src data:");
+    // The hash in the policy is the frame's one inline script, so nothing else would run there.
+    const open = RASTER_FRAME_HTML.indexOf("<script>") + "<script>".length;
+    const script = RASTER_FRAME_HTML.slice(open, RASTER_FRAME_HTML.indexOf("</script>", open));
+    expect(csp).toContain(`script-src 'sha256-${createHash("sha256").update(script).digest("base64")}'`);
+    expect(script).toContain(`"${RASTER_MESSAGE}"`);
+    const head = await raw("/__crt/raster", { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(head.body.length).toBe(0);
+    expect((await raw("/__crt/raster", { method: "POST" })).status).toBe(405);
   });
 
   it("returns 404 for unknown /__crt/ paths without touching the target", async () => {

@@ -9,6 +9,7 @@ import {
   isHtml,
   OVERLAY_TAG,
   relaxCsp,
+  relaxFrameSrc,
 } from "../src/inject.js";
 
 describe("injectOverlayTag (F-2)", () => {
@@ -79,6 +80,25 @@ describe("filterAcceptEncoding (F-2)", () => {
   it("returns identity when nothing usable is requested, and undefined when absent", () => {
     expect(filterAcceptEncoding("zstd")).toBe("identity");
     expect(filterAcceptEncoding(undefined)).toBeUndefined();
+  });
+});
+
+describe("relaxFrameSrc (F-16, CRT-0047)", () => {
+  const O = "http://localhost:4400";
+  it("adds the rasteriser URL to a frame-src that refuses it, replacing a lone 'none'", () => {
+    expect(relaxFrameSrc("default-src 'self'; frame-src 'none'; img-src 'self'", O)).toBe(
+      "default-src 'self'; frame-src http://localhost:4400/__crt/raster; img-src 'self'",
+    );
+    expect(relaxFrameSrc("img-src 'self'; frame-src https://www.youtube.com", O)).toBe("img-src 'self'; frame-src https://www.youtube.com http://localhost:4400/__crt/raster");
+  });
+  it("falls back to child-src, then adds a frame-src beside a default-src", () => {
+    expect(relaxFrameSrc("img-src 'self'; child-src 'none'", O)).toBe("img-src 'self'; child-src http://localhost:4400/__crt/raster");
+    expect(relaxFrameSrc("default-src 'none'; img-src 'self'", O)).toBe("default-src 'none'; img-src 'self'; frame-src http://localhost:4400/__crt/raster");
+  });
+  it("leaves a policy alone where images allow data: or nothing governs them, or frames already allow 'self', *, or the URL", () => {
+    for (const csp of ["frame-src 'none'", "img-src 'self' data:; frame-src 'none'", "default-src 'none' data:", "default-src 'self'; img-src 'self'", "img-src 'self'; frame-src *", "img-src 'self'; frame-src http://localhost:4400/__crt/raster", "img-src 'self'", "default-src 'none'; frame-src 'self'"]) {
+      expect(relaxFrameSrc(csp, O)).toBe(csp);
+    }
   });
 });
 
