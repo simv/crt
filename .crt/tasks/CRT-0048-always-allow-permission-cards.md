@@ -4,7 +4,7 @@ title: Always allow on permission cards, for every agent
 status: review
 priority: normal
 created: 2026-10-14T10:27:00+08:00
-updated: 2026-10-14T10:45:00+08:00
+updated: 2026-10-14T10:51:00+08:00
 url: null
 route: null
 session: null
@@ -34,7 +34,7 @@ None: a feature request, nothing failing. Today `decidePermission` (F-26) return
 - [x] PRD-chat F-124 and its §9 row; the README, `docs/providers.md` and PRD F-26 say the same.
 - [x] Unit rows: subjects, suggestions, matching, the config file (`permissions.test.ts`); the broker (`driver-core.test.ts`); the route and the stub's second round (`sessions.test.ts`); Gemini saves the same rule (`acp.test.ts`).
 - [x] e2e: the ACP row shows the rule line, Always allow reads "Always allowed", writes `.crt/config.local.json`, and the next `npm test` runs with no card.
-- [ ] `npm run check` and `npm run e2e` green in CI. Locally (Linux cloud container) everything passes except two rows this change does not touch: `exec.test.ts`'s process-group kill (fails on `main` there too) and `embedded.spec.ts`'s reuse line.
+- [x] `npm run check` and `npm run e2e` green in CI (b15d5f9, both OSes). Locally (Linux cloud container) everything passes except two rows this change does not touch: `exec.test.ts`'s process-group kill (fails on `main` there too) and `embedded.spec.ts`'s reuse line.
 
 ## Notes
 Removing a rule is a hand edit of `.crt/config.local.json` (`permissions.allow`). ACP agents are still answered `allow_once` (F-54): the rule is CRT's, not the agent's.
@@ -42,3 +42,4 @@ Removing a rule is a hand edit of `.crt/config.local.json` (`permissions.allow`)
 ## Log
 - 2026-10-14T10:27+08:00 — filed and claimed by hand from Simon's request (in_progress), branch `crt/CRT-0048-always-allow`.
 - 2026-10-14T10:45+08:00 — built: F-124 in PRD-chat §6.5; rules in `permissions.ts`, the broker in `driver-core.ts`, `acpSubject` in `acp.ts`, `permissions.allow` in `config.ts`, the card in `chat.ts`; unit and e2e rows added. Set to review.
+- 2026-10-14T10:51+08:00 — PR https://github.com/simv/crt/pull/110; main merged in after CRT-0047 (#109) landed; CI green on b15d5f9. Waiting on Simon's review.
