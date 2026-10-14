@@ -176,3 +176,13 @@ test("under a strict app's style-src the overlay still renders styled, and the p
   expect(await page.locator("iframe").count()).toBe(0);
   expect(bundle.annotations[0]!.element!.selector).toBe("#heading");
 });
+
+test("under a strict img-src and frame-src 'none' the proxy lets the page frame CRT's rasteriser, and only that, so a capture still has its screenshots (F-2, F-16, CRT-0047)", async ({ page }) => {
+  const res = await page.goto("/csp-frames");
+  expect(res!.headers()["content-security-policy"]).toBe(`${STRICT_STYLES_CSP}; frame-src ${CRT_PROXY_ORIGIN}/__crt/raster`);
+  await expect(shadow(page, ".launcher")).toBeVisible();
+  await page.evaluate(() => window.__crt.addSelect("#heading"));
+  const { bundle, imageNames } = await page.evaluate(() => window.__crt.capture());
+  expect(bundle.screenshots).toEqual({ viewport: "viewport.png", annotated: "viewport-annotated.png", error: null });
+  expect(imageNames.sort()).toEqual(["ann-1.png", "viewport-annotated.png", "viewport.png"]);
+});

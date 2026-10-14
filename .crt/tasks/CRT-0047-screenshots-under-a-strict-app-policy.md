@@ -4,12 +4,12 @@ title: Screenshots under a strict app policy (no inline styles, no data: images)
 status: review
 priority: normal
 created: 2026-10-13T11:15:00+08:00
-updated: 2026-10-13T21:20:00+08:00
+updated: 2026-10-14T10:30:00+08:00
 url: null
 route: null
 session: null
 tags: [overlay, screenshot, csp, f-16, f-2]
-files: [packages/overlay/src/screenshot.ts, packages/overlay/src/api.ts, packages/server/src/raster-frame.ts, packages/server/src/proxy.ts, packages/server/src/routes.ts, packages/server/e2e/proxy.spec.ts, docs/PRD.md, docs/troubleshooting.md]
+files: [packages/overlay/src/screenshot.ts, packages/overlay/src/api.ts, packages/server/src/raster-frame.ts, packages/server/src/proxy.ts, packages/server/src/routes.ts, packages/server/src/inject.ts, packages/server/e2e/proxy.spec.ts, packages/server/e2e/fixture/server.mjs, docs/PRD.md, docs/troubleshooting.md]
 ---
 
 ## Summary
@@ -42,3 +42,4 @@ Filed from CRT-0046.
 - 2026-10-13T21:20+08:00 — ready for review.
 - 2026-10-13T20:45+08:00 — verified: typecheck, lint and build green; `npm test` 817 passed, 3 skipped, 1 failed: `test/providers/exec.test.ts` "kills a process and its children …", the same environmental failure in this Linux cloud container CRT-0046 logged. `npx playwright test` 75/76; the one failure, `embedded.spec.ts` "health says embedded …", passed on its own straight after and touches no changed code (also as in CRT-0046).
 - 2026-10-13T20:45+08:00 — prd-reviewer: PR-READY WITH NOTES. Left: the frame's font and redraw paths are covered by the throwaway spec only (the `/csp-styles` page has no web font or image); the transient iframe sits outside the shadow root, aria-hidden, zero-size and removed in `finally`, which the shadow-DOM rule (the overlay's UI) does not govern. CodeQL flagged the test's `<script>` regexp; the test now slices between the tags instead.
+- 2026-10-14T10:30+08:00 — finding while setting up the Jack of Clubs trial: its development policy has `frame-src 'none'` (and `'unsafe-inline'` styles, so only the img-src half shows in `pnpm dev`), which refuses the rasteriser frame even behind the proxy. Fix: `relaxFrameSrc` (inject.ts) adds `http://<proxy host>/__crt/raster`, that one URL, to the directive that governs frames when it does not allow 'self' (replacing a lone 'none'; a `frame-src` beside a `default-src`), and only where the images directive refuses `data:`, alongside `relaxCsp`'s script relaxation (F-2). New fixture route `/csp-frames` and e2e "under a strict img-src and frame-src 'none' …", which fails without the relaxation; `test/inject.test.ts` covers the rewrite; `proxy.test.ts` "/csp" now expects the frame URL beside its `default-src 'none'`.

@@ -72,7 +72,7 @@ import { CaptureValidationError, writeCapture } from "./captures.js";
 import type { CrtMode } from "./config.js";
 import { DoctorRoute } from "./doctor-route.js";
 import { applyCors, json, readJson } from "./http.js";
-import { decodeBody, filterAcceptEncoding, injectOverlayTag, isHtml, relaxCsp } from "./inject.js";
+import { decodeBody, filterAcceptEncoding, injectOverlayTag, isHtml, relaxCsp, relaxFrameSrc } from "./inject.js";
 import { renderLanding } from "./landing.js";
 import { MARK, MARK_DARK, MARK_SMALL } from "./marks.js";
 import { handleProviderRoute } from "./provider-routes.js";
@@ -416,7 +416,8 @@ function proxyHandlers(
           delete outHeaders["content-encoding"];
           outHeaders["content-length"] = String(body.length);
           const csp = outHeaders["content-security-policy"];
-          if (typeof csp === "string") outHeaders["content-security-policy"] = relaxCsp(csp);
+          // F-16 (CRT-0047): and the rasteriser frame, the one URL the screenshot needs under a strict img-src.
+          if (typeof csp === "string") outHeaders["content-security-policy"] = relaxFrameSrc(relaxCsp(csp), `http://${req.headers.host ?? "localhost"}`);
           const unrelaxable = unrelaxableCsp(typeof csp === "string" ? csp : null, html);
           if (unrelaxable) {
             // F-80 (Should): relaxCsp added 'self', but this policy ignores it; say so once.

@@ -20,6 +20,8 @@
 //   GET  /csp-meta      HTML whose CSP sits in a <meta http-equiv> tag, which CRT cannot rewrite (F-80)
 //   GET  /csp-styles    HTML with a strict app's policy: styles and images only from 'self' or with a
 //                       nonce, scripts from 'self'. The overlay must render styled under it (CRT-0046)
+//   GET  /csp-frames    the same policy with `frame-src 'none'` (Jack of Clubs' development policy):
+//                       the proxy lets the page frame CRT's rasteriser, and only that (CRT-0047)
 //   GET  /redirect      302 → http://localhost:<port>/ (absolute, points at the fixture itself)
 //   GET  /app           annotation playground: ids, classes, data-*, ARIA, a fixed header, long
 //                       scroll, a console.error + uncaught error, a failing fetch/XHR and a missing
@@ -495,6 +497,8 @@ export function startFixture(opts = {}) {
         return html(PAGE, { "content-security-policy": "script-src 'nonce-abc' 'strict-dynamic'" });
       case "/csp-styles":
         return html(PAGE, { "content-security-policy": STRICT_STYLES_CSP });
+      case "/csp-frames":
+        return html(PAGE, { "content-security-policy": `${STRICT_STYLES_CSP}; frame-src 'none'` });
       case "/csp-meta":
         return html(PAGE.replace("<title>", `<meta http-equiv="Content-Security-Policy" content="script-src 'none'">\n  <title>`));
       case "/redirect":

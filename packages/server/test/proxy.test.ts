@@ -100,7 +100,8 @@ describe("HTML injection (F-2)", () => {
 
   it("relaxes a Content-Security-Policy so the same-origin overlay can load", async () => {
     const r = await raw("/csp");
-    expect(r.headers["content-security-policy"]).toBe("default-src 'none'; script-src 'nonce-abc' 'self'");
+    // …and, since this policy refuses data: images, lets the page frame the rasteriser (F-16, CRT-0047).
+    expect(r.headers["content-security-policy"]).toBe(`default-src 'none'; script-src 'nonce-abc' 'self'; frame-src ${crt}/__crt/raster`);
   });
 
   it("leaves non-HTML responses untouched", async () => {
