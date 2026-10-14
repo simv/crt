@@ -148,7 +148,10 @@ async function rasteriseViewport(policy: PagePolicy): Promise<HTMLCanvasElement>
 }
 
 interface PagePolicy {
-  /** A `<style>` element applies (no strict `style-src`). */
+  /**
+   * A `<style>` element applies (no strict `style-src`) and a `<base>` does (no strict `base-uri`):
+   * modern-screenshot's web-font step needs the first and resolves the fonts' URLs with the second.
+   */
   inlineStyles: boolean;
   /** A `data:` image loads (no strict `img-src`). */
   dataImages: boolean;
@@ -159,7 +162,8 @@ let policyProbe: Promise<PagePolicy> | null = null;
 /**
  * What the page's Content-Security-Policy lets the rasteriser do, probed once per page: a `<style>`
  * in a scratch document (it inherits the page's policy) gets no `sheet` when inline styles are
- * refused, and a one-pixel `data:` image errors when `data:` images are. A refused probe logs one
+ * refused, a `<base>` there is ignored under `base-uri`, and a one-pixel `data:` image errors
+ * when `data:` images are. A refused probe logs one
  * console line per directive, once.
  */
 function pagePolicy(): Promise<PagePolicy> {
@@ -170,7 +174,14 @@ function pagePolicy(): Promise<PagePolicy> {
       const style = doc.createElement("style");
       style.textContent = "a{}";
       doc.head.appendChild(style);
-      inlineStyles = style.sheet !== null;
+      // modern-screenshot resolves a stylesheet's url()s against a <base> in a scratch document;
+      // under `base-uri 'none'` a sheet-relative font URL (Next.js: `../media/…`) resolves wrong.
+      const base = doc.createElement("base");
+      base.href = "http://crt.invalid/dir/";
+      doc.head.appendChild(base);
+      const a = doc.createElement("a");
+      a.href = "x";
+      inlineStyles = style.sheet !== null && a.href === "http://crt.invalid/dir/x";
     } catch {
       // keep the default path
     }
