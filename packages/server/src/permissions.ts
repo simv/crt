@@ -11,9 +11,10 @@
  *   • everything else → ask (Allow / Deny card in the panel; 5-minute timeout defaults to deny)
  */
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import type { PermissionDecision } from "./session-events.js";
+import { readConfig, writeLocalConfig } from "./config.js";
+import type { AllowList, PermissionDecision, PermissionSubject } from "./session-events.js";
 
-export type { PermissionDecision };
+export type { AllowList, PermissionDecision, PermissionSubject };
 
 export const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -93,4 +94,129 @@ export function isUnderCrtDir(target: string, projectRoot: string): boolean {
   const rel = relative(crt, abs);
   if (rel === "" || isAbsolute(rel)) return false;
   return rel !== ".." && !rel.startsWith(`..${sep}`);
+}
+
+/**
+ * PRD-chat F-124 "Always allow". What a card asks about, normalised across providers so one rule
+ * covers every agent: a shell command (Claude's `Bash`, an ACP `execute`), file writes (Claude's
+ * Write / Edit / MultiEdit / NotebookEdit, an ACP `edit` / `delete` / `move`), or any other tool by
+ * name. Rules use Claude Code's permission-rule syntax:
+ *
+ *   • `Bash(npm test:*)` — a command that is exactly `npm test` or starts with `npm test `, with no
+ *     shell operators (so `npm test && rm -rf .` never matches); `Bash(rm -rf dist)` — that command only
+ *   • `Edit(src/components/**)` — every path under that project directory; `Edit(**)` the whole project
+ *   • `mcp__figma__get_screenshot` — that tool, any input
+ *
+ * Rules live in `permissions.allow` of `.crt/config.local.json` (per machine, gitignored — the
+ * analogue of Claude Code's `.claude/settings.local.json`), and `.crt/config.json` may list shared ones.
+ */
+
+/** The subject of a tool call as Claude Code (and the stub) name it. */
+export function subjectOf(toolName: string, input: Record<string, unknown>): PermissionSubject {
+  if (toolName === "Bash") return { kind: "command", command: typeof input.command === "string" ? input.command : "" };
+  if (FILE_WRITE_TOOLS.has(toolName)) {
+    const target = typeof input.file_path === "string" ? input.file_path : typeof input.notebook_path === "string" ? input.notebook_path : "";
+    return { kind: "edit", paths: target ? [target] : [] };
+  }
+  return { kind: "tool", name: toolName };
+}
+
+/** At most this many leading words make a command prefix (`npx vitest run`). */
+const PREFIX_WORDS = 3;
+
+/**
+ * The rule "Always allow" saves for a subject, or null when it offers none (an empty command, a
+ * write with no path or outside the project). A command's prefix is its leading words up to the
+ * first flag, at most three; a command with shell operators, or one whose prefix would be a bare
+ * program name followed by more (`rm -rf dist`, `node -e …`), gets an exact rule instead.
+ */
+export function suggestRule(subject: PermissionSubject, projectRoot: string): string | null {
+  switch (subject.kind) {
+    case "command": {
+      const c = subject.command.trim();
+      if (!c) return null;
+      const words = c.split(/\s+/);
+      if (SHELL_OPERATORS.test(c) || words.length === 1) return `Bash(${c})`;
+      const lead: string[] = [];
+      for (const w of words) {
+        if (w.startsWith("-") || lead.length === PREFIX_WORDS) break;
+        lead.push(w);
+      }
+      return lead.length < 2 ? `Bash(${c})` : `Bash(${lead.join(" ")}:*)`;
+    }
+    case "edit": {
+      if (!subject.paths.length) return null;
+      const dirs = subject.paths.map((p) => projectDir(p, projectRoot));
+      if (dirs.some((d) => d === null)) return null;
+      const common = commonDir(dirs as string[]);
+      return common ? `Edit(${common}/**)` : "Edit(**)";
+    }
+    case "tool":
+      return subject.name && !/[()]/.test(subject.name) ? subject.name : null;
+  }
+}
+
+/** True when `rule` (one `permissions.allow` entry) covers `subject`. */
+export function ruleAllows(rule: string, subject: PermissionSubject, projectRoot: string): boolean {
+  const m = /^(\w+)\((.*)\)$/s.exec(rule.trim());
+  if (!m) return subject.kind === "tool" && subject.name === rule.trim();
+  const [, tool, spec] = m as unknown as [string, string, string];
+  if (tool === "Bash" && subject.kind === "command") {
+    const c = subject.command.trim();
+    if (!spec.endsWith(":*")) return c === spec;
+    const prefix = spec.slice(0, -2);
+    return !!prefix && !SHELL_OPERATORS.test(c) && (c === prefix || c.startsWith(`${prefix} `));
+  }
+  if (tool === "Edit" && subject.kind === "edit") {
+    if (!subject.paths.length || !spec.endsWith("**")) return false;
+    const base = spec.slice(0, -2).replace(/\/$/, "");
+    const dir = base ? resolve(projectRoot, ...base.split("/")) : resolve(projectRoot);
+    return subject.paths.every((p) => {
+      if (projectDir(p, projectRoot) === null) return false;
+      const rel = relative(dir, isAbsolute(p) ? resolve(p) : resolve(projectRoot, p));
+      return rel !== "" && !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`);
+    });
+  }
+  return false;
+}
+
+/** How the card names a rule: commands starting with "npm test", edits under src/, the tool mcp__x__y. */
+export function describeRule(rule: string): string {
+  const m = /^(\w+)\((.*)\)$/s.exec(rule);
+  if (!m) return `the tool ${rule}`;
+  const [, tool, spec] = m as unknown as [string, string, string];
+  if (tool === "Bash") return spec.endsWith(":*") ? `commands starting with "${spec.slice(0, -2)}"` : `the command "${spec}"`;
+  if (tool === "Edit") return spec === "**" ? "file edits anywhere" : `file edits under ${spec.slice(0, -3)}/`;
+  return rule;
+}
+
+/** The project-relative directory (posix, "" for the root) holding `path`, or null outside the project. */
+function projectDir(path: string, projectRoot: string): string | null {
+  const root = resolve(projectRoot);
+  const abs = isAbsolute(path) ? resolve(path) : resolve(root, path);
+  const rel = relative(root, abs);
+  if (rel === "" || isAbsolute(rel) || rel === ".." || rel.startsWith(`..${sep}`)) return null;
+  const parts = rel.split(sep);
+  return parts.slice(0, -1).join("/");
+}
+
+function commonDir(dirs: string[]): string {
+  const split = dirs.map((d) => (d ? d.split("/") : []));
+  const out: string[] = [];
+  for (let i = 0; split.every((s) => i < s.length && s[i] === split[0]![i]); i++) out.push(split[0]![i]!);
+  return out.join("/");
+}
+
+/**
+ * F-124: the project's "Always allow" rules, read from the config files on every check (so a hand
+ * edit or another session's rule applies at once) and added to `.crt/config.local.json`.
+ */
+export function projectAllowList(projectRoot: string): AllowList {
+  return {
+    allows: (subject) => readConfig(projectRoot).allow.some((rule) => ruleAllows(rule, subject, projectRoot)),
+    suggest: (subject) => suggestRule(subject, projectRoot),
+    add: (rule) => {
+      writeLocalConfig(projectRoot, { allow: [rule] });
+    },
+  };
 }

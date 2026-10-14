@@ -1,7 +1,7 @@
 /**
  * Chat panel (PRD F-14, F-25, F-26, F-28, F-29, F-30; PRD-providers F-46, F-47, F-56; F-66):
  * streams an intake session's events over SSE, renders assistant text as it arrives
- * (markdown-ish, at most once per frame per message, N-3), shows tool calls as collapsed lines, permission requests as Allow / Deny
+ * (markdown-ish, at most once per frame per message, N-3), shows tool calls as collapsed lines, permission requests as Allow / Deny (and Always allow, PRD-chat F-124)
  * cards, and takes multi-turn input. One instance per thread (F-66): the overlay mounts a panel
  * inside each annotation's popover (or a docked one for a page-level chat), remembers which
  * session each belongs to, and re-attaches them after a reload; the panel itself keeps nothing in
@@ -17,7 +17,7 @@
  * sandbox" badge when `sandboxed`. The panel's own title stays "CRT" (F-64).
  * Framework-free; renders inside the overlay's Shadow DOM.
  */
-import type { IntakeSummary, SessionEvent, SessionState } from "../../server/src/session-events.js";
+import type { IntakeSummary, PermissionBehavior, SessionEvent, SessionState } from "../../server/src/session-events.js";
 import { answerPermission, attachSessionCapture, closeSession, interruptSession, sendSessionMessage, sessionEventsUrl } from "./api.js";
 import { cssEscape, escapeHtml, STATE_LABEL } from "./dom-util.js";
 import { ACCEPT_LINE, ACCEPT_REPLY, endsWithAcceptLine, summarizeProposal } from "./proposal.js";
@@ -95,7 +95,8 @@ export const CHAT_CSS = `
   .perm .btns { display: flex; gap: 6px; }
   .perm button { padding: 5px 12px; border-radius: 8px; font-weight: 600; }
   .perm button.allow { background: ${INK}; color: #fff; }
-  .perm button.deny { background: #eee; }
+  .perm button.deny, .perm button.always { background: #eee; }
+  .perm .rule { font-size: 11px; color: #666; margin: -4px 0 8px; }
   .perm .done { font-size: 12px; color: #555; }
   .perm.resolved { border-color: rgba(0,0,0,.12); background: #fafafa; }
   .sys { align-self: center; font-size: 11px; color: #888; text-align: center; }
@@ -336,7 +337,7 @@ export class ChatPanel {
     await interruptSession(this.sessionId);
   }
 
-  async respond(permissionId: string, behavior: "allow" | "deny"): Promise<void> {
+  async respond(permissionId: string, behavior: PermissionBehavior): Promise<void> {
     if (!this.sessionId) return;
     await answerPermission(this.sessionId, permissionId, behavior);
   }
@@ -460,7 +461,7 @@ export class ChatPanel {
       }
       case "permission":
         // F-46: Allow/Deny exist only for `permissions: interactive`; a sandboxed agent decides alone.
-        this.append(permissionCard(event.id, event.title, event.detail, (this.init?.capabilities.permissions ?? "interactive") === "interactive"));
+        this.append(permissionCard(event.id, event.title, event.detail, (this.init?.capabilities.permissions ?? "interactive") === "interactive", event.always));
         if (this.quiet) this.attention(`${this.agentName()} needs a permission`);
         else if (this.live) this.callbacks.onAttention(`${this.agentName()} needs a permission`);
         break;
@@ -469,7 +470,7 @@ export class ChatPanel {
         if (el) {
           el.classList.add("resolved");
           const why = event.by === "timeout" ? " (no answer within 5 minutes)" : event.by === "session" ? " (session ended)" : "";
-          (el.querySelector(".btns") as HTMLElement).innerHTML = `<span class="done">${event.behavior === "allow" ? "Allowed" : "Denied"}${why}</span>`;
+          (el.querySelector(".btns") as HTMLElement).innerHTML = `<span class="done">${event.always ? "Always allowed" : event.behavior === "allow" ? "Allowed" : "Denied"}${why}</span>`;
         }
         break;
       }
@@ -637,7 +638,7 @@ export class ChatPanel {
       if (!btn) return;
       const perm = btn.closest<HTMLElement>(".perm");
       if (perm && btn.dataset.behavior) {
-        this.respond(perm.dataset.pid!, btn.dataset.behavior as "allow" | "deny").catch((err: unknown) => this.unreachable("answer the permission request", err));
+        this.respond(perm.dataset.pid!, btn.dataset.behavior as PermissionBehavior).catch((err: unknown) => this.unreachable("answer the permission request", err));
         return;
       }
       switch (btn.dataset.chat) {
@@ -767,15 +768,21 @@ function toolLine(id: string, label: string): HTMLElement {
   return el;
 }
 
-function permissionCard(id: string, title: string, detail: string, interactive: boolean): HTMLElement {
+/** F-26 card; PRD-chat F-124: Always allow (between Allow and Deny) when the server offered a rule, which the line under the input names. */
+function permissionCard(id: string, title: string, detail: string, interactive: boolean, always?: { rule: string; label: string }): HTMLElement {
   const el = document.createElement("div");
   el.className = "perm";
   el.dataset.pid = id;
+  const offer = interactive && always;
   el.innerHTML = interactive
-    ? `<div class="t"></div><pre></pre><div class="btns"><button type="button" class="allow" data-behavior="allow">Allow</button><button type="button" class="deny" data-behavior="deny">Deny</button></div>`
+    ? `<div class="t"></div><pre></pre>${offer ? `<div class="rule">Always allow covers <span></span> in this project, for every agent.</div>` : ""}<div class="btns"><button type="button" class="allow" data-behavior="allow">Allow</button>${offer ? `<button type="button" class="always" data-behavior="always">Always allow</button>` : ""}<button type="button" class="deny" data-behavior="deny">Deny</button></div>`
     : `<div class="t"></div><pre></pre><div class="btns"><span class="done">decided by the agent's sandbox</span></div>`;
   (el.querySelector(".t") as HTMLElement).textContent = title;
   (el.querySelector("pre") as HTMLElement).textContent = detail;
+  if (offer) {
+    (el.querySelector(".rule span") as HTMLElement).textContent = always.label;
+    (el.querySelector("button.always") as HTMLElement).title = always.rule;
+  }
   return el;
 }
 

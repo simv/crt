@@ -21,8 +21,8 @@
  * `Entry.writeTask`), whichever route the agent took (§5.3).
  */
 import { randomUUID } from "node:crypto";
-import { PERMISSION_TIMEOUT_MS } from "../permissions.js";
-import type { ProviderCapabilities, SessionEvent, SessionState, StartSessionOptions, UserInput } from "../session-events.js";
+import { describeRule, PERMISSION_TIMEOUT_MS } from "../permissions.js";
+import type { AllowList, PermissionBehavior, PermissionSubject, ProviderCapabilities, SessionEvent, SessionState, StartSessionOptions, UserInput } from "../session-events.js";
 import type { ProviderProfile } from "./types.js";
 
 export type SessionListener = (event: SessionEvent) => void;
@@ -128,13 +128,15 @@ export function createTurnQueue(
   };
 }
 
-export type PermissionSettledBy = "user" | "timeout" | "session";
+export type PermissionSettledBy = "user" | "timeout" | "session" | "rule";
 
 /** What the card shows (F-26): the tool, one line saying what the agent wants, the input for humans. */
 export interface PermissionCard {
   toolName: string;
   title: string;
   detail: string;
+  /** F-124: what the call touches, for "Always allow"; without it the card offers only Allow / Deny. */
+  subject?: PermissionSubject;
 }
 
 export interface PermissionAnswer {
@@ -145,65 +147,101 @@ export interface PermissionAnswer {
 }
 
 export interface PermissionBroker {
-  /** Show a card and wait for its answer; an aborted `signal` settles it for the session. */
+  /** Show a card and wait for its answer; an aborted `signal` settles it for the session. A saved F-124 rule answers without a card. */
   ask(card: PermissionCard, opts?: { signal?: AbortSignal }): Promise<PermissionAnswer>;
-  /** The developer's answer; false when the id is unknown or already settled. */
-  respond(id: string, behavior: "allow" | "deny"): boolean;
+  /** The developer's answer; false when the id is unknown or already settled. `always` saves the card's rule (F-124). */
+  respond(id: string, behavior: PermissionBehavior): boolean;
   /** Deny every open card (interrupt, close, failure); the driver sets the state that follows. */
   denyAll(by: PermissionSettledBy): void;
   /** Cards still open. */
   readonly size: number;
 }
 
+interface OpenCard {
+  subject: PermissionSubject | undefined;
+  rule: string | null;
+  settle: (behavior: "allow" | "deny", by: PermissionSettledBy, resume: boolean, always?: boolean) => void;
+}
+
 /**
  * F-26 cards for a driver whose agent asks (`permissions: interactive`). `timeoutMs` defaults to
- * `PERMISSION_TIMEOUT_MS`; an unanswered card is then denied `by: "timeout"`.
+ * `PERMISSION_TIMEOUT_MS`; an unanswered card is then denied `by: "timeout"`. With an `allowList`
+ * (F-124) a call a saved rule covers is allowed `by: "rule"` with no card, a card whose subject has
+ * a rule offers Always allow, and answering it so saves the rule and settles every other open card
+ * the rule covers.
  */
 export function createPermissionBroker(opts: {
   emit: (event: SessionEvent) => void;
   setState: (next: SessionState) => void;
   getState: () => SessionState;
   timeoutMs?: number | undefined;
+  allowList?: AllowList | undefined;
 }): PermissionBroker {
   const timeoutMs = opts.timeoutMs ?? PERMISSION_TIMEOUT_MS;
-  const pending = new Map<string, (behavior: "allow" | "deny", by: PermissionSettledBy, resume: boolean) => void>();
+  const allowList = opts.allowList;
+  const pending = new Map<string, OpenCard>();
   const reason = (behavior: "allow" | "deny", by: PermissionSettledBy): string =>
     by === "timeout"
       ? `No answer in the CRT panel within ${describeTimeout(timeoutMs)}`
       : by === "session"
         ? "The CRT session ended before this was answered"
-        : behavior === "allow"
-          ? "Allowed in the CRT panel"
-          : "Denied in the CRT panel";
+        : by === "rule"
+          ? "Always allowed in the CRT panel"
+          : behavior === "allow"
+            ? "Allowed in the CRT panel"
+            : "Denied in the CRT panel";
+  const covered = (subject: PermissionSubject | undefined): boolean => {
+    if (!subject || !allowList) return false;
+    try {
+      return allowList.allows(subject);
+    } catch {
+      return false;
+    }
+  };
   return {
     ask(card, { signal } = {}) {
       if (signal?.aborted) return Promise.resolve({ behavior: "deny", by: "session", reason: reason("deny", "session") });
+      if (covered(card.subject)) return Promise.resolve({ behavior: "allow", by: "rule", reason: reason("allow", "rule") });
       const id = randomUUID();
+      const { subject, ...shown } = card;
+      const rule = subject && allowList ? allowList.suggest(subject) : null;
       return new Promise((resolve) => {
         const onAbort = () => settle("deny", "session", true);
         const timer = setTimeout(() => settle("deny", "timeout", true), timeoutMs);
-        const settle = (behavior: "allow" | "deny", by: PermissionSettledBy, resume: boolean) => {
+        const settle = (behavior: "allow" | "deny", by: PermissionSettledBy, resume: boolean, always = false) => {
           if (!pending.delete(id)) return;
           clearTimeout(timer);
           signal?.removeEventListener("abort", onAbort);
-          opts.emit({ type: "permission_resolved", id, behavior, by });
+          opts.emit({ type: "permission_resolved", id, behavior, by: by === "rule" ? "user" : by, ...(always ? { always: true as const } : {}) });
           if (resume && pending.size === 0 && opts.getState() === "waiting") opts.setState("running");
           resolve({ behavior, by, reason: reason(behavior, by) });
         };
-        pending.set(id, settle);
+        pending.set(id, { subject, rule, settle });
         signal?.addEventListener("abort", onAbort, { once: true });
-        opts.emit({ type: "permission", id, ...card, expiresAt: Date.now() + timeoutMs });
+        opts.emit({ type: "permission", id, ...shown, expiresAt: Date.now() + timeoutMs, ...(rule ? { always: { rule, label: describeRule(rule) } } : {}) });
         opts.setState("waiting");
       });
     },
     respond(id, behavior) {
-      const settle = pending.get(id);
-      if (!settle) return false;
-      settle(behavior, "user", true);
+      const card = pending.get(id);
+      if (!card) return false;
+      if (behavior !== "always") {
+        card.settle(behavior, "user", true);
+        return true;
+      }
+      if (!card.rule || !allowList) return false;
+      try {
+        allowList.add(card.rule);
+      } catch {
+        // The rule could not be saved: still allow this call, as Allow would.
+      }
+      card.settle("allow", "user", true, true);
+      // The new rule may cover other cards already waiting (parallel tool calls).
+      for (const other of [...pending.values()]) if (covered(other.subject)) other.settle("allow", "rule", true, true);
       return true;
     },
     denyAll(by) {
-      for (const settle of [...pending.values()]) settle("deny", by, false);
+      for (const card of [...pending.values()]) card.settle("deny", by, false);
     },
     get size() {
       return pending.size;

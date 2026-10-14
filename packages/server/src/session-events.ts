@@ -25,6 +25,25 @@ export type SessionState =
 export type PermissionDecision = { kind: "allow" } | { kind: "deny"; reason: string } | { kind: "ask" };
 
 /**
+ * PRD-chat F-124: what a permission card asks about, the same for every provider, so one "Always
+ * allow" rule covers every agent (see permissions.ts).
+ */
+export type PermissionSubject = { kind: "command"; command: string } | { kind: "edit"; paths: string[] } | { kind: "tool"; name: string };
+
+/** F-124: the project's saved "Always allow" rules (`projectAllowList` in permissions.ts). */
+export interface AllowList {
+  /** A saved rule covers the subject: the call is allowed without a card. */
+  allows(subject: PermissionSubject): boolean;
+  /** The rule "Always allow" would save for the subject, or null when the card offers none. */
+  suggest(subject: PermissionSubject): string | null;
+  /** Save a rule (to `.crt/config.local.json`). */
+  add(rule: string): void;
+}
+
+/** A developer's answer to a permission card: `always` allows it and saves the card's rule (F-124). */
+export type PermissionBehavior = "allow" | "deny" | "always";
+
+/**
  * One screenshot for the agent (F-24). F-50: `path` is always set (absolute, under
  * `.crt/captures/`); `data` only for providers with `images: inline`, so the base64 work is
  * skipped for those that take a file path.
@@ -123,8 +142,11 @@ export type SessionEvent =
       /** The tool input rendered for humans (a command, a path, …). */
       detail: string;
       expiresAt: number;
+      /** F-124: the rule "Always allow" saves (`Bash(npm test:*)`) and how the card names it; absent when the card offers no Always allow. */
+      always?: { rule: string; label: string };
     }
-  | { type: "permission_resolved"; id: string; behavior: "allow" | "deny"; by: "user" | "timeout" | "session" }
+  /** F-124: `always` is set when the developer chose Always allow (`behavior` is then `allow`). */
+  | { type: "permission_resolved"; id: string; behavior: "allow" | "deny"; by: "user" | "timeout" | "session"; always?: true }
   /** `detail` is the provider's own accounting when it has no cost (Codex token usage, F-53). */
   | { type: "result"; ok: boolean; durationMs: number; costUsd: number; errors: string[]; detail?: string }
   /** Recorded by the registry when its `write_task` write succeeds (`sessions.ts`), whichever route the agent took; never by a driver. */
@@ -200,7 +222,7 @@ export interface SessionDriver {
   /** Stop the current turn (F-29). */
   interrupt(): Promise<void>;
   /** Answer a permission card; false when the id is unknown or already resolved. */
-  respondPermission(id: string, behavior: "allow" | "deny"): boolean;
+  respondPermission(id: string, behavior: PermissionBehavior): boolean;
   /** End the session and release the process. */
   close(): void;
   onEvent(fn: (event: SessionEvent) => void): () => void;
@@ -241,6 +263,8 @@ export interface StartSessionOptions {
   /** The version preflight found (F-42), for the `init` event of drivers whose CLI does not report it per turn. */
   agentVersion?: string | null;
   permissionTimeoutMs?: number;
+  /** F-124: the project's "Always allow" rules; without it cards offer only Allow / Deny. */
+  allowList?: AllowList;
   log?: (line: string) => void;
 }
 

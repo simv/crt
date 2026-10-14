@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { ACCEPT_LINE } from "../../overlay/src/proposal.js";
@@ -1041,7 +1041,7 @@ test.describe("ad-hoc ACP agent from .crt/config.json (F-49, F-54, F-56, F-61)",
     await page.evaluate(() => window.__crt.chat.discard()).catch(() => undefined);
   });
 
-  test("Send to Fake Agent: streamed text, a read tool line, an Allow card from the F-54 kind policy, write_task through crt mcp, a footer with no resume hint that survives a reload, Stop via session/cancel (F-49, F-54, F-56, F-61)", async ({ page }) => {
+  test("Send to Fake Agent: streamed text, a read tool line, an Allow card from the F-54 kind policy, write_task through crt mcp, a footer with no resume hint that survives a reload, Stop via session/cancel, Always allow (F-49, F-54, F-56, F-61, PRD-chat F-124)", async ({ page }) => {
     // F-43 steps 3–4 / F-54: the object form in .crt/config.json registers the `acp` id and the server runs on it.
     const served = (await (await page.request.get(`${ACP}/__crt/health`)).json()) as { provider: string };
     expect(served.provider).toBe("acp");
@@ -1078,6 +1078,9 @@ test.describe("ad-hoc ACP agent from .crt/config.json (F-49, F-54, F-56, F-61)",
     await expect(shadow(page, ".perm .t")).toHaveText("Shell npm test");
     await expect(shadow(page, ".perm pre")).toHaveText("npm test");
     await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "waiting");
+    // PRD-chat F-124: an `execute` card offers Always allow with the same rule a Claude card would.
+    await expect(shadow(page, ".perm .rule")).toHaveText('Always allow covers commands starting with "npm test" in this project, for every agent.');
+    await expect(shadow(page, ".perm button.always")).toHaveAttribute("title", "Bash(npm test:*)");
     await shadow(page, ".perm button.allow").click();
     await expect(shadow(page, ".perm.resolved .done")).toHaveText("Allowed");
     await expect(shadow(page, ".tool summary").nth(1)).toHaveText("Shell npm test");
@@ -1153,6 +1156,32 @@ test.describe("ad-hoc ACP agent from .crt/config.json (F-49, F-54, F-56, F-61)",
     await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
     const list = await page.evaluate(() => window.__crt.sessions.list());
     expect(list.find((s) => s.id === snap.sessionId)?.provider).toBe("acp");
+
+    // Turn 4 (PRD-chat F-124): Always allow saves the rule to .crt/config.local.json; turn 5's npm test runs with no card.
+    // The only spec on this server, so the rule cannot reach another test's card; it is removed before the test ends.
+    const local = join(root, ".crt", "config.local.json");
+    const before = existsSync(local) ? readFileSync(local, "utf8") : null;
+    try {
+      await shadow(page, ".chat-input textarea").fill("permission please");
+      await shadow(page, ".chat-input textarea").press("Enter");
+      await expect(shadow(page, ".perm:not(.resolved) button.always")).toBeVisible();
+      await shadow(page, ".perm:not(.resolved) button.always").click();
+      await expect(shadow(page, ".perm.resolved .done").last()).toHaveText("Always allowed");
+      await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
+      expect(JSON.parse(readFileSync(local, "utf8"))).toMatchObject({ permissions: { allow: ["Bash(npm test:*)"] } });
+      const cards = await shadow(page, ".perm").count();
+      const tools = await shadow(page, ".tool.done").count();
+      await shadow(page, ".chat-input textarea").fill("permission please");
+      await shadow(page, ".chat-input textarea").press("Enter");
+      await expect.poll(() => shadow(page, ".tool.done").count()).toBeGreaterThan(tools);
+      await expect(shadow(page, ".chat-head .state")).toHaveAttribute("data-state", "idle");
+      await expect(shadow(page, ".tool summary").last()).toHaveText("Shell npm test");
+      await expect(shadow(page, ".tool .out").last()).toHaveText("3 passing");
+      await expect(shadow(page, ".perm")).toHaveCount(cards);
+    } finally {
+      if (before === null) rmSync(local, { force: true });
+      else writeFileSync(local, before);
+    }
   });
 });
 

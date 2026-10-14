@@ -8,7 +8,7 @@
  *   GET    /__crt/sessions/<id>/events      SSE; `Last-Event-ID` or `?after=<seq>` replays, then `event: live`
  *   POST   /__crt/sessions/<id>/messages    { text }             → 202
  *   POST   /__crt/sessions/<id>/interrupt                        → 202
- *   POST   /__crt/sessions/<id>/permission  { id, behavior }     → 200 | 404 | 409
+ *   POST   /__crt/sessions/<id>/permission  { id, behavior }     → 200 | 404 | 409  (behavior: allow | deny | always, F-124)
  *   DELETE /__crt/sessions/<id>                                  → 200   close ("New session")
  *   POST   /__crt/internal/write-task       Authorization: Bearer <session token> → 201 { id, path }
  *
@@ -42,10 +42,10 @@ import { CaptureNotFoundError, capturesDir, readCapture } from "./captures.js";
 import { json, readJson } from "./http.js";
 import { buildIntakeMessage, prependInstructions, summarizeCapture, summarizeIntake } from "./intake-message.js";
 import { mcpLaunch, STALE_TOKEN_LINE } from "./mcp-stdio.js";
-import { decidePermission } from "./permissions.js";
+import { decidePermission, projectAllowList } from "./permissions.js";
 import { INTERNAL_PREFIX, INTERNAL_WRITE_TASK_PATH, SESSIONS_PATH } from "./routes.js";
 import { describeResolution, type ProviderRegistry } from "./session.js";
-import type { IntakeSummary, ProviderCapabilities, SessionDriver, SessionEvent, SessionInfo, SessionState, UserInput, WriteTaskRequest } from "./session-events.js";
+import type { IntakeSummary, PermissionBehavior, ProviderCapabilities, SessionDriver, SessionEvent, SessionInfo, SessionState, UserInput, WriteTaskRequest } from "./session-events.js";
 import { createTask, displayPath, TaskFormatError } from "./tasks.js";
 import { parseWriteTaskRequest } from "./write-task.js";
 
@@ -168,6 +168,8 @@ export class SessionRegistry {
       systemPromptAppend: profile.capabilities.instructions === "system" ? this.intakeText() : "",
       ...(first ? { first } : {}),
       decide: (toolName: string, input: Record<string, unknown>) => decidePermission(toolName, input, this.opts.projectRoot),
+      // F-124: one rule list per project, shared by every provider.
+      allowList: projectAllowList(this.opts.projectRoot),
       writeTask: entry.writeTask,
       mcp: mcpLaunch(entry.token, this.mcpPort),
       model: this.opts.providers.modelFor(profile.id),
@@ -282,7 +284,7 @@ export class SessionRegistry {
     return true;
   }
 
-  respondPermission(id: string, permissionId: string, behavior: "allow" | "deny"): "ok" | "no_session" | "no_permission" {
+  respondPermission(id: string, permissionId: string, behavior: PermissionBehavior): "ok" | "no_session" | "no_permission" {
     const e = this.entries.get(id);
     if (!e) return "no_session";
     return e.driver.respondPermission(permissionId, behavior) ? "ok" : "no_permission";
@@ -469,9 +471,9 @@ export async function handleSessionRoute(
       return true;
     case "permission": {
       const permissionId = typeof b.id === "string" ? b.id : "";
-      const behavior = b.behavior === "allow" || b.behavior === "deny" ? b.behavior : null;
+      const behavior = b.behavior === "allow" || b.behavior === "deny" || b.behavior === "always" ? b.behavior : null;
       if (!permissionId || !behavior) {
-        json(res, 400, { ok: false, error: "id (string) and behavior (allow|deny) are required" });
+        json(res, 400, { ok: false, error: "id (string) and behavior (allow|deny|always) are required" });
         return true;
       }
       const r = registry.respondPermission(id, permissionId, behavior);
