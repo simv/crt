@@ -59,6 +59,8 @@ export interface CrtConfigFile {
   models?: Record<string, string>;
   /** `providers.<id>.command`: the executable (plus leading args) to run for that agent (F-53). */
   providers?: Record<string, { command?: string[] }>;
+  /** PRD-chat F-124: "Always allow" rules in Claude Code's rule syntax; the panel adds them to the local file. */
+  permissions?: { allow?: string[] };
 }
 
 /** The merged, validated configuration the server runs with. */
@@ -81,6 +83,8 @@ export interface CrtConfig {
   acp: AcpProviderConfig | null;
   models: Record<string, string>;
   providers: Record<string, { command: string[] }>;
+  /** F-124: `permissions.allow` of both files, the local file's rules first. */
+  allow: string[];
 }
 
 /** What `crt init` writes; provider keys are added by the developer or by "Remember" (local file). */
@@ -98,6 +102,7 @@ export const DEFAULT_CONFIG: CrtConfig = {
   acp: null,
   models: {},
   providers: {},
+  allow: [],
 };
 
 /**
@@ -132,6 +137,7 @@ export function readConfig(root: string): CrtConfig {
     providerSource: localProvider ? "local" : projectProvider ? "project" : null,
     acp: [localProvider, projectProvider].find((p): p is AcpProviderConfig => typeof p === "object" && p !== null) ?? null,
     models: { ...modelsOf(project), ...modelsOf(local) },
+    allow: [...new Set([...allowOf(local), ...allowOf(project)])],
     providers: { ...providersOf(project), ...providersOf(local) },
   };
 }
@@ -140,15 +146,21 @@ export function readConfig(root: string): CrtConfig {
  * F-57 `PUT /__crt/config`: merge `provider` and/or `models` into `.crt/config.local.json`
  * (creating it), leaving every other key of the file as it was. The route has validated the
  * values; this only writes the machine-local file, never `.crt/config.json` (N-8). The guided
- * start writes `target` the same way (PRD-setup F-72).
+ * start writes `target` the same way (PRD-setup F-72), and a permission card's Always allow appends
+ * to `permissions.allow` (PRD-chat F-124).
  */
-export function writeLocalConfig(root: string, patch: { provider?: string; models?: Record<string, string>; target?: string }): string {
+export function writeLocalConfig(root: string, patch: { provider?: string; models?: Record<string, string>; target?: string; allow?: string[] }): string {
   const path = join(root, ".crt", LOCAL_CONFIG_FILE);
   const current = readConfigFile(path);
   const next: CrtConfigFile = { ...current };
   if (patch.provider !== undefined) next.provider = patch.provider;
   if (patch.target !== undefined) next.target = patch.target;
   if (patch.models !== undefined) next.models = { ...(current.models && typeof current.models === "object" ? current.models : {}), ...patch.models };
+  // F-124: rules are appended once; any other `permissions` key the developer wrote stays.
+  if (patch.allow !== undefined) {
+    const permissions = current.permissions && typeof current.permissions === "object" ? current.permissions : {};
+    next.permissions = { ...permissions, allow: [...new Set([...allowOf(current), ...patch.allow])] };
+  }
   mkdirSync(join(root, ".crt"), { recursive: true });
   writeFileSync(path, JSON.stringify(next, null, 2) + "\n", "utf8");
   return path;
@@ -194,6 +206,11 @@ function modelsOf(f: CrtConfigFile): Record<string, string> {
     if (typeof model === "string" && MODEL_RE.test(model)) out[id] = model;
   }
   return out;
+}
+
+function allowOf(f: CrtConfigFile): string[] {
+  const allow = f.permissions && typeof f.permissions === "object" ? f.permissions.allow : undefined;
+  return Array.isArray(allow) ? allow.filter((r): r is string => typeof r === "string" && r.trim() !== "") : [];
 }
 
 function providersOf(f: CrtConfigFile): Record<string, { command: string[] }> {

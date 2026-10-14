@@ -25,6 +25,7 @@
  * F-50/F-51 plumbing is exercised end to end without a real agent.
  */
 import { FIRST_MESSAGE_HEADING } from "../intake-message.js";
+import { subjectOf } from "../permissions.js";
 import type { ProviderCapabilities, SessionDriver, StartSessionOptions, UserInput } from "../session-events.js";
 import { writeTaskResultText } from "../write-task.js";
 import { createEmitter, createPermissionBroker, createTurnQueue, initEvent } from "./driver-core.js";
@@ -97,7 +98,7 @@ export function startStubSession(opts: StartSessionOptions, variant: StubVariant
   const caps = profile.capabilities;
   const em = createEmitter(opts.log);
   const { emit, setState } = em;
-  const permissions = createPermissionBroker({ ...em, timeoutMs: opts.permissionTimeoutMs });
+  const permissions = createPermissionBroker({ ...em, timeoutMs: opts.permissionTimeoutMs, allowList: opts.allowList });
   let turn = 0; // increments on interrupt/close so a running script notices and stops
   let n = 0;
 
@@ -121,7 +122,7 @@ export function startStubSession(opts: StartSessionOptions, variant: StubVariant
     const decision = caps.permissions === "interactive" ? opts.decide(name, input) : { kind: "allow" as const };
     let allowed = decision.kind === "allow";
     if (decision.kind === "ask") {
-      const answer = await permissions.ask({ toolName: name, title: label, detail: String(input.command ?? input.file_path ?? JSON.stringify(input)) });
+      const answer = await permissions.ask({ toolName: name, title: label, detail: String(input.command ?? input.file_path ?? JSON.stringify(input)), subject: subjectOf(name, input) });
       if (cancelled(t)) return false;
       allowed = answer.behavior === "allow";
     }

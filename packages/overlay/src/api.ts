@@ -12,7 +12,7 @@
  */
 import type { CapturePost } from "../../server/src/capture-schema.js";
 import { CAPTURES_PATH, CONFIG_PATH, PROVIDERS_PATH, RASTER_PATH, SESSIONS_PATH } from "../../server/src/routes.js";
-import type { ProvidersPayload, SessionInfo } from "../../server/src/session-events.js";
+import type { PermissionBehavior, ProvidersPayload, SessionInfo } from "../../server/src/session-events.js";
 import { crtUrl } from "./base.js";
 
 /** F-16 (CRT-0047): the rasteriser frame screenshot.ts draws in under a strict `img-src` — a page, not a JSON call. */
@@ -114,8 +114,8 @@ export async function interruptSession(sessionId: string): Promise<void> {
   await crtJson(`${SESSIONS_PATH}/${sessionId}/interrupt`, { method: "POST" });
 }
 
-/** F-26: Allow or Deny a permission request. */
-export async function answerPermission(sessionId: string, permissionId: string, behavior: "allow" | "deny"): Promise<void> {
+/** F-26: Allow or Deny a permission request; PRD-chat F-124: or Always allow it, saving the card's rule. */
+export async function answerPermission(sessionId: string, permissionId: string, behavior: PermissionBehavior): Promise<void> {
   await crtJson(`${SESSIONS_PATH}/${sessionId}/permission`, withJson("POST", { id: permissionId, behavior }));
 }
 

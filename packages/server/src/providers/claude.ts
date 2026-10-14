@@ -44,6 +44,7 @@ import {
   type SDKUserMessage,
   tool,
 } from "@anthropic-ai/claude-agent-sdk";
+import { subjectOf } from "../permissions.js";
 import type { ProviderCapabilities, SessionDriver, StartSessionOptions, UserInput, WriteTaskRequest } from "../session-events.js";
 import { CRT_MCP_SERVER, WRITE_TASK_DESCRIPTION, WRITE_TASK_TOOL, WRITE_TASK_TOOL_FULL, writeTaskErrorText, writeTaskResultText, writeTaskShape } from "../write-task.js";
 import { createEmitter, createPermissionBroker, initEvent } from "./driver-core.js";
@@ -204,7 +205,7 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
 export function startSession(opts: StartSessionOptions): SessionDriver {
   const em = createEmitter(opts.log);
   const { emit, setState } = em;
-  const permissions = createPermissionBroker({ ...em, timeoutMs: opts.permissionTimeoutMs });
+  const permissions = createPermissionBroker({ ...em, timeoutMs: opts.permissionTimeoutMs, allowList: opts.allowList });
   const input = new InputQueue();
   const stderr = new StderrTail();
   const streamedMessages = new Set<string>();
@@ -225,6 +226,7 @@ export function startSession(opts: StartSessionOptions): SessionDriver {
         toolName,
         title: options.title ?? `Claude wants to use ${options.displayName ?? toolName}`,
         detail: describeInput(toolName, toolInput, opts.cwd),
+        subject: subjectOf(toolName, toolInput),
       },
       { signal: options.signal },
     );

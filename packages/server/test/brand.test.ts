@@ -174,7 +174,8 @@ describe("the tokens feed the overlay's CSS (PRD-polish F-112, decision 7)", () 
     });
     // 20104 before F-119's .fold rows (CRT-0030), 20892 before F-120's .proposal .lead rows (CRT-0031),
     // 21084 before the badges' animation became crt-badge-pulse (CRT-0038, twice + "badge-").
-    expect(OVERLAY_CSS).toHaveLength(21096);
+    // 21096 before the Always allow button and its rule line (PRD-chat F-124, CRT-0048).
+    expect(OVERLAY_CSS).toHaveLength(21185);
   });
 
   it("defines each @keyframes name once, and every animation names one of them — the launcher's checking dot pulses (F-81, CRT-0038)", () => {

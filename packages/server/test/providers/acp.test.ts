@@ -43,7 +43,8 @@ import {
   parseGeminiVersion,
 } from "../../src/providers/gemini.js";
 import { renderProviders, type ProviderStatus } from "../../src/session.js";
-import type { SessionEvent } from "../../src/session-events.js";
+import { ruleAllows, suggestRule } from "../../src/permissions.js";
+import type { AllowList, SessionEvent } from "../../src/session-events.js";
 import { buildMcpShim, driverHarness, driverOptions, env as fakeEnv, restoreEnv, setEnv, useFake } from "../helpers/fake-cli.js";
 import { samplePost } from "../helpers/sample-capture.js";
 import { runConformance } from "./conformance.js";
@@ -416,6 +417,29 @@ describe("ACP driver on the fake agent (F-49, F-50, F-51, F-54, F-59, N-7)", () 
     await s.waitFor((e) => e.type === "state" && e.state === "error");
     expect(s.events.at(-1)).toMatchObject({ type: "state", state: "error", detail: GEMINI_TIER_REFUSED });
     s.driver.close();
+  }, 30_000);
+
+  it("Always allow on a Gemini card saves the same rule a Claude card would, and the next npm test runs without a card (PRD-chat F-124)", async () => {
+    useFake(bin, { GEMINI_API_KEY: "k" });
+    const rules: string[] = [];
+    const allowList: AllowList = {
+      allows: (subject) => rules.some((r) => ruleAllows(r, subject, root)),
+      suggest: (subject) => suggestRule(subject, root),
+      add: (rule) => void rules.push(rule),
+    };
+    const { events, driver, waitFor } = driverHarness(geminiProfile.start({ ...driverOptions({ cwd: root, captureDir, shim, imageData: "AAAA" }), allowList }));
+    await waitFor((e) => e.type === "permission");
+    const card = events.find((e) => e.type === "permission") as Extract<SessionEvent, { type: "permission" }>;
+    expect(card.always).toEqual({ rule: "Bash(npm test:*)", label: 'commands starting with "npm test"' });
+    expect(driver.respondPermission(card.id, "always")).toBe(true);
+    expect(rules).toEqual(["Bash(npm test:*)"]);
+    await waitFor((e) => e.type === "state" && e.state === "idle");
+    const mark = events.length;
+    driver.send({ text: "permission please" });
+    await waitFor((e) => e.type === "tool_result" && e.summary === "3 passing", mark);
+    await waitFor((e) => e.type === "state" && e.state === "idle", mark);
+    expect(events.slice(mark).some((e) => e.type === "permission")).toBe(false);
+    driver.close();
   }, 30_000);
 
   it("images are dropped when the agent does not advertise them, and the init capabilities say so (F-50)", async () => {

@@ -184,6 +184,34 @@ describe("session routes (F-24, F-25, F-29)", () => {
     registry.close(id);
   });
 
+  it("Always allow saves the card's rule to .crt/config.local.json and the next matching call runs without a card (PRD-chat F-124)", async () => {
+    const local = join(root, ".crt", "config.local.json");
+    try {
+      const cap = writeCapture(root, samplePost());
+      const { id } = (await api("POST", "/__crt/sessions", { captureId: cap.id })).json as { id: string };
+      const first = await collect(`/__crt/sessions/${id}/events`, (e) => e.type === "permission");
+      const perm = first.events.at(-1) as Extract<SessionEvent, { type: "permission" }>;
+      expect(perm.always).toEqual({ rule: "Bash(npm test:*)", label: 'commands starting with "npm test"' });
+      expect((await api("POST", `/__crt/sessions/${id}/permission`, { id: perm.id, behavior: "always" })).status).toBe(200);
+      const rest = await collect(`/__crt/sessions/${id}/events?after=${first.ids.at(-1)}`, isState("idle"));
+      expect(rest.events.find((e) => e.type === "permission_resolved")).toEqual({ type: "permission_resolved", id: perm.id, behavior: "allow", by: "user", always: true });
+      expect(rest.events.find((e) => e.type === "tool_use" && e.name === "Bash")).toBeDefined();
+      expect(JSON.parse(readFileSync(local, "utf8"))).toMatchObject({ permissions: { allow: ["Bash(npm test:*)"] } });
+
+      // The stub's second `npm test` round: no card this time, the tool just runs.
+      expect((await api("POST", `/__crt/sessions/${id}/messages`, { text: "run the tests again" })).status).toBe(202);
+      const after = Number(first.ids.at(-1)) + rest.events.length;
+      const turn = await collect(`/__crt/sessions/${id}/events?after=${after}`, (e) => e.type === "result");
+      expect(turn.events.some((e) => e.type === "permission")).toBe(false);
+      expect(turn.events.find((e) => e.type === "tool_result" && e.summary === "12 passing")).toBeDefined();
+      // A behavior the route does not know is refused.
+      expect((await api("POST", `/__crt/sessions/${id}/permission`, { id: perm.id, behavior: "sometimes" })).status).toBe(400);
+      registry.close(id);
+    } finally {
+      rmSync(local, { force: true });
+    }
+  });
+
   it("Allow runs the tool; a later 'write' turn writes the task and the panel learns the id", async () => {
     const cap = writeCapture(root, samplePost());
     const { id } = (await api("POST", "/__crt/sessions", { captureId: cap.id })).json as { id: string };

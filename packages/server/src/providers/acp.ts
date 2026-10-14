@@ -45,7 +45,7 @@ import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { IMAGES_DROPPED_LINE } from "../intake-message.js";
 import { isReadOnlyGit, isUnderCrtDir } from "../permissions.js";
-import type { PermissionDecision, ProviderCapabilities, SessionDriver, SessionEvent, StartSessionOptions, UserInput } from "../session-events.js";
+import type { PermissionDecision, PermissionSubject, ProviderCapabilities, SessionDriver, SessionEvent, StartSessionOptions, UserInput } from "../session-events.js";
 import { packageVersion } from "../version.js";
 import { CRT_MCP_SERVER, WRITE_TASK_TOOL } from "../write-task.js";
 import { createEmitter, createPermissionBroker, createTurnQueue, initEvent } from "./driver-core.js";
@@ -234,6 +234,19 @@ export function decideAcpPermission(toolCall: AcpToolCall, projectRoot: string):
   }
 }
 
+/**
+ * PRD-chat F-124: the subject of a tool call, in the same terms as Claude's, so one "Always allow"
+ * rule covers both: `execute` is a command (`Bash(…)`), `edit` / `delete` / `move` are file writes
+ * (`Edit(…)`). Other kinds are too coarse to name a rule by (`other` is any tool), so their cards
+ * offer only Allow / Deny.
+ */
+export function acpSubject(toolCall: AcpToolCall): PermissionSubject | undefined {
+  const kind = toolCall.kind ?? "other";
+  if (kind === "execute") return { kind: "command", command: commandOf(toolCall) };
+  if (kind === "edit" || kind === "delete" || kind === "move") return { kind: "edit", paths: (toolCall.locations ?? []).map((l) => l.path).filter((p): p is string => typeof p === "string") };
+  return undefined;
+}
+
 /** The command an `execute` tool call would run: `rawInput.command` when present, else the title. */
 export function commandOf(toolCall: AcpToolCall): string {
   const raw = toolCall.rawInput;
@@ -405,7 +418,7 @@ export interface AcpProcessDeps extends ProcessDeps {
 export function startAcpSession(opts: StartSessionOptions, profile: ProviderProfile, spec: AcpAgentSpec, deps: AcpProcessDeps = realProcessDeps): SessionDriver {
   const em = createEmitter(opts.log);
   const { emit, setState } = em;
-  const permissions = createPermissionBroker({ ...em, timeoutMs: opts.permissionTimeoutMs });
+  const permissions = createPermissionBroker({ ...em, timeoutMs: opts.permissionTimeoutMs, allowList: opts.allowList });
   const stderr = new StderrTail();
   const log = opts.log ?? (() => undefined);
   const name = profile.displayName;
@@ -445,10 +458,12 @@ export function startAcpSession(opts: StartSessionOptions, profile: ProviderProf
     const decision = decideAcpPermission(toolCall, opts.cwd);
     if (decision.kind === "allow") return pickPermissionOption(options, "allow");
     if (decision.kind === "deny") return pickPermissionOption(options, "deny");
+    const subject = acpSubject(toolCall);
     const { behavior } = await permissions.ask({
       toolName: acpToolName(toolCall),
       title: toolCall.title ?? `${name} wants to use ${toolCall.kind ?? "a tool"}`,
       detail: describeToolCall(toolCall, opts.cwd),
+      ...(subject ? { subject } : {}),
     });
     if (em.isClosed() || interrupted) return { outcome: { outcome: "cancelled" } };
     return pickPermissionOption(options, behavior);

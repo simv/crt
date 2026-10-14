@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PERMISSION_TIMEOUT_MS } from "../../src/permissions.js";
-import { createEmitter, createPermissionBroker, createTurnQueue, describeTimeout, initEvent } from "../../src/providers/driver-core.js";
+import { resolve } from "node:path";
+import { PERMISSION_TIMEOUT_MS, ruleAllows, suggestRule } from "../../src/permissions.js";
+import { createEmitter, createPermissionBroker, createTurnQueue, describeTimeout, initEvent, type PermissionCard } from "../../src/providers/driver-core.js";
 import { makeStubProfile, stubProfile } from "../../src/providers/stub.js";
-import type { SessionEvent, UserInput } from "../../src/session-events.js";
+import type { AllowList, SessionEvent, UserInput } from "../../src/session-events.js";
 
 // The session kit every driver is built on (PRD-providers §5, F-46, F-59; CRT-0041): the emitter,
 // the turn queue, the permission broker and the `init` event. The drivers' own suites (and the F-59
@@ -230,6 +231,81 @@ describe("createPermissionBroker (CRT-0041, F-26)", () => {
     expect(describeTimeout(90_000)).toBe("90 seconds");
     expect(describeTimeout(1_000)).toBe("1 second");
     expect(describeTimeout(400)).toBe("400 ms");
+  });
+});
+
+describe("createPermissionBroker: Always allow (PRD-chat F-124)", () => {
+  const root = resolve("/proj");
+  const npmTest = { toolName: "Bash", title: "Claude wants to use Bash", detail: "npm test", subject: { kind: "command" as const, command: "npm test" } };
+
+  /** An in-memory rule list over the real matcher, so the broker is tested without a config file. */
+  function memoryList(rules: string[] = []): AllowList & { rules: string[] } {
+    return {
+      rules,
+      allows: (subject) => rules.some((r) => ruleAllows(r, subject, root)),
+      suggest: (subject) => suggestRule(subject, root),
+      add: (rule) => void rules.push(rule),
+    };
+  }
+
+  function broker(allowList?: AllowList) {
+    const r = recorded();
+    r.em.setState("running");
+    return { ...r, broker: createPermissionBroker({ emit: r.em.emit, setState: r.em.setState, getState: r.em.getState, timeoutMs: 30_000, allowList }) };
+  }
+
+  it("a card whose subject has a rule offers it; Always allow saves it, allows the call and says so (F-124)", async () => {
+    const list = memoryList();
+    const { broker: b, events } = broker(list);
+    const answer = b.ask(npmTest);
+    const perm = events.find((e) => e.type === "permission") as Extract<SessionEvent, { type: "permission" }>;
+    expect(perm.always).toEqual({ rule: "Bash(npm test:*)", label: 'commands starting with "npm test"' });
+    expect(perm).not.toHaveProperty("subject");
+    expect(b.respond(perm.id, "always")).toBe(true);
+    expect(await answer).toMatchObject({ behavior: "allow", by: "user" });
+    expect(list.rules).toEqual(["Bash(npm test:*)"]);
+    expect(events.find((e) => e.type === "permission_resolved")).toEqual({ type: "permission_resolved", id: perm.id, behavior: "allow", by: "user", always: true });
+  });
+
+  it("a call a saved rule covers is allowed with no card; one it does not cover still asks (F-124)", async () => {
+    const { broker: b, events } = broker(memoryList(["Bash(npm test:*)"]));
+    expect(await b.ask({ ...npmTest, subject: { kind: "command", command: "npm test -- --watch=false" } })).toEqual({ behavior: "allow", by: "rule", reason: "Always allowed in the CRT panel" });
+    expect(events.some((e) => e.type === "permission")).toBe(false);
+    void b.ask({ ...npmTest, subject: { kind: "command", command: "npm test && rm -rf ." } });
+    expect(events.filter((e) => e.type === "permission")).toHaveLength(1);
+    b.denyAll("session");
+  });
+
+  it("Always allow settles every other open card the new rule covers (F-124)", async () => {
+    const { broker: b, events } = broker(memoryList());
+    const first = b.ask(npmTest);
+    const second = b.ask({ ...npmTest, subject: { kind: "command", command: "npm test -- cart" } });
+    const other = b.ask({ ...npmTest, detail: "npm run build", subject: { kind: "command", command: "npm run build" } });
+    const cards = events.filter((e) => e.type === "permission") as Array<Extract<SessionEvent, { type: "permission" }>>;
+    b.respond(cards[0]!.id, "always");
+    expect(await first).toMatchObject({ behavior: "allow" });
+    expect(await second).toMatchObject({ behavior: "allow", by: "rule" });
+    expect(events).toContainEqual({ type: "permission_resolved", id: cards[1]!.id, behavior: "allow", by: "user", always: true });
+    expect(b.size).toBe(1);
+    b.respond(cards[2]!.id, "deny");
+    expect(await other).toMatchObject({ behavior: "deny" });
+  });
+
+  it("no rule list, no subject or no rule for the subject: Allow / Deny only, and Always is refused (F-124)", () => {
+    const rows: Array<[AllowList | undefined, PermissionCard]> = [
+      [undefined, npmTest],
+      [memoryList(), { toolName: "Bash", title: "t", detail: "d" }],
+      [memoryList(), { ...npmTest, subject: { kind: "edit", paths: [resolve("/elsewhere/a.ts")] } }],
+    ];
+    for (const [list, card] of rows) {
+      const { broker: b, events } = broker(list);
+      void b.ask(card);
+      const perm = events.find((e) => e.type === "permission") as Extract<SessionEvent, { type: "permission" }>;
+      expect(perm).not.toHaveProperty("always");
+      expect(b.respond(perm.id, "always")).toBe(false);
+      expect(b.size).toBe(1);
+      b.denyAll("session");
+    }
   });
 });
 
