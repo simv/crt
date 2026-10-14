@@ -1,10 +1,10 @@
 ---
 id: CRT-0048
 title: Always allow on permission cards, for every agent
-status: review
+status: done
 priority: normal
 created: 2026-10-14T10:27:00+08:00
-updated: 2026-10-14T10:51:00+08:00
+updated: 2026-10-14T11:18:00+08:00
 url: null
 route: null
 session: null
@@ -43,3 +43,4 @@ Removing a rule is a hand edit of `.crt/config.local.json` (`permissions.allow`)
 - 2026-10-14T10:27+08:00 — filed and claimed by hand from Simon's request (in_progress), branch `crt/CRT-0048-always-allow`.
 - 2026-10-14T10:45+08:00 — built: F-124 in PRD-chat §6.5; rules in `permissions.ts`, the broker in `driver-core.ts`, `acpSubject` in `acp.ts`, `permissions.allow` in `config.ts`, the card in `chat.ts`; unit and e2e rows added. Set to review.
 - 2026-10-14T10:51+08:00 — PR https://github.com/simv/crt/pull/110; main merged in after CRT-0047 (#109) landed; CI green on b15d5f9. Waiting on Simon's review.
+- 2026-10-14T11:18+08:00 — Simon: "merge it". — done; closed in https://github.com/simv/crt/pull/110 (CI green on c411471)
