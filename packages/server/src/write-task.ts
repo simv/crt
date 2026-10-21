@@ -18,7 +18,7 @@ export const WRITE_TASK_TOOL = "write_task";
 export const WRITE_TASK_TOOL_FULL = `mcp__${CRT_MCP_SERVER}__${WRITE_TASK_TOOL}`;
 
 export const WRITE_TASK_DESCRIPTION =
-  "Write the CRT task file for this intake (PRD F-32). The server allocates the CRT-NNNN id, moves the capture's screenshots to .crt/tasks/assets/<ID>/, renders the Evidence section from the capture, writes the file and regenerates the index. Call it once, after the developer has confirmed the definition of done. Returns the id and path.";
+  "Write the CRT task file for this intake (PRD F-32). The server allocates the CRT-NNNN id, moves the capture's screenshots to .crt/tasks/assets/<ID>/, renders the Evidence section from the capture, writes the file and regenerates the index. Call it once, after the developer has confirmed the definition of done. Keep the call to a few KB: cite file:line and quote a line or two instead of pasting code, logs or long prose, because a very long call can arrive as malformed JSON and fail before the server sees it. Returns the id and path.";
 
 /** Ends each free-text field's description: `createTask` demotes headings so none reads as an F-32 section. */
 const HEADINGS = "; a line starting with '# ' or '## ' is written as '### ', since the file's sections are '## ' headings";
@@ -35,7 +35,7 @@ export const writeTaskShape = {
   ask: z.string().min(1).describe(`The change requested, precisely${HEADINGS}`),
   definitionOfDone: z.array(z.string().min(1)).min(1).describe(`Checkable items, one per entry; the server renders them as - [ ] checkboxes${HEADINGS}`),
   notes: z.string().optional().describe(`Constraints, hunches, non-goals, alternatives considered${HEADINGS}`),
-  priority: z.enum(TASK_PRIORITIES).optional().describe("Default normal"),
+  priority: z.enum(TASK_PRIORITIES).optional().describe(`One of ${TASK_PRIORITIES.join(", ")}; default normal`),
   tags: z.array(z.string()).optional().describe("Short lowercase tags, e.g. ['cart', 'pricing']"),
   files: z.array(z.string()).optional().describe("Project-relative source files identified during intake"),
 };
