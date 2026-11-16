@@ -5,10 +5,13 @@ Every `crt` command and flag, what `crt` prints on the way to `CRT ready` and af
 ## `crt` flags
 
 ```
-crt [target] [--port <n>] [--open | --no-open] [--yes] [--replace] [--provider <id>]
+crt [target] [--port <n>] [--open | --no-open] [--yes] [--replace] [--provider <id>] [--review [name]]
 crt serve [target] [--target <url>] [--mode <embedded|proxy>] …   # the same command under its explicit name
 crt proxy [target] …                           # proxy your app through http://localhost:4400 instead (= crt serve --mode proxy)
 crt browse [target] …                          # the same server, your app in a Chrome or Edge window CRT starts itself: nothing to add to the app
+crt review [--json]                            # the current review: its items, kept or dropped, and the totals
+crt review list                                # every review of this project, with its status and counts
+crt review new [name]                          # start a new review (named after today's date by default)
 crt doctor                                     # checklist: node, project, .crt, mode, target, integration, instructions, port, providers, plugin
 crt init [--yes] [--no-instructions] [--snippet [--json]]   # set the project up, each write announced; then the snippet for your framework
 crt setup [--claude <path>]                    # register the bundled Claude Code plugin (idempotent)
@@ -17,7 +20,7 @@ crt --version                                  # crt <version> (agent sdk <versi
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `[target]` | auto | Your app's URL, as a positional: `3000`, `localhost:3000` or a full URL — what CRT opens for you in embedded mode, what it proxies in proxy mode. Remembered in `.crt/config.local.json` once it responds; `crt <port>` switches it. |
+| `[target]` | auto | Your app's URL, as a positional: `3000`, `localhost:3000` or a full URL — what CRT opens for you in embedded mode, what it proxies in proxy mode. Remembered in `.crt/config.local.json` once it responds (for a guest or under `--review`, in the file of the same name under the CRT home); `crt <port>` switches it. |
 | `--target <url>` | auto | The same, as a flag (what scripts and the skills pass); never remembered. Without either, CRT reads `target` from `.crt/config.local.json`, then `.crt/config.json`, then probes ports 3000, 5173, 8080, 4200, 8000, 3001. In proxy mode a terminal asks when there are several or none and waits for the one you name; embedded mode never waits — it says what it found (or did not) and is ready either way. |
 | `crt proxy [target]` | | Proxy mode: the v0.3 experience for an app that cannot be touched — browse `http://localhost:4400`, CRT injects the overlay into every HTML page (WebSocket/HMR passthrough, CSP relaxing). The same flags as `crt`. |
 | `crt browse [target]` | | The CRT browser: the embedded server, plus a Chrome or Edge window that CRT starts itself with a profile of its own per project (under `~/.crt/browser/`) and puts the CRT loader into over the DevTools protocol — so the CRT button is on your app's own URL with no integration and no policy exception in the app. The same flags as `crt` except `--mode`; it opens the window off a terminal too, and `--no-open` never launches it. CRT looks for Chrome, then Edge, then Chromium; `"browser": { "command": ["<path>", "<arg>", …] }` in `.crt/config.local.json` (or `.crt/config.json`) names another one. See [The CRT browser](#the-crt-browser). |
@@ -25,6 +28,7 @@ crt --version                                  # crt <version> (agent sdk <versi
 | `--port <n>` | `4400` (or `port` in `.crt/config.local.json` / `.crt/config.json`) | Port CRT listens on. Always bound to `127.0.0.1`. Never stepped around; without it a held port falls back to 4401…4409. |
 | `--open` / `--no-open` | on for a terminal, off otherwise | Open the CRT URL in your default browser once ready. |
 | `--yes` | off | Never prompt: every question takes its default or fails with one `crt:` line (also the behaviour off a terminal or with `CI` set). |
+| `--review [name]` | off (or `"store": "review"` in `.crt/config.local.json` / `.crt/config.json`) | Keep this run's feedback in a **review** under the CRT home (`~/.crt`, or `CRT_HOME`) instead of the project's `.crt/tasks/`, and write nothing into the project — what a project that is not set up gets anyway (below). With a name, that review (started by the first Send if it does not exist); without one, the current review. |
 | `--replace` | off | Stop a CRT already holding the port (through its `POST /__crt/internal/shutdown`, which any local process may call — page scripts cannot, and it is no more than a signal could do) and take it over. |
 | `--provider <id>` | auto | The agent behind the chat: `claude` (default) or `codex`. See [Providers](providers.md). |
 | `crt doctor` | | Read-only checklist, one row per check; exit 1 on any `FAIL`. First step in [Troubleshooting](troubleshooting.md). |
@@ -60,7 +64,39 @@ When no browser is found: `crt: no Chrome, Edge or Chromium found — set browse
 
 ### Setting the project up
 
-`crt` never sets a project up on its own: when `.crt/tasks/` is missing it prints the `crt init` plan and asks `Set up CRT in <root>? [Y/n]` on a terminal, sets it up under `--yes`, and otherwise refuses with `crt: <root> is not set up for CRT — run \`crt init\` (or \`crt --yes\`)` — see [CRT is not set up](troubleshooting.md#crt-is-not-set-up).
+`crt` never sets a project up on its own, and no longer asks to: a project without `.crt/tasks/` is reviewed as a **guest**. One line says so before the ready line —
+
+```
+crt: C:\my-app is not set up for CRT — keeping this review in C:\Users\me\.crt\reviews\my-app-3fa9c1 (nothing is written to the project; `crt init` adopts CRT here).
+```
+
+— and the ready line reads `(embedded, guest; project: C:\my-app, review 2026-11-16: 0 items, provider: …, login: …)`. Nothing under the project root is created, modified or deleted while CRT runs: captures, the remembered target, the provider choice and the tasks all go to the CRT home. `--yes` only means "never prompt"; it does not run `crt init`. `crt init` is the deliberate step that adopts CRT in a repository — see [CRT is not set up](troubleshooting.md#crt-is-not-set-up).
+
+### Reviews
+
+A **review** is where feedback is kept when it is not written straight into the project: for a guest, and for a set-up project started with `--review` (or `"store": "review"`). It lives under the CRT home, one folder per project (the folder name plus a short hash of its path) and one per review:
+
+```
+~/.crt/reviews/my-app-3fa9c1/
+  project.json            which checkout this is
+  config.local.json       what would have gone to .crt/config.local.json: the remembered target, the provider choice, Always-allow rules
+  2026-11-16/             a review, named after the day it started (or the name you gave it)
+    review.json           its status, when it started, its items in order
+    tasks/R-01-<slug>.md  the task files, with review-local ids
+    tasks/assets/R-01/    their screenshots and capture.json
+    tasks/README.md       the generated index
+    captures/             captures not yet turned into items
+```
+
+The first Send starts a review when the project has no open one, and the first thing a run creates under the home is announced once (`crt: created C:\Users\me\.crt\reviews`). Items are numbered `R-01`, `R-02`, … within their review and are ordinary [task files](task-format.md) otherwise; each records the `branch` and `commit` the project was on when it was captured. The **current review** is the project's newest open one.
+
+| Command | What it does |
+|---|---|
+| `crt review` | Prints the current review, one line per item in order — `R-03  high    kept     /checkout  Cart total excludes applied discount` — then `Review 2026-11-16: 11 items · 9 kept · 3 routes`. With no review: `crt: no review for <root> yet — run \`crt\`, send some feedback, then \`crt review\``, exit 0. |
+| `crt review --json` | The same as JSON for tooling: `review`, `dir`, `tasksDir`, `status`, `created`, `project`, `items` (`id`, `keep`, `order`, `title`, `priority`, `status`, `route`, `branch`, `commit`, `file`), `totals`, `handovers`; `{ "review": null, "items": [] }` when there is none. |
+| `crt review list` | Every review of the project, oldest first: `2026-11-16  open    11 items, 9 kept  (current)`. |
+| `crt review new [name]` | Starts a new review, which becomes the current one; the previous stays open and listed. A name is lower-case letters, digits and hyphens; the default is today's date, with `-2`, `-3` … when taken. |
+| `crt tasks --review [name]`, `crt task R-03 --review [name]` | `crt tasks` and `crt task` over a review's items instead of `.crt/tasks/` (the current review, or the named one). |
 
 ### Failures
 

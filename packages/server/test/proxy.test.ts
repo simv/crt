@@ -171,7 +171,9 @@ describe("CRT routes (F-4)", () => {
     expect(health).toMatchObject({ ok: true, target: fixture.url, projectRoot: tmp, provider: null, login: "unchecked", sessions: 0, tasks: 0 });
     // PRD-embedded F-93: `mode` and `app` (= `target`) join the payload; a bare proxy is proxy mode.
     expect(health).toMatchObject({ mode: "proxy", app: fixture.url });
-    expect(Object.keys(health).sort()).toEqual(["app", "login", "mode", "ok", "overlay", "projectRoot", "provider", "sessions", "startedAt", "target", "tasks", "tasksDir", "version"]);
+    // PRD-zero F-129: where tasks go; a server without a store is the project's own `.crt/`.
+    expect(health).toMatchObject({ store: "project", review: null, guest: false });
+    expect(Object.keys(health).sort()).toEqual(["app", "guest", "login", "mode", "ok", "overlay", "projectRoot", "provider", "review", "sessions", "startedAt", "store", "target", "tasks", "tasksDir", "version"]);
     // No version/startedAt/tasksDir were given to this bare proxy.
     expect(health.version).toBeNull();
     expect(health.startedAt).toBeNull();
@@ -737,7 +739,7 @@ describe("embedded mode (PRD-embedded F-91, F-93, F-94)", () => {
       expect(h).toMatchObject({ ok: true, mode: "embedded", app: "http://localhost:3000", target: "http://localhost:3000", version: "0.4.0" });
       expect(h.overlay).toMatchObject({ injected: 0, fetched: 0, loader: 2 });
       // Health keys are the proxy-mode keys plus nothing else: the same story in both modes.
-      expect(Object.keys(h).sort()).toEqual(["app", "login", "mode", "ok", "overlay", "projectRoot", "provider", "sessions", "startedAt", "target", "tasks", "tasksDir", "version"]);
+      expect(Object.keys(h).sort()).toEqual(["app", "guest", "login", "mode", "ok", "overlay", "projectRoot", "provider", "review", "sessions", "startedAt", "store", "target", "tasks", "tasksDir", "version"]);
       // Nothing to forward a WebSocket to.
       const socket = connect({ host: "127.0.0.1", port: Number(new URL(e.origin).port) });
       await new Promise<void>((r) => socket.once("connect", r));

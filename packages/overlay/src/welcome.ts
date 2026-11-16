@@ -61,7 +61,11 @@ export function tasksLabel(h: Pick<HealthPayload, "projectRoot" | "tasksDir">): 
 export function welcomeCopy(h: HealthPayload, agent: WelcomeAgent, crtOrigin = ""): WelcomeCopy {
   const name = agent.name ?? h.provider ?? "the agent";
   const n = h.tasks;
-  const tasks = `Tasks are written to ${tasksLabel(h)} (${n} there now).`;
+  // PRD-zero F-129: in a review the second sentence says where the feedback is and what to do with it.
+  const tasks =
+    h.store === "review"
+      ? `Feedback is kept in a review (${n} item${n === 1 ? "" : "s"}) — \`crt review\` shows it, \`crt handoff\` sends it to the project.`
+      : `Tasks are written to ${tasksLabel(h)} (${n} there now).`;
   const where = h.mode === "embedded" ? `Talking to CRT at ${crtOrigin || "this origin"} for ${h.projectRoot}. ${tasks}` : `Proxying ${h.target} for ${h.projectRoot}. ${tasks}`;
   let line: string;
   if (h.login === "ok") line = `Agent: ${name} — ready, logged in`;

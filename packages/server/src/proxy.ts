@@ -98,6 +98,7 @@ import {
 import { RASTER_FRAME_CSP, RASTER_FRAME_HTML } from "./raster-frame.js";
 import { loginField, type ProviderRegistry } from "./session.js";
 import { handleInternalRoute, handleSessionRoute, type SessionRegistry } from "./sessions.js";
+import type { Store } from "./store.js";
 import { countTaskFiles, taskCounts } from "./tasks.js";
 
 export interface ProxyOptions {
@@ -127,6 +128,11 @@ export interface ProxyOptions {
   env?: NodeJS.ProcessEnv;
   /** Absolute tasks directory; health counts its files. */
   tasksDir?: string;
+  /**
+   * PRD-zero F-129: where captures and the machine-local config are written and what health's
+   * `store`, `review` and `guest` report. Absent → the project's `.crt/` and `tasksDir` (pre-0.8).
+   */
+  store?: Store;
   /** F-79: closes the server the way Ctrl+C does; absent → the shutdown route answers 503. */
   shutdown?: () => Promise<void>;
   /** PRD-zero F-128: open the CRT browser on `url` (null: this server's app); absent → the browse route answers 503. */
@@ -177,7 +183,8 @@ export interface CrtServer extends Server {
  */
 function landingPage(req: IncomingMessage, opts: ProxyOptions, state: RouteState): string {
   // Health's count (every task file) and, from the listable ones, how many are still backlog — one pass.
-  const { files: tasks, backlog } = opts.tasksDir ? taskCounts(opts.tasksDir) : { files: 0, backlog: 0 };
+  const dir = tasksDirOf(opts);
+  const { files: tasks, backlog } = dir ? taskCounts(dir) : { files: 0, backlog: 0 };
   const resolution = opts.providers?.resolve(null) ?? null;
   return renderLanding({
     version: opts.version ?? null,
@@ -702,7 +709,7 @@ async function handleCrtRoute(
       json(res, 503, { ok: false, error: "providers are not enabled on this server" });
       return;
     }
-    await handleProviderRoute(path, query, req, res, opts.providers, opts.projectRoot);
+    await handleProviderRoute(path, query, req, res, opts.providers, opts.projectRoot, opts.store);
     return;
   }
   if (path === CAPTURES_PATH) {
@@ -716,7 +723,7 @@ async function handleCrtRoute(
       return;
     }
     try {
-      const written = writeCapture(opts.projectRoot, body.value);
+      const written = opts.store ? opts.store.writeCapture(body.value) : writeCapture(opts.projectRoot, body.value);
       json(res, 201, { ok: true, id: written.id, dir: written.dir, files: written.files });
     } catch (err) {
       if (err instanceof CaptureValidationError) {
@@ -739,14 +746,18 @@ async function handleCrtRoute(
 }
 
 /**
- * F-78/F-93: `{ ok, version, startedAt, mode, app, target, projectRoot, tasksDir, tasks, provider, login, sessions, overlay }`
+ * F-78/F-93: `{ ok, version, startedAt, mode, app, target, projectRoot, tasksDir, tasks, store, review, guest, provider, login, sessions, overlay }`
  * with `overlay` the F-80 object `{ injected, fetched, loader, lastContentType, cspWarning }`.
  * `app` is the app URL (null when embedded mode found none) and `target` equals it for the
  * skills and the e2e assertions. `provider` is what a new session would run on right now (F-43
  * with no request value) and `login` its F-74 state; both are null / "unchecked" without a registry.
+ * PRD-zero F-129: `store` is where tasks go (`project` | `review`), `review` the review's name (null
+ * in a project store) and `guest` whether the project is not set up; in a review `tasksDir` is that
+ * review's tasks directory under the CRT home (null until its first capture creates it).
  */
 function healthPayload(opts: ProxyOptions, overlay: OverlayStats): Record<string, unknown> {
   const resolution = opts.providers?.resolve(null) ?? null;
+  const dir = tasksDirOf(opts);
   return {
     ok: true,
     version: opts.version ?? null,
@@ -755,13 +766,21 @@ function healthPayload(opts: ProxyOptions, overlay: OverlayStats): Record<string
     app: opts.target,
     target: opts.target,
     projectRoot: opts.projectRoot,
-    tasksDir: opts.tasksDir ?? null,
-    tasks: opts.tasksDir ? countTaskFiles(opts.tasksDir) : 0,
+    tasksDir: dir,
+    tasks: dir ? countTaskFiles(dir) : 0,
+    store: opts.store?.kind ?? "project",
+    review: opts.store?.review() ?? null,
+    guest: opts.store?.guest ?? false,
     provider: resolution?.provider ?? null,
     login: resolution && opts.providers ? loginField(resolution, opts.providers) : "unchecked",
     sessions: opts.sessions?.openCount() ?? 0,
     overlay: { ...overlay },
   };
+}
+
+/** The tasks directory right now: the store's (a review's changes with the current review), else the configured one. */
+function tasksDirOf(opts: ProxyOptions): string | null {
+  return opts.store ? opts.store.tasksDir() : (opts.tasksDir ?? null);
 }
 
 /** early.js and loader.js sit next to overlay.js in dist/. */

@@ -262,6 +262,8 @@ export const FIRST_ANSWER_MS = 10_000;
 export interface LaunchOptions {
   browser: FoundBrowser;
   profileDir: string;
+  /** N-34: told when the profile directory had to be created. */
+  onCreate?: (path: string) => void;
   /** This server's origin, e.g. `http://localhost:4400`: what the injected loader loads the overlay from. */
   origin: string;
   /** The text of `dist/loader-inject.js`. */
@@ -306,7 +308,11 @@ export class CrtBrowser {
   /** F-125/F-126: launch, prepare every tab, then open `url`. Rejects with the F-125 line's text as its message. */
   static async launch(opts: LaunchOptions): Promise<CrtBrowser> {
     const source = loaderSource(opts.loaderBundle, opts.origin);
-    mkdirSync(opts.profileDir, { recursive: true });
+    // N-34: the profile is under the CRT home; the first creation there in a run is announced by the caller.
+    if (!existsSync(opts.profileDir)) {
+      mkdirSync(opts.profileDir, { recursive: true });
+      opts.onCreate?.(opts.profileDir);
+    }
     const { exe, args } = opts.browser;
     const child = (opts.spawn ?? spawn)(exe, launchArgs(opts.profileDir, args), {
       shell: false,
@@ -554,6 +560,8 @@ export interface BrowserControllerOptions {
   /** `browser.command` from the config, or null. */
   command: string[] | null;
   profileDir: string;
+  /** N-34: told when the profile directory had to be created. */
+  onCreate?: (path: string) => void;
   /** This server's origin — asked for at launch, once the port is bound. */
   origin: () => string;
   /** The text of `dist/loader-inject.js`, read at launch. */
@@ -629,6 +637,7 @@ export class BrowserController {
       this.browser = await CrtBrowser.launch({
         browser: found,
         profileDir: opts.profileDir,
+        ...(opts.onCreate ? { onCreate: opts.onCreate } : {}),
         origin: opts.origin(),
         loaderBundle: opts.loaderBundle(),
         url,

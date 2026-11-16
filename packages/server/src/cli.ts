@@ -3,15 +3,17 @@
  * CRT command-line entry point.
  *
  * Commands (see docs/PRD.md §6, docs/PRD-providers.md §6, docs/PRD-setup.md §6.1, docs/PRD-embedded.md §6.1 and docs/PRD-zero.md §6.1):
- *   crt [target] [--port <n>] [--open|--no-open] [--yes] [--replace] [--provider <id>]   F-69…F-73 (the guided start), embedded by default (F-91)
+ *   crt [target] [--port <n>] [--open|--no-open] [--yes] [--replace] [--provider <id>] [--review [name]]   F-69…F-73 (the guided start), embedded by default (F-91);
+ *                                                                        a project that is not set up is reviewed as a guest (PRD-zero F-129)
  *   crt serve [target] [--target <url>] [--mode <embedded|proxy>] …      the same under its explicit name (F-1, F-5, F-43, F-91)
  *   crt proxy [target] …                                                 ≡ crt serve --mode proxy (F-92: the v0.3 reverse proxy)
  *   crt browse [target] …                                                PRD-zero F-128 (embedded, in a browser CRT launches: no integration in the app)
  *   crt doctor                                                           F-76
  *   crt setup [--claude <path>]                                          F-86 (registers the bundled plugin with Claude Code)
  *   crt init [--yes] [--no-instructions] [--snippet [--json]]              F-100 (explicit, itemised, idempotent; the F-101 section, the F-102 snippet)
- *   crt tasks [--json]                                                   F-33 (also refreshes the README index, F-34)
- *   crt task <ID> [--validate]                                           F-33 (F-32 format check)
+ *   crt tasks [--json] [--review [name]]                                 F-33 (also refreshes the README index, F-34); PRD-zero F-134 (a review's items)
+ *   crt task <ID> [--validate] [--review [name]]                         F-33 (F-32 format check); `R-NN` ids live in a review (PRD-zero F-134)
+ *   crt review [--json] | crt review list | crt review new [name]       PRD-zero F-133 (the current review, every review, a new one)
  *   crt providers [--json] [--refresh]                                   F-45 (every provider's state + the F-44 decision)
  *   crt mcp                                                              F-49 (stdio write_task server; spawned by an agent, not by hand)
  *   crt skills install [--provider <id>] [--global] [--dir <path>]       F-58 (the plugin's skills as portable Agent Skills)
@@ -29,8 +31,9 @@ import { readConfig } from "./config.js";
 import { CrtError } from "./errors.js";
 import { runInit } from "./init.js";
 import { findProjectRoot } from "./project.js";
+import { readStoreConfig, storeKind } from "./store.js";
 import { looksLikeTarget } from "./target.js";
-import { findTaskFile, listTasks, validateTaskText, writeIndex } from "./tasks.js";
+import { findTaskFile, listTasks, TASK_ID_RE, validateTaskText, writeIndex } from "./tasks.js";
 import { packageVersion } from "./version.js";
 
 const USAGE = [
@@ -39,7 +42,7 @@ const USAGE = [
   "Usage:",
   "  crt [target]            start the CRT server on http://localhost:4400 and open your app (embedded: the app loads the CRT loader)",
   "  crt serve [target]      the same, under its explicit name",
-  "      [--mode <embedded|proxy>] [--target <url>] [--port <n>] [--open | --no-open] [--yes] [--replace] [--provider <id>]",
+  "      [--mode <embedded|proxy>] [--target <url>] [--port <n>] [--open | --no-open] [--yes] [--replace] [--provider <id>] [--review [name]]",
   "  crt proxy [target]      proxy the dev server through http://localhost:4400 instead (the same flags; = crt serve --mode proxy)",
   "  crt browse [target]     the same server, with your app in a Chrome or Edge window CRT starts itself: nothing to add to the app",
   "      [--port <n>] [--no-open] [--yes] [--replace] [--provider <id>]",
@@ -47,17 +50,24 @@ const USAGE = [
   "  crt setup               register the bundled Claude Code plugin (/crt:serve, /crt:next, …) [--claude <path>]",
   "  crt init                set the project up: .crt/ (README, tasks, config), 2 .gitignore lines, a CRT section in CLAUDE.md — each announced — then the snippet for your framework",
   "      [--yes] [--no-instructions] [--snippet [--json]]",
-  "  crt tasks [--json]",
-  "  crt task <ID> [--validate]",
+  "  crt tasks [--json] [--review [name]]",
+  "  crt task <ID> [--validate] [--review [name]]",
+  "  crt review              the current review: its items, kept or dropped, and the totals [--json]",
+  "  crt review list         every review of this project, with its status and counts",
+  "  crt review new [name]   start a new review (named after today's date by default)",
   "  crt providers [--json] [--refresh]",
   "  crt mcp                 (stdio write_task server for agents; needs CRT_MCP_TOKEN and CRT_MCP_PORT)",
   "  crt --version",
   "",
   "A target is a port (3000), host:port (localhost:3000) or a URL. `crt` remembers the one you",
   "typed or picked in .crt/config.local.json; `crt <port>` switches it.",
+  "",
+  "In a project that is not set up (no .crt/tasks), CRT runs as a guest: feedback is kept in a review",
+  "under ~/.crt (CRT_HOME) and nothing is written to the project; `crt init` adopts CRT in it.",
+  "`--review` keeps a set-up project's feedback in a review too.",
 ].join("\n");
 
-const COMMANDS = new Set(["serve", "proxy", "browse", "doctor", "setup", "init", "tasks", "task", "providers", "mcp", "skills", "help"]);
+const COMMANDS = new Set(["serve", "proxy", "browse", "review", "doctor", "setup", "init", "tasks", "task", "providers", "mcp", "skills", "help"]);
 
 /** F-77: a second Ctrl+C within this window exits at once. */
 const FORCE_EXIT_MS = 2_000;
@@ -96,6 +106,12 @@ async function main(argv: string[]): Promise<number> {
     case "browse": {
       // F-91/F-92: `crt proxy [target]` ≡ `crt serve --mode proxy [target]`; the same flags and steps.
       // PRD-zero F-128: `crt browse [target]` ≡ `crt [target]` with the CRT browser forced.
+      // PRD-zero F-129: `--review [name]`. `crt --review 3000` means the target 3000, not a review of that name.
+      let review = flags.review;
+      if (typeof review === "string" && positionals.length === 0 && looksLikeTarget(review)) {
+        positionals = [review];
+        review = true;
+      }
       const positional = positionals[0];
       if (positional !== undefined && !looksLikeTarget(positional)) {
         throw new CrtError(`target "${positional}" is not a port, host:port or URL — try 3000, localhost:3000 or http://…`, 2);
@@ -116,6 +132,7 @@ async function main(argv: string[]): Promise<number> {
         open,
         replace: flags.replace === true,
         yes: flags.yes === true,
+        review: reviewFlag(review),
         provider: stringFlag(flags.provider, "--provider <id>"),
         interactive,
         ...(interactive ? { prompt: createTerminalPrompter({ input: process.stdin, output: process.stdout }) } : {}),
@@ -174,7 +191,7 @@ async function main(argv: string[]): Promise<number> {
         version: packageVersion(),
         provider: async () => {
           const { ProviderRegistry } = await import("./session.js");
-          const providers = new ProviderRegistry({ root, config: readConfig(root) });
+          const providers = new ProviderRegistry({ root, config: configOf(root) });
           await providers.refresh();
           return providers.resolve(null).provider;
         },
@@ -182,8 +199,60 @@ async function main(argv: string[]): Promise<number> {
       });
       return 0;
     }
+    case "review": {
+      // PRD-zero F-133: the forms that read and start reviews; the page is M30.
+      const root = findProjectRoot();
+      const { createReview, currentReview, listReviews, REVIEW_NAME_RE } = await import("./home.js");
+      const { noReviewLine, renderReviewItems, reviewView, totalsLine } = await import("./review.js");
+      const sub = positionals[0];
+      if (sub === "new") {
+        const name = positionals[1];
+        if (name !== undefined && !REVIEW_NAME_RE.test(name)) throw new CrtError(`a review name is lower-case letters, digits and hyphens (got "${name}")`, 2);
+        const { readGitRemote } = await import("./git-state.js");
+        const { localIso } = await import("./tasks.js");
+        // N-34: this command's whole job is to create under the home, and its one line says where.
+        const review = createReview(root, name, { remote: readGitRemote(root), created: localIso() });
+        console.log(`Review ${review.name} started in ${review.dir} — new feedback for ${root} goes there.`);
+        return 0;
+      }
+      if (sub === "list") {
+        const reviews = listReviews(root);
+        if (!reviews.length) {
+          console.log(noReviewLine(root));
+          return 0;
+        }
+        const current = currentReview(root)?.name ?? null;
+        const nameW = Math.max(...reviews.map((r) => r.name.length));
+        for (const r of reviews) {
+          const t = reviewView(r).totals;
+          console.log(`${r.name.padEnd(nameW)}  ${r.manifest.status.padEnd(6)}  ${t.items} item${t.items === 1 ? "" : "s"}, ${t.kept} kept${r.name === current ? "  (current)" : ""}`);
+        }
+        return 0;
+      }
+      if (sub !== undefined) throw new CrtError("usage: crt review [--json] | crt review list | crt review new [name]", 2);
+      const review = currentReview(root);
+      if (flags.json === true) {
+        console.log(JSON.stringify(review ? { review: review.name, ...reviewView(review) } : { review: null, items: [] }, null, 2));
+        return 0;
+      }
+      if (!review) {
+        console.log(noReviewLine(root));
+        return 0;
+      }
+      const view = reviewView(review);
+      for (const line of renderReviewItems(view)) console.log(line);
+      console.log(`Review ${view.name}: ${totalsLine(view.totals)}`);
+      return 0;
+    }
     case "tasks": {
-      const tasksDir = tasksDirOf(findProjectRoot());
+      const root = findProjectRoot();
+      const tasksDir = await tasksDirFor(root, flags.review);
+      if (tasksDir === null) {
+        // PRD-zero F-134: no review yet is not an error either.
+        const { noReviewLine } = await import("./review.js");
+        console.log(flags.json === true ? JSON.stringify({ tasksDir: null, tasks: [] }, null, 2) : noReviewLine(root));
+        return 0;
+      }
       if (!existsSync(tasksDir)) {
         // F-99: an un-initialised project is not an error here.
         console.log(flags.json === true ? JSON.stringify({ tasksDir: null, tasks: [] }, null, 2) : "no tasks (CRT is not set up here — run crt init)");
@@ -213,9 +282,11 @@ async function main(argv: string[]): Promise<number> {
     }
     case "task": {
       const id = positionals[0];
-      if (!id || !/^CRT-\d{4}$/i.test(id)) throw new CrtError("usage: crt task <CRT-NNNN> [--validate]", 2);
-      const file = findTaskFile(tasksDirOf(findProjectRoot()), id);
-      if (!file) throw new CrtError(`no task ${id.toUpperCase()} in .crt/tasks`);
+      if (!id || !TASK_ID_RE.test(id.toUpperCase())) throw new CrtError("usage: crt task <CRT-NNNN> [--validate], or crt task <R-NN> --review [name]", 2);
+      // PRD-zero F-134: an `R-NN` id is a review's; `--review` reads the current (or the named) review.
+      const tasksDir = await tasksDirFor(findProjectRoot(), flags.review);
+      const file = tasksDir ? findTaskFile(tasksDir, id) : null;
+      if (!file) throw new CrtError(flags.review === undefined ? `no task ${id.toUpperCase()} in .crt/tasks${/^R-/i.test(id) ? " — an R-NN id is in a review: add --review" : ""}` : `no task ${id.toUpperCase()} in ${tasksDir ?? "a review (there is none yet)"}`);
       const text = readFileSync(file, "utf8");
       if (flags.validate === true) {
         const errors = validateTaskText(text, basename(file));
@@ -235,7 +306,7 @@ async function main(argv: string[]): Promise<number> {
       // --refresh (which bypasses a running server's cache) is accepted and changes nothing here.
       const root = findProjectRoot();
       const { ProviderRegistry, renderProviders } = await import("./session.js");
-      const providers = new ProviderRegistry({ root, config: readConfig(root) });
+      const providers = new ProviderRegistry({ root, config: configOf(root) });
       await providers.refresh();
       if (flags.json === true) {
         console.log(JSON.stringify(providers.payload(), null, 2));
@@ -252,7 +323,7 @@ async function main(argv: string[]): Promise<number> {
       const providerId = stringFlag(flags.provider, "--provider <id>");
       const { ProviderRegistry } = await import("./session.js");
       const { installSkills } = await import("./skills.js");
-      const providers = new ProviderRegistry({ root, config: readConfig(root) });
+      const providers = new ProviderRegistry({ root, config: configOf(root) });
       let profile = null;
       if (providerId) {
         profile = providers.get(providerId);
@@ -272,8 +343,35 @@ async function main(argv: string[]): Promise<number> {
   }
 }
 
+/**
+ * The configuration a start in `root` would read (PRD-zero F-130): for a guest or a project whose
+ * `store` is `review`, the machine-local file under the CRT home over the project's two.
+ */
+function configOf(root: string): ReturnType<typeof readConfig> {
+  return readStoreConfig(root, storeKind(root, { config: readConfig(root) }).kind);
+}
+
 function tasksDirOf(root: string): string {
   return resolve(root, readConfig(root).tasksDir);
+}
+
+/** `--review [name]` as `serve()` takes it: absent, `true`, or a valid review name. */
+function reviewFlag(value: string | boolean | undefined): boolean | string | undefined {
+  if (value === undefined || value === true) return value;
+  if (typeof value !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(value)) throw new CrtError(`--review takes a review name of lower-case letters, digits and hyphens (got "${String(value)}")`, 2);
+  return value;
+}
+
+/**
+ * The tasks directory `crt tasks` / `crt task` read: the project's, or — with `--review [name]`
+ * (PRD-zero F-134) — the current (or the named) review's under the CRT home; null when there is no such review.
+ */
+async function tasksDirFor(root: string, review: string | boolean | undefined): Promise<string | null> {
+  const flag = reviewFlag(review);
+  if (flag === undefined) return tasksDirOf(root);
+  const { currentReview, listReviews, reviewTasksDir } = await import("./home.js");
+  const found = flag === true ? currentReview(root) : (listReviews(root).find((r) => r.name === flag) ?? null);
+  return found ? reviewTasksDir(found.dir) : null;
 }
 
 function stringFlag(value: string | boolean | undefined, usage: string): string | undefined {

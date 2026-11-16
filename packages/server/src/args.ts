@@ -1,6 +1,8 @@
 /**
  * Minimal argv parser: first positional is the command, `--k v` / `--k=v` / `--flag` become flags.
  * Switches that never take a value are listed so `crt --yes 3000` keeps `3000` as the target (F-69).
+ * `--review` takes an optional name (PRD-zero F-129), so `crt --review 3000` parses `3000` as its
+ * value; cli.ts tells a target from a name.
  */
 export const BOOLEAN_FLAGS = new Set(["open", "no-open", "yes", "replace", "json", "refresh", "validate", "global", "help", "h", "version", "no-instructions", "snippet"]);
 

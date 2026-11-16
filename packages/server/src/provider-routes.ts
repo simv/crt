@@ -2,7 +2,8 @@
  * Provider routes (PRD-providers F-57, N-8):
  *
  *   GET /__crt/providers[?refresh=1]  → { ok, active, decision, providers: [...] }   (F-45's --json payload)
- *   PUT /__crt/config { provider?, models? } → writes .crt/config.local.json, replaces the active provider
+ *   PUT /__crt/config { provider?, models? } → writes .crt/config.local.json (in a review, PRD-zero
+ *       F-130, the file of the same name under the CRT home), replaces the active provider
  *
  * Page scripts run on this origin, so `PUT` takes exactly two allowlisted keys with validated
  * values: `provider` must be a listed built-in string id whose preflight passes (`stub` only
@@ -26,7 +27,10 @@ export async function handleProviderRoute(
   res: ServerResponse,
   providers: ProviderRegistry,
   projectRoot: string,
+  /** PRD-zero F-130: a review keeps the machine-local file under the CRT home; absent → `.crt/config.local.json`. */
+  store?: { writeLocalConfig(patch: { provider?: string; models?: Record<string, string> }): string; localConfigLabel(): string },
 ): Promise<boolean> {
+  const file = store ? store.localConfigLabel() : `.crt/${LOCAL_CONFIG_FILE}`;
   if (path === PROVIDERS_PATH) {
     if (req.method !== "GET") {
       json(res, 405, { ok: false, error: "GET /__crt/providers[?refresh=1]" });
@@ -53,9 +57,10 @@ export async function handleProviderRoute(
     return true;
   }
   try {
-    writeLocalConfig(projectRoot, patch.value);
+    if (store) store.writeLocalConfig(patch.value);
+    else writeLocalConfig(projectRoot, patch.value);
   } catch (err) {
-    json(res, 500, { ok: false, error: `could not write .crt/${LOCAL_CONFIG_FILE}: ${(err as Error).message}` });
+    json(res, 500, { ok: false, error: `could not write ${file}: ${(err as Error).message}` });
     return true;
   }
   if (patch.value.models) providers.setModels(patch.value.models);
@@ -66,7 +71,7 @@ export async function handleProviderRoute(
       return true;
     }
   }
-  json(res, 200, { ok: true, active: providers.resolve(null).provider, ...patch.value, file: `.crt/${LOCAL_CONFIG_FILE}` });
+  json(res, 200, { ok: true, active: providers.resolve(null).provider, ...patch.value, file });
   return true;
 }
 

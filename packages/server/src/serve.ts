@@ -1,10 +1,10 @@
 /**
  * `crt [target]` / `crt serve [target]` / `crt proxy [target]` / `crt browse [target]` (PRD F-1, F-4, F-5, F-23, F-24,
  * N-6; PRD-providers F-43, F-44; PRD-setup F-70…F-75, F-78, F-79; PRD-embedded F-91…F-94, F-99):
- * preflight the providers and pick one, make sure the project is set up (start.ts
- * `ensureInitialised` — never silently: the F-100 plan and a question on a terminal, `--yes`
- * otherwise, else one refusal line; nothing here creates `.crt/`, N-19), prune stale captures
- * when `.crt/captures/` exists, resolve the mode
+ * open the store (store.ts, PRD-zero F-129: the project's `.crt/` when it is set up, else — or
+ * under `--review` / `"store": "review"` — the current review under the CRT home; a guest start
+ * says so in one line and writes nothing into the project, N-33; nothing here creates `.crt/`,
+ * N-19, and nothing asks to), preflight the providers and pick one, prune stale captures, resolve the mode
  * (config.ts `resolveMode`: `crt proxy` / `--mode` / config, default embedded), choose the target
  * (start.ts `chooseTarget` — in proxy mode found, remembered, asked for, or waited on; in
  * embedded mode the soft form: the app URL CRT opens, never waited for), wire the session
@@ -28,23 +28,21 @@
  */
 import { spawn } from "node:child_process";
 import { BrowserController, readLoaderBundle } from "./browser.js";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import type { Server } from "node:http";
-import { relative, resolve } from "node:path";
-import { capturesDir, pruneCaptures } from "./captures.js";
-import { type CrtMode, readConfig, resolveMode, writeLocalConfig } from "./config.js";
+import { type CrtMode, resolveMode } from "./config.js";
 import { collectDoctorFacts, doctorRows, hasDevScript, renderRow } from "./doctor.js";
 import { CrtError } from "./errors.js";
-import { browserProfileDir } from "./home.js";
-import { applyInit, isInitialised, planInit, renderPlan } from "./init.js";
+import { announceOnce, browserProfileDir } from "./home.js";
 import { fetchHealth, isPortFree, requestBrowse, requestShutdown } from "./probes.js";
 import { findProjectRoot } from "./project.js";
 import { sdkVersion } from "./providers/claude.js";
 import { createProxyServer, type CrtServer } from "./proxy.js";
 import { describeResolution, loginField, ProviderRegistry } from "./session.js";
 import { SessionRegistry } from "./sessions.js";
-import { bindPort, chooseTarget, type CrtHealth, ensureInitialised, type Prompter, type StartDeps } from "./start.js";
-import { countTaskFiles, parseFrontmatter } from "./tasks.js";
+import { bindPort, chooseTarget, type CrtHealth, type Prompter, type StartDeps } from "./start.js";
+import { guestLine, openStore, type Store } from "./store.js";
+import { parseFrontmatter } from "./tasks.js";
 import { isReachable, PROBE_PORTS, probeAll, safeOrigin } from "./target.js";
 import { packageVersion } from "./version.js";
 
@@ -67,8 +65,10 @@ export interface ServeOptions {
   provider?: string | undefined;
   /** `--replace`: stop a CRT holding the port (F-79). */
   replace?: boolean;
-  /** `--yes`: set up an un-initialised project without asking (PRD-embedded F-99). Default false. */
+  /** `--yes`: never ask (cli.ts turns it into a non-interactive run). It no longer runs `crt init` (PRD-zero F-129). */
   yes?: boolean;
+  /** `--review [name]`: collect into a review under the CRT home even in a set-up project (PRD-zero F-129). */
+  review?: boolean | string | undefined;
   /** PRD-setup §5.2: may ask on the terminal; requires `prompt`. Default false. */
   interactive?: boolean;
   prompt?: Prompter;
@@ -94,6 +94,8 @@ export interface ServeHandle {
   /** The provider new sessions use, as printed on the ready line. */
   provider: string;
   providers: ProviderRegistry;
+  /** PRD-zero F-129: where this server writes — the project's `.crt/`, or a review under the CRT home. */
+  store: Store;
   /** Intake sessions still open (the F-77 stop line counts them). */
   openSessions(): number;
   /** PRD-zero F-128: the CRT browser, when this server has one (`isOpen` words the stop line). */
@@ -116,8 +118,14 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
   const projectRoot = findProjectRoot(opts.cwd ?? process.cwd());
   const prompt = opts.prompt ?? NO_PROMPT;
 
-  // Read before init: `readConfig` tolerates an absent `.crt/` (defaults), and `crt init` never changes what it would read here.
-  const config = readConfig(projectRoot);
+  // PRD-zero F-129: set up → `.crt/`; not set up (a guest), `--review` or `"store": "review"` → a review under the CRT home.
+  // No question and no refusal either way, and nothing here writes into the project (N-33).
+  // N-34: one `crt: created <path>` per run, shared by the store and the CRT browser's profile.
+  const onCreate = announceOnce(log);
+  const store = openStore({ root: projectRoot, review: opts.review, log, onCreate });
+  if (store.guest) log(guestLine(projectRoot));
+  // F-130: a review's machine-local file (under the home) over the project's two; `readConfig` tolerates an absent `.crt/`.
+  const config = store.readConfig();
   const port = opts.port ?? config.port;
   // F-91/F-92: `crt proxy` > `--mode` > config.local.json > config.json > embedded.
   const browse = opts.command === "browse";
@@ -135,22 +143,9 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
   await providers.refresh();
   const resolution = providers.resolve(null);
 
-  // F-99: never create `.crt/` silently — the F-100 plan and a question, or `--yes`, or one refusal line.
-  let plan: Awaited<ReturnType<typeof planInit>> | null = null;
-  await ensureInitialised(
-    { initialised: isInitialised(projectRoot), root: projectRoot, yes: opts.yes === true },
-    {
-      interactive,
-      log,
-      prompt,
-      plan: async () => renderPlan((plan = await planInit(projectRoot, { instructions: true, version, provider: async () => resolution.provider }))),
-      apply: async () => applyInit(plan!, { version, log }),
-    },
-  );
-  if (existsSync(capturesDir(projectRoot))) {
-    const pruned = pruneCaptures(projectRoot);
-    if (pruned.length) log(`crt: pruned ${pruned.length} capture${pruned.length === 1 ? "" : "s"} older than 7 days`);
-  }
+  // F-23 / PRD-zero F-130: captures older than 7 days — the project's, or the current review's.
+  const pruned = store.pruneCaptures();
+  if (pruned.length) log(`crt: pruned ${pruned.length} capture${pruned.length === 1 ? "" : "s"} older than 7 days`);
 
   let server: CrtServer | null = null;
   let warned = false;
@@ -193,16 +188,17 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
   if (mode === "proxy" && target === null) throw new Error("proxy mode resolved no target"); // unreachable: the required form always answers or throws
   if (target && chosen.remember && !(config.targetSource === "local" && safeOrigin(config.target) === target)) {
     // F-72: typed, picked or positional targets are remembered per machine once they responded.
-    writeLocalConfig(projectRoot, { target });
-    log(`Remembered ${target} in .crt/config.local.json — \`crt <port>\` switches.`);
+    // PRD-zero F-130: in a review that file is the project's under the CRT home.
+    store.writeLocalConfig({ target });
+    log(`Remembered ${target} in ${store.localConfigLabel()} — \`crt <port>\` switches.`);
   }
   /** F-91: the app URL to open — known and responding. */
   const app = chosen.down ? null : target;
 
-  const tasksDir = resolve(projectRoot, config.tasksDir);
   const sessions = new SessionRegistry({
     projectRoot,
-    tasksDir,
+    tasksDir: store.tasksDir() ?? "",
+    store,
     intakePrompt: loadIntakePrompt(opts.intakePromptPath),
     providers,
     port, // F-49: where `crt mcp` posts write_task back to; corrected below if the port was stepped
@@ -214,6 +210,7 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
   const browser = new BrowserController({
     command: config.browserCommand,
     profileDir: browserProfileDir(projectRoot),
+    onCreate,
     origin: () => boundUrl,
     loaderBundle: () => readLoaderBundle(opts.overlayPath),
     log,
@@ -239,7 +236,7 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
     // PRD-polish F-114: the landing page's This server card and its Cmd/Ctrl hints.
     sdkVersion: sdkVersion(),
     platform: process.platform,
-    tasksDir,
+    store,
     shutdown: close,
     // F-128: a later `crt browse` in this project; proxy mode has its own way into the page.
     ...(mode === "embedded" ? { browse: (asked: string | null) => browser.open(asked ?? app ?? boundUrl) } : {}),
@@ -262,13 +259,15 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
   boundUrl = url;
   /** PRD-zero F-128: this start opens the CRT browser (`--no-open` never launches it). */
   const launch = browse && opts.open === true;
-  const tasks = countTaskFiles(tasksDir);
+  const tasks = store.taskCount();
   const login = loginField(resolution, providers);
-  const tasksLabel = relative(projectRoot, tasksDir) || ".";
-  const details = `project: ${projectRoot}, ${tasks} task${tasks === 1 ? "" : "s"} in ${tasksLabel}, provider: ${describeResolution(resolution)}, login: ${login}`;
+  // PRD-zero F-129: `review 2026-11-16: 0 items` where a project store says `0 tasks in .crt/tasks`.
+  const where = store.kind === "review" ? `review ${store.review()}: ${tasks} item${tasks === 1 ? "" : "s"}` : `${tasks} task${tasks === 1 ? "" : "s"} in ${store.tasksLabel()}`;
+  const details = `project: ${projectRoot}, ${where}, provider: ${describeResolution(resolution)}, login: ${login}`;
   // F-93: `CRT ready at <url> for <app> (embedded; …)` / `CRT ready at <url> → <target> (proxy; …)`.
-  // PRD-zero F-132: `(embedded, CRT browser; …)` when the CRT browser is what opens.
-  log(mode === "embedded" ? `CRT ready at ${url}${target ? ` for ${target}` : ""} (embedded${launch ? ", CRT browser" : ""}; ${details})` : `CRT ready at ${url} → ${target} (proxy; ${details})`);
+  // PRD-zero F-132: `(embedded, CRT browser; …)` when the CRT browser is what opens; F-129: `, guest` when the project is not set up.
+  const how = `${mode}${launch ? ", CRT browser" : ""}${store.guest ? ", guest" : ""}`;
+  log(mode === "embedded" ? `CRT ready at ${url}${target ? ` for ${target}` : ""} (${how}; ${details})` : `CRT ready at ${url} → ${target} (${how}; ${details})`);
   if (mode === "embedded" && bound.port !== port && !launch) {
     // F-93: a stepped port (F-73) leaves the app's loader pointing at the configured one.
     log(`crt: your app's CRT loader expects :${port} — run \`crt --replace\`, or set port in .crt/config.json and in the snippet`);
@@ -278,8 +277,8 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
     const problem = providers.preflight(resolution.provider).problem;
     if (problem) log(`crt: ${problem}`);
   } else if (interactive) {
-    const where = launch ? "In the CRT browser window" : mode === "embedded" ? (app ? `Open ${app}` : "Open your dev server in the browser") : `Open ${url}`;
-    log(`${where} → CRT button bottom-right (Ctrl/Cmd+Shift+.) → Select · note · Send. Ctrl+C stops CRT; your dev server keeps running.`);
+    const open = launch ? "In the CRT browser window" : mode === "embedded" ? (app ? `Open ${app}` : "Open your dev server in the browser") : `Open ${url}`;
+    log(`${open} → CRT button bottom-right (Ctrl/Cmd+Shift+.) → Select · note · Send. Ctrl+C stops CRT; your dev server keeps running.`);
   }
   if (launch) {
     // F-125/F-128: the app when one answers, else CRT's own page (the browser is then ready for the app's URL).
@@ -304,6 +303,7 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
       projectRoot,
       provider: resolution.provider,
       providers,
+      store,
       openSessions: () => sessions.openCount(),
       browser: mode === "embedded" ? browser : null,
       close,

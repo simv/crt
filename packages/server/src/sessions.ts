@@ -37,8 +37,7 @@
  */
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { join } from "node:path";
-import { CaptureNotFoundError, capturesDir, readCapture } from "./captures.js";
+import { CaptureNotFoundError, readCapture } from "./captures.js";
 import { json, readJson } from "./http.js";
 import { buildIntakeMessage, prependInstructions, summarizeCapture, summarizeIntake } from "./intake-message.js";
 import { mcpLaunch, STALE_TOKEN_LINE } from "./mcp-stdio.js";
@@ -46,7 +45,8 @@ import { decidePermission, projectAllowList } from "./permissions.js";
 import { INTERNAL_PREFIX, INTERNAL_WRITE_TASK_PATH, SESSIONS_PATH } from "./routes.js";
 import { describeResolution, type ProviderRegistry } from "./session.js";
 import type { IntakeSummary, PermissionBehavior, ProviderCapabilities, SessionDriver, SessionEvent, SessionInfo, SessionState, UserInput, WriteTaskRequest } from "./session-events.js";
-import { createTask, displayPath, TaskFormatError } from "./tasks.js";
+import { projectStore, type Store } from "./store.js";
+import { TaskFormatError } from "./tasks.js";
 import { parseWriteTaskRequest } from "./write-task.js";
 
 export { INTERNAL_PREFIX, SESSIONS_PATH };
@@ -64,6 +64,11 @@ export class StaleSessionError extends Error {
 export interface RegistryOptions {
   projectRoot: string;
   tasksDir: string;
+  /**
+   * PRD-zero F-129: where captures are read from and tasks are written — the project's `.crt/`, or
+   * the current review under the CRT home. Defaults to the project store over `tasksDir`.
+   */
+  store?: Store;
   /** Body of plugin/skills/intake/SKILL.md; `$ARGUMENTS` is replaced with a pointer to the first message. */
   intakePrompt: string;
   /** Resolves the provider (and so the driver) for every new session (F-43). */
@@ -101,9 +106,11 @@ export class SessionRegistry {
   private readonly entries = new Map<string, Entry>();
   /** F-49: the port `crt mcp` posts back to; the server sets it once it listens. */
   mcpPort: number;
+  private readonly store: Store;
 
   constructor(private readonly opts: RegistryOptions) {
     this.mcpPort = opts.port ?? 0;
+    this.store = opts.store ?? projectStore(opts.projectRoot, opts.tasksDir);
   }
 
   /**
@@ -137,13 +144,13 @@ export class SessionRegistry {
       token: randomBytes(32).toString("base64url"),
       writeTask: async (request: WriteTaskRequest) => {
         // F-48: `session:` is the provider's own id (§5.4); null until the driver reported it.
-        const created = createTask(this.opts.projectRoot, this.opts.tasksDir, {
+        const created = this.store.createTask({
           ...request,
           session: entry.info.nativeSessionId,
           provider: entry.info.provider,
           captureId: entry.info.captureId,
         });
-        const written = { id: created.id, path: displayPath(this.opts.projectRoot, created.path) };
+        const written = { id: created.id, path: created.path };
         this.record(entry, { type: "task_written", ...written });
         this.opts.log?.(`crt: task ${written.id} written to ${written.path}`);
         return written;
@@ -167,9 +174,14 @@ export class SessionRegistry {
       // F-51: `system` gets the instructions here; `first-message` already has them in `first`.
       systemPromptAppend: profile.capabilities.instructions === "system" ? this.intakeText() : "",
       ...(first ? { first } : {}),
-      decide: (toolName: string, input: Record<string, unknown>) => decidePermission(toolName, input, this.opts.projectRoot),
+      // F-26: silent writes under `.crt/` — or, in a review, under the project's folder in the CRT home (PRD-zero F-129).
+      decide: (toolName: string, input: Record<string, unknown>) => decidePermission(toolName, input, this.opts.projectRoot, this.store.writeRoots()),
+      writeRoots: this.store.writeRoots(),
+      // PRD-zero F-129: the review lives outside the project, so the session is told it may read there.
+      readDirs: this.store.readDirs(),
+      scratchDir: this.store.scratchDir(),
       // F-124: one rule list per project, shared by every provider.
-      allowList: projectAllowList(this.opts.projectRoot),
+      allowList: projectAllowList(this.opts.projectRoot, this.store),
       writeTask: entry.writeTask,
       mcp: mcpLaunch(entry.token, this.mcpPort),
       model: this.opts.providers.modelFor(profile.id),
@@ -208,7 +220,7 @@ export class SessionRegistry {
    * developer's words for the echo of this message (`record()`).
    */
   private firstMessage(entry: Entry, captureId: string): UserInput {
-    const dir = join(capturesDir(this.opts.projectRoot), captureId);
+    const dir = this.store.captureDir(captureId);
     const bundle = readCapture(dir);
     entry.info.summary = summarizeCapture(bundle);
     entry.info.url = bundle.page.url;

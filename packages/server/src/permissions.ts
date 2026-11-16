@@ -5,13 +5,15 @@
  *
  *   • Read / Glob / Grep / other read-only built-ins → allow
  *   • Bash with a read-only git command (status, log, diff, show, …) and no shell operators → allow
- *   • Write / Edit / NotebookEdit whose path resolves under `<root>/.crt/` → allow (N-5)
+ *   • Write / Edit / NotebookEdit whose path resolves under `<root>/.crt/` → allow (N-5); when
+ *     feedback is kept in a review (PRD-zero F-129) the silent root is the project's folder under
+ *     the CRT home instead, and a write under the project's `.crt/` asks like any other (N-33)
  *   • CRT's own MCP tool (`mcp__crt__*`) → allow
  *   • WebFetch / WebSearch → deny (nothing leaves the machine, N-4)
  *   • everything else → ask (Allow / Deny card in the panel; 5-minute timeout defaults to deny)
  */
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { readConfig, writeLocalConfig } from "./config.js";
+import { type CrtConfig, readConfig, writeLocalConfig } from "./config.js";
 import type { AllowList, PermissionDecision, PermissionSubject } from "./session-events.js";
 
 export type { AllowList, PermissionDecision, PermissionSubject };
@@ -52,7 +54,7 @@ const BRANCH_LIST_FLAGS = /^(-[arvli]+|-n\d*|--(list|all|remotes|verbose|show-cu
 const TAG_LIST_FLAGS = /^(-[li]+|-n\d*|--(list|contains|no-contains|merged|no-merged|points-at|sort|format|column|no-column|ignore-case)(=.*)?)$/;
 const SHELL_OPERATORS = /[|;&<>`$]|\n/;
 
-export function decidePermission(toolName: string, input: Record<string, unknown>, projectRoot: string): PermissionDecision {
+export function decidePermission(toolName: string, input: Record<string, unknown>, projectRoot: string, writeRoots?: readonly string[]): PermissionDecision {
   if (READ_ONLY_TOOLS.has(toolName) || toolName.startsWith(CRT_MCP_PREFIX)) return { kind: "allow" };
   if (OFF_TOOLS.has(toolName)) return { kind: "deny", reason: `${toolName} is disabled during CRT intake (nothing leaves the machine)` };
   if (toolName === "Bash") {
@@ -61,7 +63,7 @@ export function decidePermission(toolName: string, input: Record<string, unknown
   }
   if (FILE_WRITE_TOOLS.has(toolName)) {
     const target = typeof input.file_path === "string" ? input.file_path : typeof input.notebook_path === "string" ? input.notebook_path : "";
-    return target && isUnderCrtDir(target, projectRoot) ? { kind: "allow" } : { kind: "ask" };
+    return target && isUnderWriteRoot(target, projectRoot, writeRoots) ? { kind: "allow" } : { kind: "ask" };
   }
   return { kind: "ask" };
 }
@@ -88,12 +90,17 @@ export function isReadOnlyGit(command: string): boolean {
 
 /** True when `target` (absolute or relative to the root) resolves inside `<root>/.crt/`. */
 export function isUnderCrtDir(target: string, projectRoot: string): boolean {
+  return isUnderWriteRoot(target, projectRoot);
+}
+
+/** F-26: `target` resolves strictly inside one of the silent write roots (default: `<root>/.crt`). */
+export function isUnderWriteRoot(target: string, projectRoot: string, writeRoots?: readonly string[]): boolean {
   const root = resolve(projectRoot);
   const abs = isAbsolute(target) ? resolve(target) : resolve(root, target);
-  const crt = resolve(root, ".crt");
-  const rel = relative(crt, abs);
-  if (rel === "" || isAbsolute(rel)) return false;
-  return rel !== ".." && !rel.startsWith(`..${sep}`);
+  return (writeRoots ?? [resolve(root, ".crt")]).some((dir) => {
+    const rel = relative(resolve(dir), abs);
+    return rel !== "" && !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`);
+  });
 }
 
 /**
@@ -209,14 +216,16 @@ function commonDir(dirs: string[]): string {
 
 /**
  * F-124: the project's "Always allow" rules, read from the config files on every check (so a hand
- * edit or another session's rule applies at once) and added to `.crt/config.local.json`.
+ * edit or another session's rule applies at once) and added to `.crt/config.local.json` — through
+ * `store` (PRD-zero F-130), to the review's machine-local file under the CRT home instead.
  */
-export function projectAllowList(projectRoot: string): AllowList {
+export function projectAllowList(projectRoot: string, store?: { readConfig(): CrtConfig; writeLocalConfig(patch: { allow: string[] }): string }): AllowList {
   return {
-    allows: (subject) => readConfig(projectRoot).allow.some((rule) => ruleAllows(rule, subject, projectRoot)),
+    allows: (subject) => (store ? store.readConfig() : readConfig(projectRoot)).allow.some((rule) => ruleAllows(rule, subject, projectRoot)),
     suggest: (subject) => suggestRule(subject, projectRoot),
     add: (rule) => {
-      writeLocalConfig(projectRoot, { allow: [rule] });
+      if (store) store.writeLocalConfig({ allow: [rule] });
+      else writeLocalConfig(projectRoot, { allow: [rule] });
     },
   };
 }

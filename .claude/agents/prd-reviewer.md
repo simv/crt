@@ -35,7 +35,7 @@ Run each against `git diff main...HEAD` (added lines only) and report file:line 
 | Every CRT route is under `/__crt/` (CLAUDE.md) | a new route string or `pathname ===`/`startsWith(` check on a path that does not begin with `/__crt` — `CRT_PREFIX` in `packages/server/src/proxy.ts` is the anchor |
 | Server binds `127.0.0.1` only (CLAUDE.md, N-4) | any `.listen(` without `"127.0.0.1"`; any `0.0.0.0` or `::` |
 | Nothing leaves the machine except the chosen agent's own model calls and telemetry (N-4, N-12) | new `fetch(`, `http.request(`, `https.`, `WebSocket(` to a non-target, non-loopback host; any analytics/telemetry of CRT's own |
-| Server writes only under `.crt/` and the OS temp dir (N-5, CLAUDE.md; N-19) | `writeFile`, `mkdir`, `rename`, `rm`, `appendFile`, `createWriteStream` whose path is not derived from the `.crt` dir, `tmpdir()`, or (in `init.ts` / `instructions.ts` only — `crt init`, never the runtime) the project `.gitignore`, `CLAUDE.md` or `AGENTS.md` |
+| Server writes only under a set-up project's `.crt/`, the CRT home (`~/.crt`, `CRT_HOME` — `home.ts`, `store.ts`) and the OS temp dir (N-5 as restated by PRD-zero N-34, CLAUDE.md; N-19); a guest or `--review` run writes nothing under the project root (PRD-zero N-33) | `writeFile`, `mkdir`, `rename`, `rm`, `appendFile`, `createWriteStream` whose path is not derived from the `.crt` dir, `crtHome()` / a `Store`, `tmpdir()`, or (in `init.ts` / `instructions.ts` only — `crt init`, never the runtime) the project `.gitignore`, `CLAUDE.md` or `AGENTS.md` |
 | Agent SDK only in `providers/claude.ts` (CLAUDE.md, PRD §12, PRD-providers F-63) | an import or require of the `claude-agent-sdk` package in any script other than `packages/server/src/providers/claude.ts` (the PreToolUse guard hook blocks this at edit time; confirm nothing slipped in via Bash) |
 | Provider CLIs are spawned only from `providers/<id>.ts` and `providers/exec.ts` (CLAUDE.md, PRD-providers §5, F-63) | `spawn(`, `execFile(`, `spawnSync(` or `exec(` on added lines in any `packages/server/src` file outside `providers/` — except the browser opener in `serve.ts` and the CRT browser launch in `browser.ts` (PRD-zero F-125) — and any `.cmd`/`.bat` handed to `spawn`, or `shell: true`, anywhere (N-10) |
 | Agent SDK pinned exactly (CLAUDE.md, PRD §12) | the `claude-agent-sdk` entry in `packages/server/package.json` gaining a `^`, `~` or range |
@@ -57,7 +57,7 @@ Report the gzipped byte count against the 150 KB (153600 bytes) budget. Fail if 
 
 ## 6. Task-file hygiene — only if a `.crt/tasks/CRT-*.md` changed
 
-Frontmatter key order and section order unchanged (F-32 as amended by F-48: `provider:` sits between `session:` and `tags:` and may be absent in v0.1 files); `status` is one of `backlog|in_progress|blocked|review|done`; every `- [x]` in Definition of Done has a matching Log line saying how it was verified; `.crt/tasks/README.md` is in the diff too if any task's status or title changed (F-34).
+Frontmatter key order and section order unchanged (F-32 as amended by F-48: `provider:` sits between `session:` and `tags:` and may be absent in v0.1 files; and by PRD-zero F-134: `branch:` and `commit:` follow `route:` and are absent in files written before 0.8); `status` is one of `backlog|in_progress|blocked|review|done`; every `- [x]` in Definition of Done has a matching Log line saying how it was verified; `.crt/tasks/README.md` is in the diff too if any task's status or title changed (F-34).
 
 ## Output
 

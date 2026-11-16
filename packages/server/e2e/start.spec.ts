@@ -1,9 +1,11 @@
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
-import { FIXTURE_ORIGIN, health, scratch, startCrt, stopCrts } from "./helpers.js";
+import { projectKey } from "../src/home.js";
+import { samplePost } from "../test/helpers/sample-capture.js";
+import { E2E_HOME, FIXTURE_ORIGIN, health, scratch, startCrt, stopCrts } from "./helpers.js";
 
 // PRD-setup F-69, F-72, F-73, F-78, F-79 (the M12 half of F-90): the guided start driven through
 // `dist/cli.js` with argv — under `crt proxy`, the v0.3 flow verbatim (PRD-embedded F-92, N-21; embedded.spec.ts
@@ -17,6 +19,8 @@ const FIXTURE = FIXTURE_ORIGIN;
 const PKG = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8")) as { version: string; dependencies: Record<string, string> };
 const VERSION = PKG.version;
 const SDK_VERSION = PKG.dependencies["@anthropic-ai/claude-agent-sdk"]!;
+/** A detached HEAD for the guest project's `.git` (PRD-zero F-134). */
+const SHA = "4f2a91c0d3b5e6f708192a3b4c5d6e7f8091a2b3";
 
 function listenPlain(port: number): Promise<Server> {
   return new Promise((resolve, reject) => {
@@ -40,16 +44,9 @@ test("`crt 3999` starts with no prompt and remembers the target; the second run 
   expect(first.lines).toContain("Remembered http://localhost:3999 in .crt/config.local.json — `crt <port>` switches.");
   expect(first.lines.some((l) => /Dev server URL|Which one\?/.test(l))).toBe(false);
   expect(JSON.parse(readFileSync(join(root, ".crt", "config.local.json"), "utf8"))).toEqual({ target: FIXTURE });
-  // PRD-embedded F-99/F-100 (retiring the F-75 line): under --yes the plan comes first (only what is not in
-  // place — scratch() wrote config.json already), then one line per write; the stub provider gets AGENTS.md.
-  expect(first.lines[0]).toBe(`crt init will, in ${root}:`);
-  expect(first.lines.slice(1, 5)).toEqual(["  create .crt/README.md", "  create .crt/tasks/", "  add .crt/captures/ and .crt/config.local.json to .gitignore", "  create AGENTS.md with a CRT section"]);
-  expect(first.lines.slice(5, 9)).toEqual([
-    "crt init: created .crt/README.md",
-    "crt init: created .crt/tasks/",
-    "crt init: added .crt/captures/ and .crt/config.local.json to .gitignore",
-    "crt init: created AGENTS.md with the CRT section",
-  ]);
+  // PRD-zero F-129 (retiring PRD-embedded F-99's implicit init): a start never runs `crt init`, with or without --yes.
+  expect(first.lines.some((l) => l.startsWith("crt init"))).toBe(false);
+  expect(existsSync(join(root, ".crt", "README.md"))).toBe(false);
   // F-78: health tells the whole story.
   const h = await health(4485);
   expect(h).toMatchObject({ ok: true, version: VERSION, target: FIXTURE, tasks: 0, provider: "stub", login: "unchecked", sessions: 0, overlay: { injected: 0, fetched: 0 } });
@@ -151,27 +148,74 @@ test("crt --version, crt help and an unknown command (F-69)", async () => {
   expect(down.lines).toContain("crt: target http://localhost:3998 is not responding — start your dev server there, or run `crt <port>`");
 });
 
-test("an un-initialised project: `crt` off a terminal refuses with the F-99 line, `crt tasks` is not an error, `crt --yes` sets it up and starts (F-99, F-100)", async () => {
-  const root = scratch("start", "uninit", 4480);
+test("a project that is not set up: `crt` starts as a guest, a Send lands as R-01 under the CRT home, the review forms read it, and the project is untouched (F-129, F-130, F-133, F-134, N-33)", async () => {
+  const root = scratch("start", "guest", 4480);
   rmSync(join(root, ".crt"), { recursive: true, force: true });
-  const refused = startCrt(root, ["--no-open", "--port", "4480"]);
-  expect(await refused.exited).toBe(1);
-  expect(refused.lines).toEqual([`crt: ${root} is not set up for CRT — run \`crt init\` (or \`crt --yes\`)`]);
+  writeFileSync(join(root, ".git", "HEAD"), `${SHA}\n`);
+  writeFileSync(join(root, "app.js"), "console.log(1);\n");
+  const reviews = join(E2E_HOME, "reviews", projectKey(root));
+  rmSync(reviews, { recursive: true, force: true });
+  const run = async (args: string[]) => {
+    const crt = startCrt(root, args);
+    return { code: await crt.exited, lines: crt.lines };
+  };
+  /** N-33: every path under the project with its size and mtime. */
+  const snapshot = () =>
+    (readdirSync(root, { recursive: true }) as string[]).sort().map((rel) => {
+      const st = statSync(join(root, rel));
+      return st.isDirectory() ? `${rel}/` : `${rel} ${st.size} ${st.mtimeMs}`;
+    });
+  const before = snapshot();
+
+  // Before anything ran: no review is not an error, and `crt tasks` still says the project is not set up.
+  expect(await run(["review"])).toEqual({ code: 0, lines: [`crt: no review for ${root} yet — run \`crt\`, send some feedback, then \`crt review\``] });
+  expect(JSON.parse((await run(["review", "--json"])).lines.join("\n"))).toEqual({ review: null, items: [] });
+  expect(await run(["tasks"])).toEqual({ code: 0, lines: ["no tasks (CRT is not set up here — run crt init)"] });
+  expect(JSON.parse((await run(["tasks", "--json"])).lines.join("\n"))).toEqual({ tasksDir: null, tasks: [] });
+
+  // Off a terminal, without --yes: no refusal, no question, no init.
+  const crt = startCrt(root, ["--no-open", "--port", "4480"]);
+  const ready = await crt.waitFor(/^CRT ready at http:\/\/localhost:4480 /);
+  expect(crt.lines[0]).toBe(`crt: ${root} is not set up for CRT — keeping this review in ${reviews} (nothing is written to the project; \`crt init\` adopts CRT here).`);
+  expect(ready).toMatch(/^CRT ready at http:\/\/localhost:4480( for http:\/\/localhost:\d+)? \(embedded, guest; project: .*, review \d{4}-\d{2}-\d{2}: 0 items, provider: stub \(CRT_SESSION_STUB\), login: unchecked\)$/);
+  expect(crt.lines.some((l) => l.startsWith("crt init"))).toBe(false);
+  const h = await health(4480);
+  expect(h).toMatchObject({ ok: true, store: "review", guest: true, tasks: 0, tasksDir: null });
+  const review = h!.review as string;
+
+  // A quick-note Send over the routes the overlay uses; the stub answers by writing the task.
+  const post = async (path: string, body: unknown) => (await fetch(`http://localhost:4480${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json() as Promise<Record<string, unknown>>;
+  const capture = await post("/__crt/captures", samplePost());
+  expect(String(capture.dir)).toBe(join(reviews, review, "captures", String(capture.id)));
+  await post("/__crt/sessions", { captureId: capture.id, quick: true });
+  const file = join(reviews, review, "tasks", "R-01-cart-total-excludes-applied-discount.md");
+  await crt.waitFor(/^crt: task R-01 written to /);
+  expect(crt.lines).toContain(`crt: task R-01 written to ${file}`);
+  expect(readFileSync(file, "utf8")).toContain(`\nbranch: null\ncommit: ${SHA}\n`);
+  expect(readdirSync(join(reviews, review, "tasks", "assets", "R-01")).sort()).toEqual(["ann-1.png", "ann-2.png", "capture.json", "viewport-annotated.png", "viewport.png"]);
+  expect(await health(4480)).toMatchObject({ store: "review", review, guest: true, tasks: 1 });
+
+  // The forms that read it (F-133, F-134), while the server runs.
+  const json = JSON.parse((await run(["review", "--json"])).lines.join("\n")) as { review: string; status: string; items: Array<Record<string, unknown>>; totals: unknown };
+  expect(json).toMatchObject({ review, status: "open", totals: { items: 1, kept: 1, routes: 1 } });
+  expect(json.items).toEqual([{ id: "R-01", keep: true, order: 1, title: "Cart total excludes applied discount", priority: "normal", status: "backlog", route: "/cart", branch: null, commit: SHA, file: "R-01-cart-total-excludes-applied-discount.md" }]);
+  expect((await run(["review"])).lines).toEqual(["R-01  normal  kept     /cart  Cart total excludes applied discount", `Review ${review}: 1 item · 1 kept · 1 route`]);
+  expect((await run(["review", "list"])).lines).toEqual([`${review}  open    1 item, 1 kept  (current)`]);
+  const listed = await run(["tasks", "--review"]);
+  expect(listed.lines[0]).toMatch(/^R-01 {2}backlog {2}stub {2}normal {2}Cart total excludes applied discount {2}\(\d{4}-\d{2}-\d{2}\)$/);
+  expect(await run(["task", "R-01", "--review", "--validate"])).toEqual({ code: 0, lines: ["crt task: R-01-cart-total-excludes-applied-discount.md is valid"] });
+  expect((await run(["task", "R-01"])).lines).toEqual(["crt: no task R-01 in .crt/tasks — an R-NN id is in a review: add --review"]);
+
+  crt.child.kill();
+  await crt.exited;
+  // N-33: none of it created, changed or removed anything under the project.
+  expect(snapshot()).toEqual(before);
   expect(existsSync(join(root, ".crt"))).toBe(false);
-  const tasks = startCrt(root, ["tasks"]);
-  expect(await tasks.exited).toBe(0);
-  expect(tasks.lines).toEqual(["no tasks (CRT is not set up here — run crt init)"]);
-  const json = startCrt(root, ["tasks", "--json"]);
-  expect(await json.exited).toBe(0);
-  expect(JSON.parse(json.lines.join("\n"))).toEqual({ tasksDir: null, tasks: [] });
-  expect(existsSync(join(root, ".crt"))).toBe(false);
-  const yes = startCrt(root, ["--yes", "--no-open", "--port", "4480"]);
-  await yes.waitFor(/^CRT ready at http:\/\/localhost:4480 /);
-  expect(yes.lines.slice(0, 6)).toEqual([`crt init will, in ${root}:`, "  create .crt/README.md", "  create .crt/tasks/", "  create .crt/config.json", "  add .crt/captures/ and .crt/config.local.json to .gitignore", "  create AGENTS.md with a CRT section"]);
-  expect(yes.lines).toContain("crt init: created .crt/config.json");
-  expect(yes.lines).toContain("crt init: created AGENTS.md with the CRT section");
-  expect(existsSync(join(root, ".crt", "README.md"))).toBe(true);
-  expect(readFileSync(join(root, "AGENTS.md"), "utf8")).toContain("<!-- BEGIN:crt v");
-  yes.child.kill();
-  await yes.exited;
+
+  // `crt review new` starts the next one; the first stays open and listed.
+  const started = await run(["review", "new", "sprint-12"]);
+  expect(started).toEqual({ code: 0, lines: [`Review sprint-12 started in ${join(reviews, "sprint-12")} — new feedback for ${root} goes there.`] });
+  expect((await run(["review", "list"])).lines).toEqual([`${review.padEnd(10)}  open    1 item, 1 kept`, "sprint-12   open    0 items, 0 kept  (current)"]);
+  expect((await run(["review", "new", "Not A Name"])).code).toBe(2);
+  expect(snapshot()).toEqual(before);
 });

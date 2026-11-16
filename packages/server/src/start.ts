@@ -15,9 +15,9 @@
  * may wait and may fail) and soft (embedded mode — the target is only the app URL CRT opens, so
  * the same resolution runs but never waits and never fails).
  *
- * `ensureInitialised` is the step before both (PRD-embedded F-99): a project without
- * `.crt/tasks/` is set up only after the F-100 plan and a question on a terminal, or under
- * `--yes`; a non-interactive run without it refuses with one line.
+ * There is no init step any more (PRD-zero F-129, retiring PRD-embedded F-99's question and
+ * refusal): a project without `.crt/tasks/` is reviewed as a guest (store.ts), and `crt init` is
+ * the deliberate step that adopts CRT in it.
  */
 import type { CrtMode } from "./config.js";
 import { CrtError } from "./errors.js";
@@ -59,44 +59,6 @@ export interface StartDeps {
   browse?(port: number, url: string | null): Promise<{ ok: true; url: string } | { ok: false; reason: string }>;
 }
 
-// ---- init (PRD-embedded F-99, F-100) ------------------------------------------------------------------
-
-export interface InitStepInput {
-  /** `<root>/.crt/tasks` exists: nothing to do (init.ts `isInitialised`). */
-  initialised: boolean;
-  root: string;
-  /** `--yes`: set the project up without asking (the run is then non-interactive). */
-  yes: boolean;
-}
-
-export interface InitStepDeps {
-  interactive: boolean;
-  log(line: string): void;
-  prompt: Prompter;
-  /** The F-100 plan lines (init.ts `renderPlan`), computed only when the project is not set up. */
-  plan(): Promise<string[]>;
-  /** Apply the plan, printing one `crt init:` line per write (init.ts `applyInit`). */
-  apply(): Promise<void>;
-}
-
-/**
- * F-99: `crt`, `crt serve` and `crt proxy` create nothing on their own. Interactive → the plan,
- * then `Set up CRT in <root>? [Y/n]` (Enter → init runs, start continues; `n` → `crt: cancelled`,
- * 130); non-interactive without `--yes` → the one-line refusal, exit 1; with `--yes` → init runs,
- * every line printed, start continues.
- */
-export async function ensureInitialised(input: InitStepInput, deps: InitStepDeps): Promise<"ready" | "initialised"> {
-  if (input.initialised) return "ready";
-  if (!deps.interactive && !input.yes) throw new CrtError(`${input.root} is not set up for CRT — run \`crt init\` (or \`crt --yes\`)`);
-  for (const line of await deps.plan()) deps.log(line);
-  if (deps.interactive) {
-    const answer = await deps.prompt.ask(`Set up CRT in ${input.root}? [Y/n]`);
-    if (!isYes(answer)) throw new CrtError("cancelled", 130);
-  }
-  await deps.apply();
-  return "initialised";
-}
-
 // ---- target (F-71, F-72) --------------------------------------------------------------------------
 
 export interface TargetInput {
@@ -123,7 +85,7 @@ export interface TargetOutcome {
   /** The origin; null only in the soft form (F-91) when nothing was found. */
   origin: string | null;
   source: TargetSource | null;
-  /** F-72: write it to `.crt/config.local.json` (positional, picked from the list, typed at a prompt). */
+  /** F-72: write it to `.crt/config.local.json` — a review's file under the CRT home, PRD-zero F-130 — (positional, picked from the list, typed at a prompt). */
   remember: boolean;
   /** F-91 soft form: the explicit or remembered origin did not respond (CRT is ready for it; the browser is not opened). */
   down?: true;

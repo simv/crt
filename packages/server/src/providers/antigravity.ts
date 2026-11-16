@@ -251,8 +251,10 @@ export function writeSessionPlugin(
 // ---- command line and events ---------------------------------------------------------------------------
 
 /** F-111: the argv for one process; `conversationId` null = a new conversation, else `--conversation <id>`. */
-export function antigravityArgs(sessionDir: string, model: string | null, conversationId: string | null): string[] {
+export function antigravityArgs(sessionDir: string, model: string | null, conversationId: string | null, readDirs: readonly string[] = []): string[] {
   const args = ["--output-format", "stream-json", "--input-format", "stream-json", "--print", "", "--dangerously-skip-permissions", "--add-dir", sessionDir];
+  // PRD-zero F-129: a review's captures live under the CRT home, outside the project.
+  for (const dir of readDirs) args.push("--add-dir", dir);
   if (model) args.push("--model", model);
   if (conversationId) args.push("--conversation", conversationId);
   return args;
@@ -483,7 +485,7 @@ export function startAntigravitySession(opts: StartSessionOptions, deps: Antigra
   let turnStarted = 0;
   let resolveTurn: (() => void) | null = null;
   const stderr = new StderrTail(/^warning:/i);
-  const sessionDir = deps.sessionDir ? deps.sessionDir(opts) : antigravitySessionDir(opts.cwd, opts.id);
+  const sessionDir = deps.sessionDir ? deps.sessionDir(opts) : opts.scratchDir ? join(opts.scratchDir, "antigravity", opts.id) : antigravitySessionDir(opts.cwd, opts.id);
   let plugin: SessionPlugin | null = null;
   let hooksVerified = false;
 
@@ -526,7 +528,7 @@ export function startAntigravitySession(opts: StartSessionOptions, deps: Antigra
     const turn = new AgyMapper(conversationId, opts, emit);
     let proc: ChildProcess;
     try {
-      proc = deps.spawn(exe, antigravityArgs(sessionDir, opts.model, conversationId), { cwd: opts.cwd, env: { ...env, ...opts.mcp.env } });
+      proc = deps.spawn(exe, antigravityArgs(sessionDir, opts.model, conversationId, opts.readDirs), { cwd: opts.cwd, env: { ...env, ...opts.mcp.env } });
     } catch (err) {
       fail(`could not start agy (${(err as Error).message}) — ${ANTIGRAVITY_INSTALL}`);
       return null;

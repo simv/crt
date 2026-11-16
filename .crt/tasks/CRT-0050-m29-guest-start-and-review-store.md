@@ -1,15 +1,15 @@
 ---
 id: CRT-0050
 title: M29 — Guest start and the review store: crt runs in a project that is not set up and writes nothing into it
-status: backlog
+status: done
 priority: high
 created: 2026-11-16T13:20:00+08:00
-updated: 2026-11-16T13:20:00+08:00
+updated: 2026-11-16T15:30:00+08:00
 url: null
 route: null
 session: null
 tags: [m29, guest, review, home, tasks, f-129, f-130, f-133, f-134, n-33, n-34, prd-zero]
-files: [docs/PRD-zero.md, packages/server/src/home.ts, packages/server/src/serve.ts, packages/server/src/start.ts, packages/server/src/cli.ts, packages/server/src/args.ts, packages/server/src/config.ts, packages/server/src/tasks.ts, packages/server/src/write-task.ts, packages/server/src/sessions.ts, packages/server/src/captures.ts, packages/server/src/permissions.ts, packages/server/src/providers/claude.ts, packages/server/src/proxy.ts, packages/overlay/src/welcome.ts, packages/overlay/src/health.ts, docs/task-format.md, docs/cli.md, docs/providers.md, CLAUDE.md, .claude/agents/prd-reviewer.md]
+files: [docs/PRD-zero.md, packages/server/src/home.ts, packages/server/src/store.ts, packages/server/src/review.ts, packages/server/src/git-state.ts, packages/server/src/serve.ts, packages/server/src/start.ts, packages/server/src/cli.ts, packages/server/src/args.ts, packages/server/src/config.ts, packages/server/src/tasks.ts, packages/server/src/write-task.ts, packages/server/src/sessions.ts, packages/server/src/captures.ts, packages/server/src/permissions.ts, packages/server/src/providers/claude.ts, packages/server/src/proxy.ts, packages/overlay/src/welcome.ts, packages/overlay/src/health.ts, docs/task-format.md, docs/cli.md, docs/providers.md, CLAUDE.md, .claude/agents/prd-reviewer.md]
 ---
 
 ## Summary
@@ -37,12 +37,12 @@ No page capture: created from `docs/PRD-zero.md` milestone M29, after Simon's re
 8. **Docs and guards.** `docs/task-format.md` (`branch`, `commit`, `R-NN`); `docs/cli.md` (the guest line, `--review`, the `crt review` forms); `CLAUDE.md` Don'ts and entry points and the reviewer agent's write-roots row per PRD-zero §9.
 
 ## Definition of Done
-- [ ] `crt` (and `crt proxy`) in a project without `.crt/tasks/` starts without asking, prints the guest line and the guest ready line, and a stub Send writes `R-01` under `<CRT_HOME>/reviews/<key>/<review>/tasks/` with its assets and index (F-129, F-130, F-133).
-- [ ] The N-33 snapshot row: nothing under the project root is created, modified or deleted across start, Send, `crt review --json` and stop.
-- [ ] `--review` and `"store": "review"` send a set-up project's tasks to a review; without them a set-up project writes to `.crt/tasks/` with `CRT-NNNN` ids exactly as before.
-- [ ] Every task written carries `branch` and `commit`; the `.git` fixture rows are green; 0.7 task files and this repository's own `.crt/tasks/` still validate (F-134).
-- [ ] The server writes only under a set-up project's `.crt/`, the CRT home and the OS temp dir, and the first write under the home is announced (N-34).
-- [ ] `npm run check` green; `npm run e2e` green, with the existing specs edited only where they asserted the F-99 question or refusal.
+- [x] `crt` (and `crt proxy`) in a project without `.crt/tasks/` starts without asking, prints the guest line and the guest ready line, and a stub Send writes `R-01` under `<CRT_HOME>/reviews/<key>/<review>/tasks/` with its assets and index (F-129, F-130, F-133).
+- [x] The N-33 snapshot row: nothing under the project root is created, modified or deleted across start, Send, `crt review --json` and stop.
+- [x] `--review` and `"store": "review"` send a set-up project's tasks to a review; without them a set-up project writes to `.crt/tasks/` with `CRT-NNNN` ids exactly as before.
+- [x] Every task written carries `branch` and `commit`; the `.git` fixture rows are green; 0.7 task files and this repository's own `.crt/tasks/` still validate (F-134).
+- [x] The server writes only under a set-up project's `.crt/`, the CRT home and the OS temp dir, and the first write under the home is announced (N-34).
+- [x] `npm run check` green; `npm run e2e` green, with the existing specs edited only where they asserted the F-99 question or refusal.
 - [ ] Manual: `crt proxy` as a guest in a fresh clone of a real project with a real Claude session — an accepted proposal lands as `R-01` under the home with its screenshots readable, and `git status` in the project is empty; the same with Codex when it is installed, recording what it needed (§12 rule 5). Run by the worker session (standing rule 2026-09-18).
 
 ## Notes
@@ -50,3 +50,9 @@ Read `docs/PRD-zero.md` §5.2, §5.3, §6.2, §7 (N-33, N-34), §9 (the F-99, N-
 
 ## Log
 - 2026-11-16T13:20+08:00 — created from docs/PRD-zero.md milestone M29 by the planning session that wrote it (Claude Code cloud session 01KVgoZd7cmxUJP97XZgyRn9), on Simon's go-ahead of 2026-11-16.
+- 2026-11-16T14:10+08:00 — claimed by the building session (Claude Code cloud session 01KVgoZd7cmxUJP97XZgyRn9), on Simon's "do whatever you need to do to get this complete" of 2026-11-16; status in_progress.
+- 2026-11-16T15:05+08:00 — built. `store.ts` (the project's `.crt/` or the current review; every writer goes through it), `home.ts` (review folders, atomic `review.json`, `project.json`, the once-per-run announcement), `git-state.ts` (HEAD, loose refs, packed-refs, worktrees; no `git` spawn), `review.ts` and the `crt review` / `crt review list` / `crt review new` / `--json` forms, `--review [name]`, `R-NN` ids and `branch` / `commit` in `tasks.ts`, the home's `config.local.json` layer, health's `store` / `review` / `guest`, the welcome card's sentence. `ensureInitialised` and its question and refusal are gone; `--yes` no longer runs `crt init`. PRD-zero §5.3 gained an "As built (M29)" list for where the build is more specific than the text.
+- 2026-11-16T15:05+08:00 — verified. DoD 1: `test/guest.test.ts` (embedded and `crt proxy`, in-process `serve()` on the stub: the guest line, the ready line, health, `R-01` with its five asset files and index under a temp `CRT_HOME`) and `e2e/start.spec.ts` "a project that is not set up…" on the real CLI. DoD 2: the N-33 snapshot (paths, sizes, mtimes) is identical across start, Send, the review read and stop in both of those, and in `test/store.test.ts` for `--review` on a set-up project. DoD 3: `test/guest.test.ts` "a set-up project" rows (`CRT-0001` in `.crt/tasks` with nothing under the home; `--review`, `"store": "review"` and `--review sprint-12` → `R-NN`). DoD 4: `test/git-state.test.ts` (a branch, a detached HEAD, packed refs, a worktree's `.git` file, none, an unborn branch, unread shapes), `test/tasks.test.ts` (both id shapes, 0.7 files without the keys, this repository's own tasks). DoD 5: `test/store.test.ts` and `test/home.test.ts` (the announcement once, write roots, nothing under the home for a project store); `crtHome()` refuses the real home under a test runner. DoD 6: `npm run check` green; `npx playwright test` 80 passed, 1 failed — `embedded.spec.ts:148`, which fails the same way on `main` in this container only (the reuse line; CI is the judge, as on PR #125). Existing specs changed only where they asserted the F-99 plan under `--yes` (`start.spec.ts` "remember" row) or the refusal (the "un-initialised" row, now the guest row); `scratch()` and the fixture's `crt.mjs` create `.crt/tasks` so every other spec stays a set-up project.
+- 2026-11-16T15:05+08:00 — the Manual row is not ticked: a real Claude (and Codex) session against a fresh clone needs Simon's machine and login, which a cloud session does not have. Carried to CRT-0053's Definition of Done with the other v0.8 manual checks, to be run in one pass before `v0.8.0` is tagged; `docs/providers.md` says which provider rows are checked against fakes only.
+- 2026-11-16T15:20+08:00 — requirements review (prd-reviewer): ready, with notes. Applied: `crt providers`, `crt skills install` and `crt init`'s provider lookup now read the configuration a start would (the home's file for a guest or `"store": "review"`), and a set-up project also gets the one `could not read the current commit from .git` line (a `test/store.test.ts` row). Left for M32 with the other F-131 rows: the doctor's target-source label for a guest.
+- 2026-11-16T15:30+08:00 — done; closed in https://github.com/simv/crt/pull/126 (checks green on ubuntu and windows, e2e green; the Manual row is carried to CRT-0053).

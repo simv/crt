@@ -64,8 +64,9 @@ export const E2E_HOME = join(here, ".project", ".home");
 
 /**
  * A scratch project `e2e/.project/<spec>-<name>` with a `.git` marker (so findProjectRoot stops
- * there) and `port` in .crt/config.json (no `mode`: embedded is the default, F-91). The port must
- * be in the spec's `PORTS` range.
+ * there), `.crt/tasks/` (so it is set up, the F-99 test — a spec that wants a guest removes `.crt`,
+ * PRD-zero F-129) and `port` in .crt/config.json (no `mode`: embedded is the default, F-91). The
+ * port must be in the spec's `PORTS` range.
  */
 export function scratch(spec: "arrival" | "embedded" | "start" | "browser", name: string, port: number): string {
   const range = PORTS[spec];
@@ -73,7 +74,7 @@ export function scratch(spec: "arrival" | "embedded" | "start" | "browser", name
   const root = join(here, ".project", `${spec}-${name}`);
   rmSync(root, { recursive: true, force: true });
   mkdirSync(join(root, ".git"), { recursive: true });
-  mkdirSync(join(root, ".crt"), { recursive: true });
+  mkdirSync(join(root, ".crt", "tasks"), { recursive: true });
   writeFileSync(join(root, ".crt", "config.json"), JSON.stringify({ tasksDir: ".crt/tasks", target: null, port }, null, 2) + "\n");
   return root;
 }

@@ -4,7 +4,10 @@
  * `.crt/config.json` (committed, per project) with `.crt/config.local.json` (gitignored, per
  * machine — what "Remember for this project on this machine" writes, F-56/F-57, and where the
  * guided start remembers the target, F-72) over it key by key: `mode`, `target` and `port`
- * local-over-project too, and `browser.command` (PRD-zero F-125) the same way. Pure `node:fs`, so `integrations/vite.ts` reads the port through it
+ * local-over-project too, and `browser.command` (PRD-zero F-125) the same way. A project reviewed
+ * as a guest or with `--review` (PRD-zero F-129, F-130) keeps its machine-local file under the CRT
+ * home instead: `readConfig(root, over)` layers that file over both, and `writeLocalConfig` writes
+ * it when given its directory. Pure `node:fs`, so `integrations/vite.ts` reads the port through it
  * without loading the server (PRD-embedded N-18).
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -63,7 +66,12 @@ export interface CrtConfigFile {
   permissions?: { allow?: string[] };
   /** PRD-zero F-125: `browser.command`, the executable (plus leading args) the CRT browser is started with. */
   browser?: { command?: string[] };
+  /** PRD-zero F-129: `"review"` collects a set-up project's feedback in a review under the CRT home; default `"project"`. */
+  store?: CrtStoreKind;
 }
+
+/** PRD-zero F-129: where tasks are written — the project's `.crt/tasks/`, or the current review under the CRT home. */
+export type CrtStoreKind = "project" | "review";
 
 /** The merged, validated configuration the server runs with. */
 export interface CrtConfig {
@@ -89,6 +97,8 @@ export interface CrtConfig {
   allow: string[];
   /** PRD-zero F-125: `browser.command` (the local file wins); null when neither sets it. */
   browserCommand: string[] | null;
+  /** PRD-zero F-129: `store` (the local file wins); `project` when neither sets it. A guest is a review whatever this says. */
+  store: CrtStoreKind;
 }
 
 /** What `crt init` writes; provider keys are added by the developer or by "Remember" (local file). */
@@ -108,16 +118,31 @@ export const DEFAULT_CONFIG: CrtConfig = {
   providers: {},
   allow: [],
   browserCommand: null,
+  store: "project",
 };
 
 /**
  * Read `.crt/config.json` with `.crt/config.local.json` layered over it (F-43), tolerating absence
  * or malformed content (defaults win, junk values are ignored). `provider` may be the ACP object
  * only here — never from a route (N-8).
+ *
+ * `over` (PRD-zero F-130) is the machine-local file a review keeps under the CRT home: its keys win
+ * over `.crt/config.local.json`'s the way that file's win over `.crt/config.json`'s, and count as
+ * `local` in the `…Source` fields.
  */
-export function readConfig(root: string): CrtConfig {
+export function readConfig(root: string, over?: string | null): CrtConfig {
   const project = readConfigFile(join(root, ".crt", CONFIG_FILE));
-  const local = readConfigFile(join(root, ".crt", LOCAL_CONFIG_FILE));
+  const inProject = readConfigFile(join(root, ".crt", LOCAL_CONFIG_FILE));
+  const home = over ? readConfigFile(over) : {};
+  // One machine-local view: the home file's keys over the project's local file's, `models`, `providers` and the allow rules merged.
+  const local: CrtConfigFile = {
+    ...inProject,
+    ...home,
+    models: { ...modelsOf(inProject), ...modelsOf(home) },
+    providers: { ...providersOf(inProject), ...providersOf(home) },
+    permissions: { allow: [...new Set([...allowOf(home), ...allowOf(inProject)])] },
+  };
+  const storeOf = (f: CrtConfigFile): CrtStoreKind | null => (f.store === "review" || f.store === "project" ? f.store : null);
   const providerOf = (f: CrtConfigFile): string | AcpProviderConfig | null => {
     if (typeof f.provider === "string" && f.provider.trim()) return f.provider.trim();
     if (isAcpProvider(f.provider)) return { kind: "acp", command: f.provider.command, args: [...(f.provider.args ?? [])], name: f.provider.name };
@@ -144,7 +169,8 @@ export function readConfig(root: string): CrtConfig {
     models: { ...modelsOf(project), ...modelsOf(local) },
     allow: [...new Set([...allowOf(local), ...allowOf(project)])],
     providers: { ...providersOf(project), ...providersOf(local) },
-    browserCommand: commandOf(local.browser) ?? commandOf(project.browser),
+    browserCommand: commandOf(home.browser) ?? commandOf(inProject.browser) ?? commandOf(project.browser),
+    store: storeOf(inProject) ?? storeOf(project) ?? DEFAULT_CONFIG.store,
   };
 }
 
@@ -155,8 +181,9 @@ export function readConfig(root: string): CrtConfig {
  * start writes `target` the same way (PRD-setup F-72), and a permission card's Always allow appends
  * to `permissions.allow` (PRD-chat F-124).
  */
-export function writeLocalConfig(root: string, patch: { provider?: string; models?: Record<string, string>; target?: string; allow?: string[] }): string {
-  const path = join(root, ".crt", LOCAL_CONFIG_FILE);
+export function writeLocalConfig(root: string, patch: { provider?: string; models?: Record<string, string>; target?: string; allow?: string[] }, dir: string = join(root, ".crt")): string {
+  // PRD-zero F-130: `dir` is the project's folder under the CRT home for a review, so nothing is written to the project.
+  const path = join(dir, LOCAL_CONFIG_FILE);
   const current = readConfigFile(path);
   const next: CrtConfigFile = { ...current };
   if (patch.provider !== undefined) next.provider = patch.provider;
@@ -167,7 +194,7 @@ export function writeLocalConfig(root: string, patch: { provider?: string; model
     const permissions = current.permissions && typeof current.permissions === "object" ? current.permissions : {};
     next.permissions = { ...permissions, allow: [...new Set([...allowOf(current), ...patch.allow])] };
   }
-  mkdirSync(join(root, ".crt"), { recursive: true });
+  mkdirSync(dir, { recursive: true });
   writeFileSync(path, JSON.stringify(next, null, 2) + "\n", "utf8");
   return path;
 }

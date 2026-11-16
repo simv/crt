@@ -23,6 +23,19 @@ antigravity  ready        Antigravity CLI 1.2.7             login unknown       
 
 The full rules are in [docs/PRD-providers.md](PRD-providers.md) F-43/F-44; this section covers what you need per provider. CRT itself has no telemetry; nothing leaves the machine except the model calls the chosen agent already makes, and that agent's own telemetry where it has any (below, per provider).
 
+## Reviews and the agent's sandbox
+
+When feedback is kept in a review — a project that is not set up, or `crt --review` — the capture (its `capture.json` and screenshots) is written under the CRT home, outside the project the session runs in. The session's working directory is still the project root, and `write_task` runs on the CRT server for every provider, so no agent ever needs to write there. What each one needs in order to *read* the capture:
+
+| Provider | What CRT does | Checked against |
+|---|---|---|
+| Claude Code | passes the project's folder under the CRT home as the Agent SDK's `additionalDirectories`; writes under it are allowed without a card, as writes under `.crt/` are for a set-up project | the pinned SDK's option list; unit and e2e rows on the stub. A real session is the Manual row of CRT-0050 |
+| Codex | nothing: the `read-only` sandbox restricts writes, not reads, and screenshots travel as `--image` paths | the fake CLI only |
+| Gemini CLI, other ACP agents | nothing extra: screenshots are sent inline and the first message carries the notes and the page summary; reading `capture.json` from the CRT home is subject to the agent's own workspace rule | the fake agent only |
+| Antigravity CLI | a second `--add-dir` for the project's folder under the CRT home; its per-session plugin goes to the OS temp dir instead of `.crt/captures/` | the fake CLI only |
+
+Only the Claude row has been exercised beyond fakes so far; if a real Codex, Gemini or Antigravity session cannot read a review's capture, the fallback in [PRD-zero §12 rule 5](PRD-zero.md) applies (the bundle is handed over through the OS temp dir) and this table is where the finding goes.
+
 ## Claude Code
 
 Nothing to install beyond Claude Code itself: CRT runs sessions through the Agent SDK, which bundles its own Claude Code binary, and reuses the machine's login (`claude` → `/login`, or `CLAUDE_CODE_OAUTH_TOKEN`). Login is checked at start with the bundled binary's `auth status`; only its yes/no is read. Telemetry is Claude Code's own setting.
