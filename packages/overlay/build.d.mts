@@ -4,6 +4,8 @@ import type { BuildOptions } from "esbuild";
 export const DEFAULT_DIST: string;
 /** The IIFE loader build (`dist/loader.js`): auto-mounts, NODE_ENV defined as "development" (PRD-embedded F-96, F-98). */
 export const LOADER_IIFE: BuildOptions;
+/** The injectable loader build (`dist/loader-inject.js`): the IIFE with the injector's origin as a placeholder (PRD-zero F-127). */
+export const LOADER_INJECT: BuildOptions;
 /** The ES module loader build (`dist/integrations/loader.js`): no side effect on import, NODE_ENV left for the app's bundler. */
 export const LOADER_ESM: BuildOptions;
 /** The React entry build (`dist/integrations/react.js`, F-97): ES module, `react` external, "use client" first. */

@@ -26,6 +26,18 @@ describe("mode selection (F-91, F-92)", () => {
     expect(resolveMode({ command: "serve", config: readConfig(tmp) })).toBe("embedded");
   });
 
+  it("browser.command is read from either file, the local one first, and anything but a list of strings is ignored (F-125)", () => {
+    expect(readConfig(tmp).browserCommand).toBeNull();
+    write("config.json", { browser: { command: ["chromium", "--headless=new"] } });
+    expect(readConfig(tmp).browserCommand).toEqual(["chromium", "--headless=new"]);
+    write("config.local.json", { browser: { command: ["C:\\Tools\\chrome.exe"] } });
+    expect(readConfig(tmp).browserCommand).toEqual(["C:\\Tools\\chrome.exe"]);
+    for (const junk of [{ command: "chrome" }, { command: [] }, { command: ["chrome", 3] }, { command: [""] }, "chrome", null]) {
+      write("config.local.json", { browser: junk });
+      expect(readConfig(tmp).browserCommand, JSON.stringify(junk)).toEqual(["chromium", "--headless=new"]);
+    }
+  });
+
   it("`crt proxy` is `--mode proxy` (F-92)", () => {
     expect(resolveMode({ command: "proxy", config: DEFAULT_CONFIG })).toBe("proxy");
     expect(resolveMode({ command: "proxy", flag: "proxy", config: DEFAULT_CONFIG })).toBe("proxy");

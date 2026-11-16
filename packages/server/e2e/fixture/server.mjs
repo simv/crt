@@ -22,6 +22,10 @@
 //                       nonce, scripts from 'self'. The overlay must render styled under it (CRT-0046)
 //   GET  /csp-frames    the same policy with `frame-src 'none'` (Jack of Clubs' development policy):
 //                       the proxy lets the page frame CRT's rasteriser, and only that (CRT-0047)
+//   GET  /untouched     an app that knows nothing of CRT (PRD-zero F-126): never a loader tag, the
+//                       strict policy of PRD-zero §5.1, gzip on the wire, a first script from 'self'
+//                       (/untouched.js) that logs an error, and an inline script the policy refuses
+//   GET  /untouched.js  that first script
 //   GET  /redirect      302 → http://localhost:<port>/ (absolute, points at the fixture itself)
 //   GET  /app           annotation playground: ids, classes, data-*, ARIA, a fixed header, long
 //                       scroll, a console.error + uncaught error, a failing fetch/XHR and a missing
@@ -74,6 +78,25 @@ const PAGE = `<!doctype html>
 
 /** A strict app's policy (CRT-0046): relaxCsp leaves it as it is, since script-src already allows 'self'. */
 export const STRICT_STYLES_CSP = "default-src 'self'; script-src 'self' 'nonce-abc'; style-src 'self' 'nonce-abc'; img-src 'self'";
+
+/** PRD-zero §5.1: the policy of an app CRT was never added to — nothing but 'self', no frames. */
+export const UNTOUCHED_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; frame-src 'none'";
+
+/** PRD-zero F-126: no loader tag, ever; the inline script runs only where the policy is not enforced. */
+const UNTOUCHED_PAGE = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>CRT fixture: untouched</title>
+  <script src="/untouched.js"></script>
+</head>
+<body>
+  <h1 id="heading">An app with no CRT in it</h1>
+  <p id="note">Served by packages/server/e2e/fixture/server.mjs</p>
+  <script>window.__inline = "ran";</script>
+</body>
+</html>
+`;
 
 const APP_PAGE = `<!doctype html>
 <html lang="en">
@@ -501,6 +524,14 @@ export function startFixture(opts = {}) {
         return html(PAGE, { "content-security-policy": `${STRICT_STYLES_CSP}; frame-src 'none'` });
       case "/csp-meta":
         return html(PAGE.replace("<title>", `<meta http-equiv="Content-Security-Policy" content="script-src 'none'">\n  <title>`));
+      case "/untouched": {
+        const gz = gzipSync(UNTOUCHED_PAGE);
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-security-policy": UNTOUCHED_CSP, "content-encoding": "gzip", "content-length": String(gz.length) });
+        return res.end(gz);
+      }
+      case "/untouched.js":
+        res.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
+        return res.end('window.__fixture = "untouched"; console.error("fixture: the first script of an untouched app");\n');
       case "/redirect":
         res.writeHead(302, { location: `http://localhost:${server.address().port}/?from=redirect` });
         return res.end();

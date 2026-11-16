@@ -2,10 +2,11 @@
 /**
  * CRT command-line entry point.
  *
- * Commands (see docs/PRD.md §6, docs/PRD-providers.md §6, docs/PRD-setup.md §6.1 and docs/PRD-embedded.md §6.1):
+ * Commands (see docs/PRD.md §6, docs/PRD-providers.md §6, docs/PRD-setup.md §6.1, docs/PRD-embedded.md §6.1 and docs/PRD-zero.md §6.1):
  *   crt [target] [--port <n>] [--open|--no-open] [--yes] [--replace] [--provider <id>]   F-69…F-73 (the guided start), embedded by default (F-91)
  *   crt serve [target] [--target <url>] [--mode <embedded|proxy>] …      the same under its explicit name (F-1, F-5, F-43, F-91)
  *   crt proxy [target] …                                                 ≡ crt serve --mode proxy (F-92: the v0.3 reverse proxy)
+ *   crt browse [target] …                                                PRD-zero F-128 (embedded, in a browser CRT launches: no integration in the app)
  *   crt doctor                                                           F-76
  *   crt setup [--claude <path>]                                          F-86 (registers the bundled plugin with Claude Code)
  *   crt init [--yes] [--no-instructions] [--snippet [--json]]              F-100 (explicit, itemised, idempotent; the F-101 section, the F-102 snippet)
@@ -40,6 +41,8 @@ const USAGE = [
   "  crt serve [target]      the same, under its explicit name",
   "      [--mode <embedded|proxy>] [--target <url>] [--port <n>] [--open | --no-open] [--yes] [--replace] [--provider <id>]",
   "  crt proxy [target]      proxy the dev server through http://localhost:4400 instead (the same flags; = crt serve --mode proxy)",
+  "  crt browse [target]     the same server, with your app in a Chrome or Edge window CRT starts itself: nothing to add to the app",
+  "      [--port <n>] [--no-open] [--yes] [--replace] [--provider <id>]",
   "  crt doctor              check node, project, .crt, mode, target, integration, instructions, port, providers, plugin",
   "  crt setup               register the bundled Claude Code plugin (/crt:serve, /crt:next, …) [--claude <path>]",
   "  crt init                set the project up: .crt/ (README, tasks, config), 2 .gitignore lines, a CRT section in CLAUDE.md — each announced — then the snippet for your framework",
@@ -54,7 +57,7 @@ const USAGE = [
   "typed or picked in .crt/config.local.json; `crt <port>` switches it.",
 ].join("\n");
 
-const COMMANDS = new Set(["serve", "proxy", "doctor", "setup", "init", "tasks", "task", "providers", "mcp", "skills", "help"]);
+const COMMANDS = new Set(["serve", "proxy", "browse", "doctor", "setup", "init", "tasks", "task", "providers", "mcp", "skills", "help"]);
 
 /** F-77: a second Ctrl+C within this window exits at once. */
 const FORCE_EXIT_MS = 2_000;
@@ -89,8 +92,10 @@ async function main(argv: string[]): Promise<number> {
       return runMcpStdio({ input: process.stdin, output: process.stdout, env: process.env });
     }
     case "serve":
-    case "proxy": {
+    case "proxy":
+    case "browse": {
       // F-91/F-92: `crt proxy [target]` ≡ `crt serve --mode proxy [target]`; the same flags and steps.
+      // PRD-zero F-128: `crt browse [target]` ≡ `crt [target]` with the CRT browser forced.
       const positional = positionals[0];
       if (positional !== undefined && !looksLikeTarget(positional)) {
         throw new CrtError(`target "${positional}" is not a port, host:port or URL — try 3000, localhost:3000 or http://…`, 2);
@@ -99,7 +104,8 @@ async function main(argv: string[]): Promise<number> {
       const { isInteractive, createTerminalPrompter } = await import("./prompt.js");
       const interactive = isInteractive({ yes: flags.yes === true });
       // §5.2: the browser opens by default on a terminal (`--no-open` suppresses) and only with `--open` otherwise.
-      const open = flags["no-open"] === true ? false : flags.open === true || interactive;
+      // `crt browse` names the browser it wants, so it opens it off a terminal too; `--no-open` never launches it (F-128).
+      const open = flags["no-open"] === true ? false : flags.open === true || interactive || command === "browse";
       const { serve } = await import("./serve.js");
       const result = await serve({
         command,
@@ -124,7 +130,8 @@ async function main(argv: string[]): Promise<number> {
         if (stopping) process.exit(0);
         stopping = true;
         const n = handle.openSessions();
-        console.log(`Stopping CRT … ${n} session${n === 1 ? "" : "s"} ended; written task files are kept.`);
+        // PRD-zero F-128: stopping CRT closes the CRT browser, and the line says so.
+        console.log(`Stopping CRT … ${n} session${n === 1 ? "" : "s"} ended; ${handle.browser?.isOpen ? "the CRT browser was closed; " : ""}written task files are kept.`);
         void handle.close().then(() => process.exit(0));
         setTimeout(() => process.exit(0), FORCE_EXIT_MS).unref();
       };

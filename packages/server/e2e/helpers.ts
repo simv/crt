@@ -36,6 +36,8 @@ export const PORTS = {
   embedded: { from: 4460, to: 4469 },
   arrival: { from: 4470, to: 4479 },
   start: { from: 4480, to: 4489 },
+  /** browser.spec.ts (PRD-zero M28): the servers that launch the CRT browser. */
+  browser: { from: 4450, to: 4459 },
 } as const;
 
 /** The app origin: what every browser spec navigates to (F-110). */
@@ -54,13 +56,18 @@ export const shadow = (page: Page, sel: string) => page.locator("#crt-host").loc
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CLI = join(here, "..", "dist", "cli.js");
+/**
+ * The CRT home of every server the e2e starts (PRD-zero F-130, N-34): browser profiles and, from
+ * M29, reviews land under e2e/.project/ (gitignored), never in the developer's own `~/.crt`.
+ */
+export const E2E_HOME = join(here, ".project", ".home");
 
 /**
  * A scratch project `e2e/.project/<spec>-<name>` with a `.git` marker (so findProjectRoot stops
  * there) and `port` in .crt/config.json (no `mode`: embedded is the default, F-91). The port must
  * be in the spec's `PORTS` range.
  */
-export function scratch(spec: "arrival" | "embedded" | "start", name: string, port: number): string {
+export function scratch(spec: "arrival" | "embedded" | "start" | "browser", name: string, port: number): string {
   const range = PORTS[spec];
   if (port < range.from || port > range.to) throw new Error(`${spec}.spec.ts owns ports ${range.from}–${range.to} (e2e/helpers.ts PORTS); got ${port}`);
   const root = join(here, ".project", `${spec}-${name}`);
@@ -81,9 +88,9 @@ export interface Crt {
 
 const running: ChildProcess[] = [];
 
-/** `node dist/cli.js <args>` in `cwd` with `CRT_SESSION_STUB=1` (and `env`), every output line captured. */
+/** `node dist/cli.js <args>` in `cwd` with `CRT_SESSION_STUB=1`, the e2e CRT home (and `env`), every output line captured. */
 export function startCrt(cwd: string, args: string[], env: NodeJS.ProcessEnv = {}): Crt {
-  const child = spawn(process.execPath, [CLI, ...args], { cwd, env: { ...process.env, CRT_SESSION_STUB: "1", ...env }, stdio: ["ignore", "pipe", "pipe"], shell: false, windowsHide: true });
+  const child = spawn(process.execPath, [CLI, ...args], { cwd, env: { ...process.env, CRT_SESSION_STUB: "1", CRT_HOME: E2E_HOME, ...env }, stdio: ["ignore", "pipe", "pipe"], shell: false, windowsHide: true });
   running.push(child);
   const lines: string[] = [];
   const waiters: Array<{ re: RegExp; resolve: (line: string) => void }> = [];

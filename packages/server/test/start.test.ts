@@ -25,6 +25,8 @@ interface World {
   health?: Record<number, CrtHealth>;
   /** `replace(port)` fails with this reason. */
   replaceFails?: string;
+  /** PRD-zero F-128: how the running CRT answers `POST /__crt/internal/browse`; absent → it opens what was asked (or :3000). */
+  browseFails?: string;
 }
 
 interface Run {
@@ -35,13 +37,15 @@ interface Run {
   replaced: number[];
   bound: number[];
   beforePrompt: number;
+  /** F-128: every browse request sent to a running CRT, as `[port, url]`. */
+  browsed: Array<[number, string | null]>;
 }
 
 function world(w: World): Run {
   const up = new Set(w.up ?? []);
   const busy = new Set(w.busy ?? []);
   const answers = [...(w.answers ?? [])];
-  const run: Run = { logs: [], questions: [], waits: [], replaced: [], bound: [], beforePrompt: 0, deps: undefined as unknown as StartDeps };
+  const run: Run = { logs: [], questions: [], waits: [], replaced: [], bound: [], beforePrompt: 0, browsed: [], deps: undefined as unknown as StartDeps };
   const prompt: Prompter = {
     ask: async (q) => {
       run.questions.push(q);
@@ -83,6 +87,10 @@ function world(w: World): Run {
     },
     beforePrompt: async () => {
       run.beforePrompt++;
+    },
+    browse: async (port, url) => {
+      run.browsed.push([port, url]);
+      return w.browseFails ? { ok: false, reason: w.browseFails } : { ok: true, url: url ?? L3000 };
     },
   };
   return run;
@@ -465,6 +473,29 @@ describe("bindPort — reuse compares the mode (PRD-embedded F-93)", () => {
     const none = world({ interactive: false, busy: [4400], health: { 4400: embeddedMine({ target: null, startedAt: null }) } });
     await bindPort(port({ mode: "embedded", target: null, version: "0.4.0" }), none.deps);
     expect(none.logs).toEqual(["CRT 0.4.0 is already serving this project (embedded) at http://localhost:4400 — open your app in the browser."]);
+  });
+
+  it("`crt browse` asks the embedded CRT already serving the project to open the CRT browser, and the line says where (F-128)", async () => {
+    const r = world({ interactive: false, busy: [4400], health: { 4400: embeddedMine({ target: L5173 }) } });
+    const out = await bindPort(port({ mode: "embedded", browser: true, target: L3000, version: "0.4.0" }), r.deps);
+    expect(out).toMatchObject({ kind: "reused", port: 4400 });
+    expect(r.browsed).toEqual([[4400, L3000]]);
+    expect(r.logs).toEqual([expect.stringMatching(/^CRT 0\.4\.0 is already serving this project at http:\/\/localhost:4400 \(since \d\d:\d\d\) — opened the CRT browser on http:\/\/localhost:3000\.$/)]);
+    expect(r.bound).toEqual([]);
+    // No app known by this run: the running server opens its own.
+    const theirs = world({ interactive: false, busy: [4400], health: { 4400: embeddedMine({ startedAt: null }) } });
+    await bindPort(port({ mode: "embedded", browser: true, target: null, version: "0.4.0" }), theirs.deps);
+    expect(theirs.browsed).toEqual([[4400, null]]);
+    expect(theirs.logs).toEqual(["CRT 0.4.0 is already serving this project at http://localhost:4400 — opened the CRT browser on http://localhost:3000."]);
+    // The running server could not: the line carries its reason.
+    const failed = world({ interactive: false, busy: [4400], health: { 4400: embeddedMine({ startedAt: null }) }, browseFails: "that CRT is older than 0.8 — run `crt browse --replace`" });
+    await bindPort(port({ mode: "embedded", browser: true, version: "0.4.0" }), failed.deps);
+    expect(failed.logs).toEqual(["CRT 0.4.0 is already serving this project at http://localhost:4400 — but could not open the CRT browser (that CRT is older than 0.8 — run `crt browse --replace`)."]);
+    // `--no-open` never launches it, here either: nothing is asked, and the line is the embedded one.
+    const closed = world({ interactive: false, busy: [4400], health: { 4400: embeddedMine({ startedAt: null }) } });
+    await bindPort(port({ mode: "embedded", browser: true, open: false, version: "0.4.0" }), closed.deps);
+    expect(closed.browsed).toEqual([]);
+    expect(closed.logs).toEqual(["CRT 0.4.0 is already serving this project (embedded) at http://localhost:4400 — open http://localhost:3000 in your browser."]);
   });
 
   it("a different mode on the port is another CRT: --yes steps to the next port, naming what it serves (F-93, F-73)", async () => {

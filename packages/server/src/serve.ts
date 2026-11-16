@@ -1,5 +1,5 @@
 /**
- * `crt [target]` / `crt serve [target]` / `crt proxy [target]` (PRD F-1, F-4, F-5, F-23, F-24,
+ * `crt [target]` / `crt serve [target]` / `crt proxy [target]` / `crt browse [target]` (PRD F-1, F-4, F-5, F-23, F-24,
  * N-6; PRD-providers F-43, F-44; PRD-setup F-70…F-75, F-78, F-79; PRD-embedded F-91…F-94, F-99):
  * preflight the providers and pick one, make sure the project is set up (start.ts
  * `ensureInitialised` — never silently: the F-100 plan and a question on a terminal, `--yes`
@@ -13,6 +13,12 @@
  * optionally open the browser — the app's own URL in embedded mode (then arm the F-94 timer),
  * the CRT URL in proxy mode. Every failure surfaces as a CrtError with a single actionable line.
  *
+ * `crt browse` (PRD-zero F-128) is the embedded start with the CRT browser forced: instead of the
+ * default browser, CRT launches Chrome or Edge itself and injects the loader over the DevTools
+ * protocol (browser.ts), so the app needs no integration. The browser belongs to this process —
+ * one per server, closed with it — and a CRT that already serves the project is asked to open
+ * it (`POST /__crt/internal/browse`). The F-94 timer is not armed: no loader request is expected.
+ *
  * The two guided steps are pure over `StartDeps`; this module supplies the real probes
  * (target.ts, probes.ts) and the prompter cli.ts chose (prompt.ts on a terminal, none otherwise).
  *
@@ -21,6 +27,7 @@
  * with a command that does nothing, so the F-94 timer can be observed without a real browser).
  */
 import { spawn } from "node:child_process";
+import { BrowserController, readLoaderBundle } from "./browser.js";
 import { existsSync, readFileSync } from "node:fs";
 import type { Server } from "node:http";
 import { relative, resolve } from "node:path";
@@ -28,8 +35,9 @@ import { capturesDir, pruneCaptures } from "./captures.js";
 import { type CrtMode, readConfig, resolveMode, writeLocalConfig } from "./config.js";
 import { collectDoctorFacts, doctorRows, hasDevScript, renderRow } from "./doctor.js";
 import { CrtError } from "./errors.js";
+import { browserProfileDir } from "./home.js";
 import { applyInit, isInitialised, planInit, renderPlan } from "./init.js";
-import { fetchHealth, isPortFree, requestShutdown } from "./probes.js";
+import { fetchHealth, isPortFree, requestBrowse, requestShutdown } from "./probes.js";
 import { findProjectRoot } from "./project.js";
 import { sdkVersion } from "./providers/claude.js";
 import { createProxyServer, type CrtServer } from "./proxy.js";
@@ -43,8 +51,8 @@ import { packageVersion } from "./version.js";
 export interface ServeOptions {
   /** Launch directory; the project root is found from here. */
   cwd?: string;
-  /** `crt proxy` is `--mode proxy` (F-92); default `serve`. */
-  command?: "serve" | "proxy";
+  /** `crt proxy` is `--mode proxy` (F-92); `crt browse` is embedded with the CRT browser forced (PRD-zero F-128); default `serve`. */
+  command?: "serve" | "proxy" | "browse";
   /** `--mode <embedded|proxy>`: outranks the config files (F-91). */
   mode?: string | undefined;
   /** `--target` value, if given — the scripting form, never remembered (F-72). */
@@ -88,6 +96,8 @@ export interface ServeHandle {
   providers: ProviderRegistry;
   /** Intake sessions still open (the F-77 stop line counts them). */
   openSessions(): number;
+  /** PRD-zero F-128: the CRT browser, when this server has one (`isOpen` words the stop line). */
+  browser: BrowserController | null;
   close(): Promise<void>;
 }
 
@@ -110,7 +120,10 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
   const config = readConfig(projectRoot);
   const port = opts.port ?? config.port;
   // F-91/F-92: `crt proxy` > `--mode` > config.local.json > config.json > embedded.
-  const mode = resolveMode({ command: opts.command ?? "serve", flag: opts.mode, config });
+  const browse = opts.command === "browse";
+  // PRD-zero F-128: the CRT browser is the embedded start; a proxy there would be a second way into the same page.
+  if (browse && opts.mode !== undefined && opts.mode !== "embedded") throw new CrtError("`crt browse` is embedded — drop --mode, or run `crt proxy`");
+  const mode = browse ? "embedded" : resolveMode({ command: opts.command === "proxy" ? "proxy" : "serve", flag: opts.mode, config });
 
   // F-43/F-44: preflight every provider once, detect, and validate an explicit --provider / CRT_PROVIDER.
   // Before the target step, so the F-76 rows before a prompt can name a provider's problem.
@@ -154,6 +167,7 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
       return listen(server, p);
     },
     replace: (p) => requestShutdown(p),
+    browse: (p, u) => requestBrowse(p, u),
     beforePrompt: async () => {
       // F-76: only FAIL/warn rows, once, before the first question (no target row — that is the question; no plugin row — never spawn `claude` here).
       if (warned) return;
@@ -194,13 +208,25 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
     port, // F-49: where `crt mcp` posts write_task back to; corrected below if the port was stepped
     log,
   });
-  const close = (): Promise<void> =>
-    new Promise<void>((done) => {
-      sessions.closeAll();
+  // PRD-zero F-125/F-128: this server's one CRT browser, launched on the first request for it. The origin
+  // is the port actually bound (a 4401…4409 fallback included), known by the time anything can ask.
+  let boundUrl = `http://localhost:${port}`;
+  const browser = new BrowserController({
+    command: config.browserCommand,
+    profileDir: browserProfileDir(projectRoot),
+    origin: () => boundUrl,
+    loaderBundle: () => readLoaderBundle(opts.overlayPath),
+    log,
+  });
+  const close = async (): Promise<void> => {
+    sessions.closeAll();
+    await browser.close();
+    await new Promise<void>((done) => {
       if (!server) return done();
       server.closeAllConnections();
       server.close(() => done());
     });
+  };
   server = createProxyServer({
     target,
     mode,
@@ -215,29 +241,35 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
     platform: process.platform,
     tasksDir,
     shutdown: close,
+    // F-128: a later `crt browse` in this project; proxy mode has its own way into the page.
+    ...(mode === "embedded" ? { browse: (asked: string | null) => browser.open(asked ?? app ?? boundUrl) } : {}),
     log,
   });
 
   const bound = await bindPort(
-    { port, explicit: opts.port !== undefined, replace: opts.replace === true, projectRoot, target, version, open: opts.open === true, mode },
+    { port, explicit: opts.port !== undefined, replace: opts.replace === true, projectRoot, target: browse ? app : target, version, open: opts.open === true, mode, browser: browse },
     deps,
   );
   if (bound.kind === "reused") {
     // F-93: embedded mode opens the app (this run's, else the running server's); proxy mode opens the CRT URL.
     const toOpen = mode === "embedded" ? (app ?? bound.health.target) : bound.url;
-    if (opts.open && toOpen) openBrowser(toOpen, log);
+    if (opts.open && toOpen && !browse) openBrowser(toOpen, log); // `crt browse`: bindPort asked that server (F-128)
     return { kind: "reused", url: bound.url, target, projectRoot, health: bound.health };
   }
   sessions.mcpPort = bound.port;
 
   const url = `http://localhost:${bound.port}`;
+  boundUrl = url;
+  /** PRD-zero F-128: this start opens the CRT browser (`--no-open` never launches it). */
+  const launch = browse && opts.open === true;
   const tasks = countTaskFiles(tasksDir);
   const login = loginField(resolution, providers);
   const tasksLabel = relative(projectRoot, tasksDir) || ".";
   const details = `project: ${projectRoot}, ${tasks} task${tasks === 1 ? "" : "s"} in ${tasksLabel}, provider: ${describeResolution(resolution)}, login: ${login}`;
   // F-93: `CRT ready at <url> for <app> (embedded; …)` / `CRT ready at <url> → <target> (proxy; …)`.
-  log(mode === "embedded" ? `CRT ready at ${url}${target ? ` for ${target}` : ""} (embedded; ${details})` : `CRT ready at ${url} → ${target} (proxy; ${details})`);
-  if (mode === "embedded" && bound.port !== port) {
+  // PRD-zero F-132: `(embedded, CRT browser; …)` when the CRT browser is what opens.
+  log(mode === "embedded" ? `CRT ready at ${url}${target ? ` for ${target}` : ""} (embedded${launch ? ", CRT browser" : ""}; ${details})` : `CRT ready at ${url} → ${target} (proxy; ${details})`);
+  if (mode === "embedded" && bound.port !== port && !launch) {
     // F-93: a stepped port (F-73) leaves the app's loader pointing at the configured one.
     log(`crt: your app's CRT loader expects :${port} — run \`crt --replace\`, or set port in .crt/config.json and in the snippet`);
   }
@@ -246,10 +278,14 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
     const problem = providers.preflight(resolution.provider).problem;
     if (problem) log(`crt: ${problem}`);
   } else if (interactive) {
-    const where = mode === "embedded" ? (app ? `Open ${app}` : "Open your dev server in the browser") : `Open ${url}`;
+    const where = launch ? "In the CRT browser window" : mode === "embedded" ? (app ? `Open ${app}` : "Open your dev server in the browser") : `Open ${url}`;
     log(`${where} → CRT button bottom-right (Ctrl/Cmd+Shift+.) → Select · note · Send. Ctrl+C stops CRT; your dev server keeps running.`);
   }
-  if (opts.open) {
+  if (launch) {
+    // F-125/F-128: the app when one answers, else CRT's own page (the browser is then ready for the app's URL).
+    // A failure is one line and CRT stays up; no F-94 timer — nothing in the app asks for the loader.
+    await browser.open(app ?? url);
+  } else if (opts.open) {
     if (mode === "proxy") openBrowser(url, log);
     else if (app) {
       // F-91: embedded mode opens the app's own URL (nothing when none is known); F-94 watches for the loader.
@@ -269,6 +305,7 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
       provider: resolution.provider,
       providers,
       openSessions: () => sessions.openCount(),
+      browser: mode === "embedded" ? browser : null,
       close,
     },
   };

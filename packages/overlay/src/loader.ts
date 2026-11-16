@@ -8,9 +8,14 @@
  * focus (never on a timer), dismissable per tab, and (7) exposes `window.__crt.loader` and no
  * other global.
  *
- * One source, two builds (packages/overlay/build.mjs): `dist/loader.js`, an IIFE served by CRT
+ * PRD-zero F-127: `mountCrt` may run before the document has a root element — the CRT browser
+ * injects it into every new document ahead of the page's own scripts (loader-inject.ts) — so the
+ * hooks install at once and the overlay tag waits for the root.
+ *
+ * One source, three builds (packages/overlay/build.mjs): `dist/loader.js`, an IIFE served by CRT
  * at /__crt/loader.js that auto-mounts (loader-auto.ts, which reads `data-crt-port` off its own
- * tag), and `dist/integrations/loader.js`, an ES module with no side effect on import that
+ * tag), `dist/loader-inject.js`, the same IIFE with its origin supplied by the injector
+ * (loader-inject.ts, PRD-zero F-127), and `dist/integrations/loader.js`, an ES module with no side effect on import that
  * bundlers ship with the app (`claude-review-tool/loader`). The body sits behind
  * `process.env.NODE_ENV !== "production"` (F-98): the app's bundler defines it, the IIFE build
  * defines it as "development" so the guard folds away. Framework-free, no dependencies, ≤ 5 KB
@@ -120,7 +125,24 @@ function mount(options?: MountOptions): CrtLoader | null {
   let pill: PillHandle | null = null;
   let loaded = false;
 
+  let waiting = false;
   const append = () => {
+    // PRD-zero F-127: injected at document creation (the CRT browser) there is no root element yet.
+    // The hooks above are already in; the tag follows as soon as the root exists — one observer,
+    // disconnected on first use, no timer (N-20).
+    const parent = document.head ?? document.documentElement;
+    if (!parent) {
+      if (waiting) return;
+      waiting = true;
+      const seen = new MutationObserver(() => {
+        if (!document.documentElement) return;
+        seen.disconnect();
+        waiting = false;
+        append();
+      });
+      seen.observe(document, { childList: true });
+      return;
+    }
     // step 5: the overlay always comes from the running server, so its version equals the server's.
     if (script) script.remove();
     script = document.createElement("script");
@@ -138,10 +160,10 @@ function mount(options?: MountOptions): CrtLoader | null {
       pill ??= mountPill(origin, retry);
       pill.show();
     });
-    (document.head ?? document.documentElement).appendChild(script);
+    parent.appendChild(script);
   };
   const retry = () => {
-    if (loaded || script) return; // one request at a time (N-20)
+    if (loaded || script || waiting) return; // one request at a time (N-20)
     append();
   };
   // step 6: retry once per user action — the tab coming back, the window regaining focus — never on a timer.

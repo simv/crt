@@ -8,6 +8,7 @@ import type { Duplex } from "node:stream";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { encodeFrame, readFrame, startFixture, type Fixture } from "../e2e/fixture/server.mjs";
 import { INJECT_TAGS, OVERLAY_TAG } from "../src/inject.js";
+import { requestBrowse } from "../src/probes.js";
 import { createProxyServer, MAX_HTML_BODY, requestingOrigin } from "../src/proxy.js";
 import { RASTER_FRAME_CSP, RASTER_FRAME_HTML, RASTER_MESSAGE } from "../src/raster-frame.js";
 import { listen0 } from "./helpers/http.js";
@@ -630,6 +631,55 @@ describe("embedded mode (PRD-embedded F-91, F-93, F-94)", () => {
   }
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const NEVER_LOADED = "crt: opened http://localhost:3000 but the page never loaded the CRT loader — add the integration (`crt init` prints the snippet, /crt:init applies it), or run `crt proxy`";
+
+  it("POST /__crt/internal/browse opens the CRT browser for a local process and never for a page; a server without one says so (F-128, N-8)", async () => {
+    const asked: Array<string | null> = [];
+    let fails = false;
+    const server = createProxyServer({
+      mode: "embedded",
+      target: "http://localhost:3000",
+      projectRoot: tmp,
+      overlayPath: join(tmp, "overlay.js"),
+      browse: async (url) => {
+        asked.push(url);
+        return fails ? { ok: false, reason: "no Chrome, Edge or Chromium found" } : { ok: true, url: url ?? "http://localhost:3000" };
+      },
+    });
+    const s = await listen0(server);
+    const post = (path: string, headers: Record<string, string> = {}, method = "POST") => fetch(s.origin + path, { method, headers });
+    try {
+      // What `crt browse` sends (probes.ts): no Origin; the caller's app, or nothing for the server's own.
+      expect(await requestBrowse(s.port, null)).toEqual({ ok: true, url: "http://localhost:3000" });
+      expect(await requestBrowse(s.port, "http://127.0.0.1:5173")).toEqual({ ok: true, url: "http://127.0.0.1:5173" });
+      expect(asked).toEqual([null, "http://127.0.0.1:5173"]);
+      // A page can never open it (every browser sends Origin on a POST), whatever else it sends.
+      expect((await post("/__crt/internal/browse", { origin: "http://localhost:3000" })).status).toBe(403);
+      // Only a loopback URL may be asked for (N-32), and only with POST.
+      expect((await post("/__crt/internal/browse?url=https%3A%2F%2Fexample.com%2F")).status).toBe(400);
+      expect((await post("/__crt/internal/browse", {}, "GET")).status).toBe(405);
+      expect(asked).toHaveLength(2);
+      // A failed launch comes back as the reason the server logged.
+      fails = true;
+      expect(await requestBrowse(s.port, null)).toEqual({ ok: false, reason: "no Chrome, Edge or Chromium found" });
+    } finally {
+      await s.close();
+    }
+    // A server that was given no browser (proxy mode, a bare test server) answers 503; a pre-0.8 CRT has no such route.
+    const e = await embedded();
+    try {
+      const port = Number(new URL(e.origin).port);
+      expect(await requestBrowse(port, null)).toEqual({ ok: false, reason: "this server cannot open the CRT browser" });
+    } finally {
+      await e.close();
+    }
+    const old = createServer((_req, res) => res.writeHead(404).end("not found"));
+    const o = await listen0(old);
+    try {
+      expect(await requestBrowse(o.port, null)).toEqual({ ok: false, reason: "that CRT is older than 0.8 — run `crt browse --replace`" });
+    } finally {
+      await o.close();
+    }
+  });
 
   it("answers every non-/__crt/ request with the landing page — the kicker, the project, the app link, the two ways forward, exactly one inline script (F-91, PRD-polish F-114)", async () => {
     const e = await embedded({ target: "http://localhost:3000" });

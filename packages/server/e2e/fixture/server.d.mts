@@ -10,3 +10,5 @@ export function encodeFrame(opcode: number, payload: Buffer, mask?: Buffer | nul
 export function loopbackOrigin(value: string | null | undefined): string | null;
 /** A strict app's Content-Security-Policy: styles and images from 'self' or with a nonce only (CRT-0046). */
 export const STRICT_STYLES_CSP: string;
+/** PRD-zero §5.1: the policy `/untouched` is served under — an app CRT was never added to. */
+export const UNTOUCHED_CSP: string;

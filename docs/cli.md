@@ -8,6 +8,7 @@ Every `crt` command and flag, what `crt` prints on the way to `CRT ready` and af
 crt [target] [--port <n>] [--open | --no-open] [--yes] [--replace] [--provider <id>]
 crt serve [target] [--target <url>] [--mode <embedded|proxy>] …   # the same command under its explicit name
 crt proxy [target] …                           # proxy your app through http://localhost:4400 instead (= crt serve --mode proxy)
+crt browse [target] …                          # the same server, your app in a Chrome or Edge window CRT starts itself: nothing to add to the app
 crt doctor                                     # checklist: node, project, .crt, mode, target, integration, instructions, port, providers, plugin
 crt init [--yes] [--no-instructions] [--snippet [--json]]   # set the project up, each write announced; then the snippet for your framework
 crt setup [--claude <path>]                    # register the bundled Claude Code plugin (idempotent)
@@ -19,6 +20,7 @@ crt --version                                  # crt <version> (agent sdk <versi
 | `[target]` | auto | Your app's URL, as a positional: `3000`, `localhost:3000` or a full URL — what CRT opens for you in embedded mode, what it proxies in proxy mode. Remembered in `.crt/config.local.json` once it responds; `crt <port>` switches it. |
 | `--target <url>` | auto | The same, as a flag (what scripts and the skills pass); never remembered. Without either, CRT reads `target` from `.crt/config.local.json`, then `.crt/config.json`, then probes ports 3000, 5173, 8080, 4200, 8000, 3001. In proxy mode a terminal asks when there are several or none and waits for the one you name; embedded mode never waits — it says what it found (or did not) and is ready either way. |
 | `crt proxy [target]` | | Proxy mode: the v0.3 experience for an app that cannot be touched — browse `http://localhost:4400`, CRT injects the overlay into every HTML page (WebSocket/HMR passthrough, CSP relaxing). The same flags as `crt`. |
+| `crt browse [target]` | | The CRT browser: the embedded server, plus a Chrome or Edge window that CRT starts itself with a profile of its own per project (under `~/.crt/browser/`) and puts the CRT loader into over the DevTools protocol — so the CRT button is on your app's own URL with no integration and no policy exception in the app. The same flags as `crt` except `--mode`; it opens the window off a terminal too, and `--no-open` never launches it. CRT looks for Chrome, then Edge, then Chromium; `"browser": { "command": ["<path>", "<arg>", …] }` in `.crt/config.local.json` (or `.crt/config.json`) names another one. See [The CRT browser](#the-crt-browser). |
 | `--mode <embedded\|proxy>` | `embedded` (or `mode` in `.crt/config.local.json` / `.crt/config.json`) | Which mode `crt serve` runs in; `crt proxy` is `--mode proxy`. Put `"mode": "proxy"` in `.crt/config.json` to make proxy mode a project's default. |
 | `--port <n>` | `4400` (or `port` in `.crt/config.local.json` / `.crt/config.json`) | Port CRT listens on. Always bound to `127.0.0.1`. Never stepped around; without it a held port falls back to 4401…4409. |
 | `--open` / `--no-open` | on for a terminal, off otherwise | Open the CRT URL in your default browser once ready. |
@@ -47,6 +49,14 @@ The CRT button appears on your app's own URL once the page loads the CRT loader 
 ### A CRT already on the port
 
 When a CRT from an earlier session already serves the same project in the same mode on the port, `crt` says `CRT <version> is already serving this project (embedded) at http://localhost:4400 (since 09:12) — opened http://localhost:3000.` (`… — open your app in the browser.` when none is known; `CRT <version> is already serving … for this project at … — opened it.` in proxy mode) and exits 0; when it serves something else, or the port is held by something that is not CRT, `crt` takes the next free port and says so (`crt: port 4400 is held by another CRT (→ <target>, project <root>); using 4401` / `crt: port 4400 is in use by a process that is not CRT; using 4401`), and in embedded mode adds `crt: your app's CRT loader expects :4400 — run \`crt --replace\`, or set port in .crt/config.json and in the snippet`, because the snippet in your app still points at 4400.
+
+### The CRT browser
+
+`crt browse` prints the ready line with `(embedded, CRT browser; …)` and then, on a terminal, `In the CRT browser window → CRT button bottom-right (Ctrl/Cmd+Shift+.) → Select · note · Send. Ctrl+C stops CRT; your dev server keeps running.` The window opens on your app (on CRT's own page when no dev server answered — type your app's URL there), and the first page that loads the overlay gets `crt: overlay loaded in the browser (from http://localhost:3000)` as with the integration. In that window a page on `localhost`, `*.localhost`, `127.0.0.1` or `[::1]` is served without its `Content-Security-Policy` header, so the app's policy cannot refuse the overlay; every other site keeps its policy and never sees CRT. The window is not your everyday browser: you sign in to your app once in its profile, and your extensions are not there.
+
+One window per server: a second `crt browse` in the project asks the running CRT to open a tab and exits 0 with `CRT <version> is already serving this project at http://localhost:4400 (since 09:12) — opened the CRT browser on http://localhost:3000.` Closing the window does not stop CRT — `crt: the CRT browser was closed — \`crt browse\` opens it again` — and stopping CRT closes the window: `Stopping CRT … 1 session ended; the CRT browser was closed; written task files are kept.`
+
+When no browser is found: `crt: no Chrome, Edge or Chromium found — set browser.command in .crt/config.local.json, or run \`crt proxy\``. When the one found does not start or does not answer: `crt: <exe> did not accept a DevTools connection (<why>) — set browser.command in .crt/config.local.json, or run \`crt proxy\``. CRT keeps serving after either line.
 
 ### Setting the project up
 

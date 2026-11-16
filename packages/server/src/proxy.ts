@@ -35,8 +35,8 @@
  *     /__crt/sessions routes (sessions.ts, F-24…F-30), /__crt/providers and /__crt/config
  *     (provider-routes.ts, F-57) are served here; anything else under /__crt/ is a 404 and never
  *     reaches the target (F-4).
- *   • /__crt/internal/* is for `crt mcp` (F-49) and `crt --replace` (PRD-setup F-79, the
- *     shutdown route) only, never a page (N-8): a request carrying an `Origin` header — which
+ *   • /__crt/internal/* is for `crt mcp` (F-49), `crt --replace` (PRD-setup F-79, the shutdown
+ *     route) and `crt browse` (PRD-zero F-128, the browse route) only, never a page (N-8): a request carrying an `Origin` header — which
  *     every browser sends on a POST and a Node process never does — is refused with 403 before
  *     anything else happens, CORS included.
  *   • /__crt/health is the whole story (PRD-setup F-78): version, start time, target, project,
@@ -68,6 +68,7 @@ import { connect as netConnect } from "node:net";
 import { dirname, join } from "node:path";
 import type { Duplex } from "node:stream";
 import { connect as tlsConnect } from "node:tls";
+import { isLoopbackUrl } from "./browser.js";
 import { CaptureValidationError, writeCapture } from "./captures.js";
 import type { CrtMode } from "./config.js";
 import { DoctorRoute } from "./doctor-route.js";
@@ -84,6 +85,7 @@ import {
   EARLY_PATH,
   FAVICON_PATH,
   HEALTH_PATH,
+  INTERNAL_BROWSE_PATH,
   INTERNAL_PREFIX,
   isCrtPath,
   LOADER_PATH,
@@ -127,6 +129,8 @@ export interface ProxyOptions {
   tasksDir?: string;
   /** F-79: closes the server the way Ctrl+C does; absent → the shutdown route answers 503. */
   shutdown?: () => Promise<void>;
+  /** PRD-zero F-128: open the CRT browser on `url` (null: this server's app); absent → the browse route answers 503. */
+  browse?: (url: string | null) => Promise<{ ok: true; url: string } | { ok: false; reason: string }>;
   /** Status lines (F-75 "overlay loaded", the F-80 lines); silent by default. */
   log?: (line: string) => void;
   /** F-80: how long the browser gets to fetch the overlay after an injected page (tests shorten it). */
@@ -575,6 +579,26 @@ async function handleCrtRoute(
       json(res, 200, { ok: true });
       const stop = opts.shutdown;
       res.on("finish", () => void stop());
+      return;
+    }
+    if (path === INTERNAL_BROWSE_PATH) {
+      // PRD-zero F-128: `crt browse` against a CRT that already serves the project — the protocol connection lives here.
+      if (req.method !== "POST") {
+        json(res, 405, { ok: false, error: "POST here to open the CRT browser" });
+        return;
+      }
+      if (!opts.browse) {
+        json(res, 503, { ok: false, error: "this server cannot open the CRT browser" });
+        return;
+      }
+      // `?url=` is the caller's app, a loopback origin or nothing (N-32); absent → this server's own.
+      const asked = query.get("url");
+      if (asked !== null && !isLoopbackUrl(asked)) {
+        json(res, 400, { ok: false, error: "url must be an http(s) URL on a loopback host" });
+        return;
+      }
+      const result = await opts.browse(asked);
+      json(res, result.ok ? 200 : 502, result.ok ? result : { ok: false, error: result.reason });
       return;
     }
     if (!opts.sessions) {

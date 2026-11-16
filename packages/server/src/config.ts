@@ -4,7 +4,7 @@
  * `.crt/config.json` (committed, per project) with `.crt/config.local.json` (gitignored, per
  * machine — what "Remember for this project on this machine" writes, F-56/F-57, and where the
  * guided start remembers the target, F-72) over it key by key: `mode`, `target` and `port`
- * local-over-project too. Pure `node:fs`, so `integrations/vite.ts` reads the port through it
+ * local-over-project too, and `browser.command` (PRD-zero F-125) the same way. Pure `node:fs`, so `integrations/vite.ts` reads the port through it
  * without loading the server (PRD-embedded N-18).
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -61,6 +61,8 @@ export interface CrtConfigFile {
   providers?: Record<string, { command?: string[] }>;
   /** PRD-chat F-124: "Always allow" rules in Claude Code's rule syntax; the panel adds them to the local file. */
   permissions?: { allow?: string[] };
+  /** PRD-zero F-125: `browser.command`, the executable (plus leading args) the CRT browser is started with. */
+  browser?: { command?: string[] };
 }
 
 /** The merged, validated configuration the server runs with. */
@@ -85,6 +87,8 @@ export interface CrtConfig {
   providers: Record<string, { command: string[] }>;
   /** F-124: `permissions.allow` of both files, the local file's rules first. */
   allow: string[];
+  /** PRD-zero F-125: `browser.command` (the local file wins); null when neither sets it. */
+  browserCommand: string[] | null;
 }
 
 /** What `crt init` writes; provider keys are added by the developer or by "Remember" (local file). */
@@ -103,6 +107,7 @@ export const DEFAULT_CONFIG: CrtConfig = {
   models: {},
   providers: {},
   allow: [],
+  browserCommand: null,
 };
 
 /**
@@ -139,6 +144,7 @@ export function readConfig(root: string): CrtConfig {
     models: { ...modelsOf(project), ...modelsOf(local) },
     allow: [...new Set([...allowOf(local), ...allowOf(project)])],
     providers: { ...providersOf(project), ...providersOf(local) },
+    browserCommand: commandOf(local.browser) ?? commandOf(project.browser),
   };
 }
 
@@ -217,8 +223,14 @@ function providersOf(f: CrtConfigFile): Record<string, { command: string[] }> {
   const out: Record<string, { command: string[] }> = {};
   if (!f.providers || typeof f.providers !== "object") return out;
   for (const [id, entry] of Object.entries(f.providers)) {
-    const command = entry && typeof entry === "object" ? (entry as { command?: unknown }).command : undefined;
-    if (Array.isArray(command) && command.length && command.every((c) => typeof c === "string" && c !== "")) out[id] = { command: [...command] };
+    const command = commandOf(entry);
+    if (command) out[id] = { command };
   }
   return out;
+}
+
+/** `{ command: [exe, ...args] }` → the array, when it is a non-empty list of non-empty strings (F-53, PRD-zero F-125). */
+function commandOf(entry: unknown): string[] | null {
+  const command = entry && typeof entry === "object" ? (entry as { command?: unknown }).command : undefined;
+  return Array.isArray(command) && command.length && command.every((c) => typeof c === "string" && c !== "") ? [...(command as string[])] : null;
 }
