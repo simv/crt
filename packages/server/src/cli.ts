@@ -58,6 +58,9 @@ const USAGE = [
   "                          on a terminal it also opens the review page [--open | --no-open] [--port <n>]",
   "  crt review list         every review of this project, with its status and counts",
   "  crt review new [name]   start a new review (named after today's date by default)",
+  "  crt handoff [--to pr|branch|here|bundle] [--review <name>] [--branch <name>] [--out <dir>] [--yes] [--again]",
+  "                          send the kept items of the review to the project: a pull request,",
+  "                          a local branch, the working tree, or a folder to send",
   "  crt providers [--json] [--refresh]",
   "  crt mcp                 (stdio write_task server for agents; needs CRT_MCP_TOKEN and CRT_MCP_PORT)",
   "  crt --version",
@@ -70,7 +73,7 @@ const USAGE = [
   "`--review` keeps a set-up project's feedback in a review too.",
 ].join("\n");
 
-const COMMANDS = new Set(["serve", "proxy", "browse", "review", "doctor", "setup", "init", "tasks", "task", "providers", "mcp", "skills", "help"]);
+const COMMANDS = new Set(["serve", "proxy", "browse", "review", "handoff", "doctor", "setup", "init", "tasks", "task", "providers", "mcp", "skills", "help"]);
 
 /** F-77: a second Ctrl+C within this window exits at once. */
 const FORCE_EXIT_MS = 2_000;
@@ -262,6 +265,30 @@ async function main(argv: string[]): Promise<number> {
           intakePromptPath: fileURLToPath(new URL("./intake.md", import.meta.url)),
         }),
       );
+    }
+    case "handoff": {
+      // PRD-zero F-136, F-137: the kept items of a review go to the project.
+      if (positionals.length) throw new CrtError(`unexpected argument "${positionals[0]}" — usage: crt handoff [--to pr|branch|here|bundle] [--review <name>] [--yes]`, 2);
+      const { HANDOFF_DESTINATIONS, runHandoff } = await import("./handoff.js");
+      const to = stringFlag(flags.to, "--to");
+      const destination = HANDOFF_DESTINATIONS.find((d) => d === to);
+      if (to !== undefined && !destination) throw new CrtError(`--to is one of ${HANDOFF_DESTINATIONS.join(", ")} (got "${to}")`, 2);
+      const review = reviewFlag(flags.review);
+      if (review === true) throw new CrtError("--review needs a review name — `crt review list` shows them", 2);
+      const { isInteractive, createTerminalPrompter } = await import("./prompt.js");
+      const interactive = isInteractive({ yes: flags.yes === true });
+      await runHandoff({
+        root: findProjectRoot(),
+        to: destination,
+        review: typeof review === "string" ? review : undefined,
+        branch: stringFlag(flags.branch, "--branch"),
+        out: stringFlag(flags.out, "--out"),
+        yes: flags.yes === true,
+        again: flags.again === true,
+        interactive,
+        ...(interactive ? { prompt: createTerminalPrompter({ input: process.stdin, output: process.stdout }) } : {}),
+      });
+      return 0;
     }
     case "tasks": {
       const root = findProjectRoot();

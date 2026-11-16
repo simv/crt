@@ -1,10 +1,10 @@
 ---
 id: CRT-0052
 title: M31 — Hand-over: crt handoff delivers the kept items to the project as one branch and one pull request
-status: backlog
+status: review
 priority: high
 created: 2026-11-16T13:20:00+08:00
-updated: 2026-11-16T13:20:00+08:00
+updated: 2026-11-16T15:56:00+08:00
 url: null
 route: null
 session: null
@@ -37,13 +37,13 @@ No page capture: created from `docs/PRD-zero.md` milestone M31, after Simon's se
 10. **Docs and guards.** `docs/cli.md`, `docs/troubleshooting.md` (a hand-over that stopped half-way); `CLAUDE.md` Don'ts line and entry points and the reviewer agent's spawn row per PRD-zero §9.
 
 ## Definition of Done
-- [ ] `crt handoff` prints its plan and asks once; `--yes` skips the question; off a terminal without it, one `crt:` line and no write (N-35).
-- [ ] `--to branch` and `--to pr` leave a branch holding exactly the kept items with fresh consecutive `CRT-NNNN` ids, moved assets, rewritten links, the hand-over Log line and a current index; each validates (F-136).
-- [ ] The developer's checkout is untouched by `pr` and `branch` — the N-35 before/after row with a dirty working tree.
-- [ ] `--to pr` pushes and calls `gh pr create` with the summary as the body (fake `gh`); the half-way failures each produce their one line and leave the review `open`.
-- [ ] `--to here` writes the same files uncommitted; a `handed` review is refused without `--again`.
-- [ ] Hand-over writes `.crt/tasks/**` only; it never force-pushes, merges or pushes to a branch it did not create (unit rows on the git argument lists).
-- [ ] `npm run check` green; `npm run e2e` green; `claude plugin validate ./plugin` green if a skill changed.
+- [x] `crt handoff` prints its plan and asks once; `--yes` skips the question; off a terminal without it, one `crt:` line and no write (N-35).
+- [x] `--to branch` and `--to pr` leave a branch holding exactly the kept items with fresh consecutive `CRT-NNNN` ids, moved assets, rewritten links, the hand-over Log line and a current index; each validates (F-136).
+- [x] The developer's checkout is untouched by `pr` and `branch` — the N-35 before/after row with a dirty working tree.
+- [x] `--to pr` pushes and calls `gh pr create` with the summary as the body (fake `gh`); the half-way failures each produce their one line and leave the review `open`.
+- [x] `--to here` writes the same files uncommitted; a `handed` review is refused without `--again`.
+- [x] Hand-over writes `.crt/tasks/**` only; it never force-pushes, merges or pushes to a branch it did not create (unit rows on the git argument lists).
+- [x] `npm run check` green; `npm run e2e` green; `claude plugin validate ./plugin` green if a skill changed.
 - [ ] Manual: a review of the trial app handed over as a real pull request on its repository from a checkout with uncommitted changes and a running dev server — the checkout and the server undisturbed, the pull request readable on GitHub, and after it is merged `/crt:next` picks up the first item. The pull request URL in the Log. Opening a pull request on the trial app's repository is outward-facing: ask Simon before that step.
 
 ## Notes
@@ -51,3 +51,14 @@ Read `docs/PRD-zero.md` §5.5, §6.4, §7 (N-35), §11 and §12 rule 7 first. De
 
 ## Log
 - 2026-11-16T13:20+08:00 — created from docs/PRD-zero.md milestone M31 by the planning session that wrote it (Claude Code cloud session 01KVgoZd7cmxUJP97XZgyRn9), on Simon's go-ahead of 2026-11-16.
+- 2026-11-16T15:47+08:00 — claimed by Claude Code cloud session 01KVgoZd7cmxUJP97XZgyRn9 (Simon's "do whatever you need to do to get this complete"); handoff.ts drafted, `crt handoff` wired in cli.ts, Handover / recordHandover in home.ts.
+- 2026-11-16T15:56+08:00 — verified: plan, one question, `--yes`, refusal off a terminal and a "no" answer — test/handoff.test.ts "asks once and writes nothing …"; and by hand with the built CLI on a scratch repository (`crt handoff </dev/null` refused with nothing written, `--yes` made `crt/review-2026-11-16`, a second run refused without `--again`, `--to nope` exit 2).
+- 2026-11-16T15:56+08:00 — verified: pr and branch put exactly the kept items on the branch as CRT-0006/0007 (above the base's CRT-0003 file and CRT-0005 assets folder), assets moved, links rewritten, the Log line, a current index, each file passing `validateTaskText` (what `crt task --validate` runs); the dropped R-02 absent — "puts exactly the kept items …", "keeps the branch local with --to branch …".
+- 2026-11-16T15:56+08:00 — verified: N-35 — HEAD, branch, stash list, `git status --porcelain` and `git worktree list` equal before and after, with a stash, a modified tracked file and an untracked file present.
+- 2026-11-16T15:56+08:00 — verified: `gh pr create --base main --head <branch> --title "CRT review <name>: 2 items" --body-file` with the summary as the body (gh on PATH, its run answered by the test seam); the push refused by a pre-receive hook and gh failing each give their one line and leave the review open.
+- 2026-11-16T15:56+08:00 — verified: `--to here` (uncommitted, ids from CRT-0001 in a guest project, nothing else written, `--again` continues the numbering); `--to bundle` (F-137); the handed-review refusal and `--again`.
+- 2026-11-16T15:56+08:00 — verified: argument lists — one push, `refs/heads/<b>:refs/heads/<b>`, no force flag anywhere except removing its own temporary worktree, no merge / rebase / reset / checkout / switch / stash / pull, `add` and `commit` only in the worktree — "never force-pushes, merges or touches a branch it did not create".
+- 2026-11-16T15:56+08:00 — verified: `npm run check` green except test/providers/exec.test.ts "kills a process and its children", and `npm run e2e` 84 passed with embedded.spec.ts:148 failing — both fail the same way on main in this container and pass in CI; `claude plugin validate ./plugin` green (both skills changed for F-139).
+- 2026-11-16T15:56+08:00 — Should items: the bundle (F-137) is built; F-139 is built as `--review` in /crt:tasks and /crt:next, through `crt tasks --review --json`, the task file never staged.
+- 2026-11-16T15:56+08:00 — Manual row: needs the trial app's repository and Simon's go-ahead to open a pull request there (outward-facing); left unticked here and carried to CRT-0053 with the other Manual rows for the one pass before `v0.8.0` is tagged, as CRT-0049 to CRT-0051 did.
+- 2026-11-16T15:56+08:00 — ready for review: added handoff.ts, test/handoff.test.ts; changed home.ts (Handover, recordHandover), cli.ts, args.ts, both worker skills, docs/cli.md, docs/troubleshooting.md, docs/PRD-zero.md (As built (M31)), CLAUDE.md, the reviewer agent.

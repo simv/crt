@@ -66,7 +66,7 @@ describe("crt skills install (F-58)", () => {
     expect(out).toContain("session your session id, branch crt/<ID>-<slug>");
     expect(out).toContain("## 9. Blocked (anything unticked, or you cannot proceed)");
     expect(out.startsWith("---\nname: next\ndescription: ")).toBe(true);
-    expect(out).toContain('argument-hint: "[CRT-ID]"\n---\n\n' + INSTALLED_PARAGRAPH + "\n\nYou are the CRT worker");
+    expect(out).toContain('argument-hint: "[--review] [CRT-ID | R-NN]"\n---\n\n' + INSTALLED_PARAGRAPH + "\n\nYou are the CRT worker");
     // The intake skill has nothing to rewrite besides the paragraph (F-55 already made it neutral).
     const intake = readFileSync(join(pluginSkills, "intake", "SKILL.md"), "utf8");
     expect(rewriteSkill(intake)).toBe(intake.replace(/^(---\n[\s\S]*?\n---\n)\s*/, `$1\n${INSTALLED_PARAGRAPH}\n\n`));

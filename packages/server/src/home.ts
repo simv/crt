@@ -73,6 +73,24 @@ export interface ReviewItem {
   order: number;
 }
 
+export type HandoverDestination = "pr" | "branch" | "here" | "bundle";
+
+/** One `crt handoff` of a review (F-136): where it went and which id each kept item got there. */
+export interface Handover {
+  to: HandoverDestination;
+  /** ISO-8601 with offset. */
+  at: string;
+  /** Review id → the id in the destination (`R-01` → `CRT-0031`; unchanged in a bundle). */
+  items: Record<string, string>;
+  branch?: string;
+  /** The ref the branch was made from (`origin/main`). */
+  base?: string;
+  /** The pull request. */
+  url?: string;
+  /** A bundle's folder. */
+  dir?: string;
+}
+
 /** `review.json` (F-133). `handovers` is filled by `crt handoff` (M31). */
 export interface ReviewManifest {
   name: string;
@@ -165,6 +183,16 @@ export function readReview(dir: string): ReviewManifest | null {
 
 export function writeReview(dir: string, manifest: ReviewManifest): void {
   writeJsonAtomic(join(dir, REVIEW_FILE), manifest);
+}
+
+/** F-136: a hand-over succeeded — it is recorded and the review becomes `handed` (new feedback then starts a new review). */
+export function recordHandover(dir: string, handover: Handover): ReviewManifest | null {
+  const manifest = readReview(dir);
+  if (!manifest) return null;
+  manifest.handovers.push(handover);
+  manifest.status = "handed";
+  writeReview(dir, manifest);
+  return manifest;
 }
 
 /** Every review of the project, oldest first (by `created`, then name). */

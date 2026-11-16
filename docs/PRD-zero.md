@@ -168,6 +168,17 @@ For every destination CRT first prints its plan — the items, the ids they will
 
 `review.json` records the hand-over (destination, time, the `R-NN → CRT-NNNN` map, the pull request URL) and the review becomes `handed`. Handing a `handed` review over again is refused unless `--again` is given.
 
+**As built (M31).** `handoff.ts` holds the command; `home.ts` the `Handover` record. Where the build is more specific than the text above:
+
+- **The ids the plan shows** come from the base's own tree (`git ls-tree` of the remote's default branch), files and `assets/<ID>` folders alike, so a task merged on the remote since the last pull is counted; the worktree allocates the same ids again through the project's allocator. `here` allocates from the working tree.
+- **The worktree** is `git worktree add --no-track -b <branch> <tmp> <base>`; `--force` appears only on its own `git worktree remove`, and `git branch -D` only on a branch it made and failed to commit to. The commit is made with `--no-verify`: it holds task files only, and the temporary worktree has none of the project's installed hook dependencies. The push is `git push <remote> refs/heads/<b>:refs/heads/<b>`, never forced. `GIT_TERMINAL_PROMPT=0`, so a missing credential fails with git's own line instead of waiting for an answer nobody can type.
+- **The default branch** is what the remote's `HEAD` names (`git ls-remote --symref`), else `main` or `master`. The remote is `origin`, else the first one. A name taken locally or on the remote gets `-2`, `-3` …; `--branch <name>` names it.
+- **Every file is validated** against the F-32 format before anything is written; one that would not be valid stops the hand-over with its id, and nothing is written.
+- **The summary's "how far the base has moved"** is one line per distinct reviewed commit: `rev-list --count <commit>..<base>`, or "that commit is not in the base" when the remote does not have it.
+- **A half-way failure** after the commit keeps the body file in the temp dir so the printed `gh pr create … --body-file <file>` works as given.
+- **`gh` in the tests** is a file on PATH whose runs a `ToolRunner` seam answers, with real `git` against a bare remote, rather than a scripted fake from `test/helpers/fake-cli.ts`: the seam records the argument lists the N-35 rows assert on.
+- **The worker in place (F-139)**: `/crt:tasks --review` and `/crt:next --review [R-NN]` read the review through `crt tasks --review --json`; the task file stays in the review and is never staged, so the steps that commit only the task file and index have nothing to commit there.
+
 ### 5.6 What plain `crt` does
 
 `crt` picks how the button reaches the page, in this order, and says which in the ready line:

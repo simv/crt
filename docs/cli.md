@@ -12,6 +12,7 @@ crt browse [target] …                          # the same server, your app in 
 crt review [--json] [--open | --no-open]       # the current review: its items, kept or dropped, and the totals; on a terminal, its page
 crt review list                                # every review of this project, with its status and counts
 crt review new [name]                          # start a new review (named after today's date by default)
+crt handoff [--to pr|branch|here|bundle] [--review <name>] [--branch <name>] [--out <dir>] [--yes] [--again]   # send the kept items to the project
 crt doctor                                     # checklist: node, project, .crt, mode, target, integration, instructions, port, providers, plugin
 crt init [--yes] [--no-instructions] [--snippet [--json]]   # set the project up, each write announced; then the snippet for your framework
 crt setup [--claude <path>]                    # register the bundled Claude Code plugin (idempotent)
@@ -96,7 +97,8 @@ The first Send starts a review when the project has no open one, and the first t
 | `crt review --json` | The same as JSON for tooling: `review`, `dir`, `tasksDir`, `status`, `created`, `project`, `items` (`id`, `keep`, `order`, `title`, `priority`, `status`, `route`, `branch`, `commit`, `file`), `totals`, `handovers`; `{ "review": null, "items": [] }` when there is none. |
 | `crt review list` | Every review of the project, oldest first: `2026-11-16  open    11 items, 9 kept  (current)`. |
 | `crt review new [name]` | Starts a new review, which becomes the current one; the previous stays open and listed. A name is lower-case letters, digits and hyphens; the default is today's date, with `-2`, `-3` … when taken. |
-| `crt tasks --review [name]`, `crt task R-03 --review [name]` | `crt tasks` and `crt task` over a review's items instead of `.crt/tasks/` (the current review, or the named one). |
+| `crt tasks --review [name]`, `crt task R-03 --review [name]` | `crt tasks` and `crt task` over a review's items instead of `.crt/tasks/` (the current review, or the named one). `/crt:tasks --review` and `/crt:next --review [R-NN]` in Claude Code work a review's items in place, for when you are both the reviewer and the one fixing. |
+| `crt handoff` | Sends the kept items of the current review to the project — see [Hand-over](#hand-over). |
 
 #### The review page
 
@@ -105,6 +107,25 @@ The first Send starts a review when the project has no open one, and the first t
 Every change is saved at once. What is kept and in what order lives in `review.json`; a priority change is the one thing that edits a task file before hand-over (`priority:`, `updated:` and a Log line). The page reads the review again when you come back to its tab, so items filed meanwhile appear without a reload.
 
 The page and its API (`/__crt/review/items`, `/__crt/review/groups`, and an item's screenshots by id and file name) answer the page itself and local processes only: a request from any other origin — your app's page included — is refused.
+
+#### Hand-over
+
+`crt handoff` delivers the kept items of the current review (`--review <name>` for another; with no open review it looks at the newest one, which it then reports as already handed over) to the project, in review order, as ordinary [task files](task-format.md) with the project's own next ids: `R-01` becomes, say, `CRT-0031`, its screenshots move to `assets/CRT-0031/`, the links in the file follow, and its Log gains `— handed over from review 2026-11-16 (was R-01) by crt handoff`. Only `.crt/tasks/**` is written in the project.
+
+| `--to` | Where the items go | Default when |
+|---|---|---|
+| `pr` | A new branch `crt/review-<review>` (`-2`, `-3` … when taken) made from the remote's default branch, with one commit `chore(crt): review <review> — N items`, pushed, and one pull request whose description is the collated summary (`gh pr create`). | the project is a git repository with a remote, and `gh` is on PATH |
+| `branch` | The same branch and commit, left local (made from `HEAD` when there is no remote). Push it and open the pull request yourself. | a git repository without a remote or without `gh` |
+| `here` | The same files in the working tree's `.crt/tasks/`, uncommitted, and the summary printed. | not a git repository |
+| `bundle` | A folder `crt-review-<project>-<review>/` in the current directory (`--out <dir>` for another) with `REVIEW.md`, the task files and their screenshots, ids left as `R-NN` — to send to a project you cannot push to. | never |
+
+It prints its plan first — each item with the id it will get, what it writes, the branch and where it goes — and asks `Go ahead? [Y/n]`. `--yes` skips the question; off a terminal without `--yes` it writes nothing. `--branch <name>` names the branch.
+
+**Your checkout is not touched.** `pr` and `branch` build the branch in a temporary `git worktree` under the OS temp directory and remove it afterwards: `HEAD`, the checked-out branch, the index, the stash and your uncommitted changes stay as they were, so a running dev server sees nothing. CRT runs `git` and `gh` only here; it pushes only the branch it made, never with force, and never merges. The commit skips the project's commit hooks (it holds task files only, and the temporary worktree has no installed dependencies).
+
+**The summary** — the pull request description, `REVIEW.md` in a bundle — gives the review's name and dates, the totals, the commit each item was reviewed at and how far the base has moved since, the items grouped by route with id, priority, title and first sentence, and how to work them (`/crt:next`).
+
+Once the destination's last step has succeeded, `review.json` records the hand-over (where, when, each `R-NN → CRT-NNNN`, the pull request URL) and the review is `handed`: new feedback starts a new review. `crt handoff` on a handed review says so and stops; `--again` hands it over once more (a new branch, the next free ids). A review with nothing kept says `crt: review <name> has no kept items — nothing to hand over` and exits 0. A hand-over that stops half-way says what exists and the command that finishes it ([Troubleshooting](troubleshooting.md#a-hand-over-stopped-half-way)).
 
 ### Failures
 
