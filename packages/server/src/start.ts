@@ -55,6 +55,8 @@ export interface StartDeps {
   replace(port: number): Promise<{ ok: true } | { ok: false; reason: string }>;
   /** F-76: called before every prompt; serve.ts prints the FAIL/warn doctor rows once. */
   beforePrompt?(): Promise<void>;
+  /** PRD-zero F-128: `POST /__crt/internal/browse` on the port — the running CRT opens its CRT browser on `url` (null: its own app). */
+  browse?(port: number, url: string | null): Promise<{ ok: true; url: string } | { ok: false; reason: string }>;
 }
 
 // ---- init (PRD-embedded F-99, F-100) ------------------------------------------------------------------
@@ -255,6 +257,8 @@ export interface PortInput {
   open: boolean;
   /** PRD-embedded F-93: reuse compares `projectRoot` and `mode` (and `target` in proxy mode only). Defaults to proxy. */
   mode?: CrtMode;
+  /** PRD-zero F-128: `crt browse` — a reused server is asked to open the CRT browser (`deps.browse`). */
+  browser?: boolean;
 }
 
 export type PortOutcome =
@@ -280,7 +284,11 @@ export async function bindPort(input: PortInput, deps: StartDeps): Promise<PortO
       const answer = await deps.prompt.ask(`That is CRT ${version}; this is ${input.version}. Replace it? [Y/n]`);
       if (isYes(answer)) return replaceAndBind(port, h, deps);
     }
-    if (mode === "embedded") {
+    if (mode === "embedded" && input.browser && input.open && deps.browse) {
+      // PRD-zero F-128: the protocol connection lives in the running server, so it opens the window.
+      const r = await deps.browse(port, input.target);
+      deps.log(`CRT ${version} is already serving this project at ${url}${since(h)} — ${r.ok ? `opened the CRT browser on ${r.url}` : `but could not open the CRT browser (${r.reason})`}.`);
+    } else if (mode === "embedded") {
       const app = input.target ?? h.target;
       deps.log(`CRT ${version} is already serving this project (embedded) at ${url}${since(h)} — ${app ? (input.open ? `opened ${app}` : `open ${app} in your browser`) : "open your app in the browser"}.`);
     } else {

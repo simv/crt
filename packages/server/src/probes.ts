@@ -1,13 +1,14 @@
 /**
  * Localhost probes behind the guided start and `crt doctor` (PRD-setup F-73, F-76, F-79, N-16):
- * is a port free, is the thing on it a CRT (its `/__crt/health`), and can it be asked to stop.
+ * is a port free, is the thing on it a CRT (its `/__crt/health`), can it be asked to stop, and
+ * can it be asked to open the CRT browser (PRD-zero F-128).
  * Nothing here talks to anything but 127.0.0.1; start.ts and doctor.ts receive these as
  * injected dependencies so their transcripts are unit rows without sockets.
  */
 import { request } from "node:http";
 import { createServer } from "node:net";
 import { isMode } from "./config.js";
-import { HEALTH_PATH, SHUTDOWN_PATH } from "./routes.js";
+import { HEALTH_PATH, INTERNAL_BROWSE_PATH, SHUTDOWN_PATH } from "./routes.js";
 import type { CrtHealth } from "./start.js";
 
 /** F-73: a cold Node server on Windows can take longer than a few hundred ms to answer its first request. */
@@ -76,6 +77,27 @@ export async function requestShutdown(port: number, waitMs = REPLACE_WAIT_MS): P
   return { ok: false, reason: `still listening after ${Math.round(waitMs / 1000)} s` };
 }
 
+/** PRD-zero F-125: the first protocol answer may take 10 s; the route answers after the launch. */
+export const BROWSE_TIMEOUT_MS = 20_000;
+
+/**
+ * PRD-zero F-128: ask the CRT on `port` to open the CRT browser (`POST /__crt/internal/browse`, no
+ * Origin header) on `url`, or on its own app when `url` is null.
+ */
+export async function requestBrowse(port: number, url: string | null, timeoutMs = BROWSE_TIMEOUT_MS): Promise<{ ok: true; url: string } | { ok: false; reason: string }> {
+  const answer = await post(port, url ? `${INTERNAL_BROWSE_PATH}?url=${encodeURIComponent(url)}` : INTERNAL_BROWSE_PATH, timeoutMs);
+  if (answer === null) return { ok: false, reason: "no answer from its browse route" };
+  let body: { url?: unknown; error?: unknown } = {};
+  try {
+    body = JSON.parse(answer.body) as typeof body;
+  } catch {
+    // A server from before v0.8 answers this path with something else.
+  }
+  if (answer.status === 200 && typeof body.url === "string") return { ok: true, url: body.url };
+  if (answer.status === 404) return { ok: false, reason: "that CRT is older than 0.8 — run `crt browse --replace`" };
+  return { ok: false, reason: typeof body.error === "string" ? body.error : `its browse route answered ${answer.status}` };
+}
+
 function get(port: number, path: string, timeoutMs: number): Promise<string | null> {
   return new Promise((resolve) => {
     const req = request({ host: "127.0.0.1", port, path, method: "GET", timeout: timeoutMs, headers: { accept: "application/json" } }, (res) => {
@@ -93,11 +115,12 @@ function get(port: number, path: string, timeoutMs: number): Promise<string | nu
   });
 }
 
-function post(port: number, path: string, timeoutMs: number): Promise<{ status: number } | null> {
+function post(port: number, path: string, timeoutMs: number): Promise<{ status: number; body: string } | null> {
   return new Promise((resolve) => {
     const req = request({ host: "127.0.0.1", port, path, method: "POST", timeout: timeoutMs, headers: { "content-length": "0" } }, (res) => {
-      res.resume();
-      res.on("end", () => resolve({ status: res.statusCode ?? 0 }));
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") }));
       res.on("error", () => resolve(null));
     });
     req.on("timeout", () => {

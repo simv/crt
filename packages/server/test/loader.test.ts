@@ -5,8 +5,9 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LOADER_ESM, LOADER_IIFE } from "../../overlay/build.mjs";
+import { LOADER_ESM, LOADER_IIFE, LOADER_INJECT } from "../../overlay/build.mjs";
 import { DEFAULT_ORIGIN, isLoopbackHost, mountCrt, PILL_DISMISSED_KEY, pillText, resolveOrigin } from "../../overlay/src/loader.js";
+import { INJECT_ORIGIN_PLACEHOLDER, loaderSource } from "../src/browser.js";
 import { fakeDom } from "./helpers/fake-dom.js";
 
 // PRD-embedded F-96 / N-20: the loader's pure parts (the loopback guard, the origin resolution,
@@ -92,9 +93,49 @@ describe("loader — pure parts (F-96)", () => {
     expect(dom.appended).toHaveLength(2);
     expect(dom.appended[1]).toMatchObject({ src: "http://localhost:4407/__crt/overlay.js" });
   });
+
+  it("mounted before the document has a root: hooks at once, the overlay tag when the root exists, one observer and no timer (F-127)", () => {
+    const timers = vi.spyOn(globalThis, "setTimeout");
+    const dom = fakeDom({ hostname: "localhost", rootless: true });
+    const loader = mountCrt({ origin: "http://localhost:4409" });
+    expect(loader).toEqual({ origin: "http://localhost:4409", retry: expect.any(Function) });
+    // The hooks are in before anything of the page ran; nothing is appended and nothing threw.
+    expect(dom.window.__crt as { __console: { installed: boolean }; __network: { installed: boolean } }).toMatchObject({ __console: { installed: true }, __network: { installed: true } });
+    expect(dom.appended).toEqual([]);
+    expect(dom.observers).toHaveLength(1);
+    expect(dom.observers[0]).toMatchObject({ target: dom.document, connected: true });
+    // A retry while the root is awaited (focus, visibility) starts no second observer.
+    loader!.retry();
+    expect(dom.observers).toHaveLength(1);
+    // Another node first (the doctype): still waiting.
+    dom.addOther();
+    expect(dom.appended).toEqual([]);
+    expect(dom.observers[0]!.connected).toBe(true);
+    // The root arrives: the tag is appended once and the observer is gone.
+    dom.addRoot();
+    expect(dom.appended).toHaveLength(1);
+    expect(dom.appended[0]).toMatchObject({ src: "http://localhost:4409/__crt/overlay.js", defer: true });
+    expect(dom.observers[0]!.connected).toBe(false);
+    dom.addRoot();
+    expect(dom.appended).toHaveLength(1);
+    expect(timers).not.toHaveBeenCalled();
+    timers.mockRestore();
+  });
+
+  it("retry() re-appends after the first tag of a rootless mount failed to load (F-127)", () => {
+    const dom = fakeDom({ hostname: "127.0.0.1", rootless: true });
+    vi.stubGlobal("sessionStorage", { getItem: (k: string) => (k === PILL_DISMISSED_KEY ? "1" : null), setItem: () => undefined });
+    const loader = mountCrt({ origin: "http://localhost:4409" })!;
+    dom.addRoot();
+    expect(dom.appended).toHaveLength(1);
+    dom.appended[0]!.listeners.error!();
+    loader.retry();
+    expect(dom.appended).toHaveLength(2);
+    expect(dom.observers).toHaveLength(1);
+  });
 });
 
-describe("loader — the two builds (F-96, F-98, N-20)", () => {
+describe("loader — the builds (F-96, F-98, N-20; PRD-zero F-127)", () => {
   let tmp: string;
   afterEach(() => {
     if (tmp) rmSync(tmp, { recursive: true, force: true });
@@ -125,6 +166,44 @@ describe("loader — the two builds (F-96, F-98, N-20)", () => {
     vi.stubGlobal("window", trap);
     const mod = (await import(pathToFileURL(file).href)) as { mountCrt: unknown };
     expect(typeof mod.mountCrt).toBe("function");
+  });
+
+  it("the injectable IIFE is ≤ 5 KB gzipped, carries its origin placeholder exactly once and no `process` reference (F-127, N-20)", async () => {
+    const out = await build({ ...LOADER_INJECT, write: false });
+    const js = out.outputFiles![0]!.text;
+    const gz = gzipSync(js).length;
+    console.log(`dist/loader-inject.js: ${Buffer.byteLength(js)} bytes, ${gz} bytes gzipped (budget ${SIZE_BUDGET})`);
+    expect(gz).toBeLessThanOrEqual(SIZE_BUDGET);
+    expect(js).not.toMatch(/\bprocess\b/);
+    expect(js.split(INJECT_ORIGIN_PLACEHOLDER)).toHaveLength(2);
+    expect(() => loaderSource("no placeholder here", "http://localhost:4400")).toThrow(/npm run build/);
+  });
+
+  it("the injectable IIFE mounts with the injector's origin before the root exists, never on CRT's own pages, and mounts nothing unreplaced (F-126, F-127)", async () => {
+    const out = await build({ ...LOADER_INJECT, write: false });
+    const js = out.outputFiles![0]!.text;
+    tmp = mkdtempSync(join(tmpdir(), "crt-loader-"));
+    const run = async (name: string, source: string, port: string) => {
+      const dom = fakeDom({ hostname: "localhost", rootless: true });
+      vi.stubGlobal("location", { hostname: "localhost", port, href: `http://localhost:${port}/` });
+      const file = join(tmp, name);
+      writeFileSync(file, source);
+      await import(pathToFileURL(file).href);
+      return dom;
+    };
+    // The app's page: mounted for the injector's origin, the tag appended once the root exists.
+    const app = await run("app.js", loaderSource(js, "http://localhost:4409"), "3000");
+    expect((app.window.__crt as { loader: { origin: string } }).loader.origin).toBe("http://localhost:4409");
+    app.addRoot();
+    expect(app.appended[0]).toMatchObject({ src: "http://localhost:4409/__crt/overlay.js" });
+    vi.unstubAllGlobals();
+    // CRT's own pages (the landing page, the review page) are not the app.
+    const own = await run("own.js", loaderSource(js, "http://localhost:4409"), "4409");
+    expect(own.window.__crt).toBeUndefined();
+    vi.unstubAllGlobals();
+    // An unreplaced build (the placeholder is not an origin) mounts nothing.
+    const raw = await run("raw.js", js, "3000");
+    expect(raw.window.__crt).toBeUndefined();
   });
 
   it("the IIFE auto-mounts and reads data-crt-port off its own tag (F-96)", async () => {

@@ -1,5 +1,6 @@
+import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { build } from "esbuild";
@@ -112,4 +113,36 @@ export function driverHarness(driver: SessionDriver) {
   driver.onEvent((e) => events.push(e));
   const waitFor = (pred: (e: SessionEvent) => boolean, from = 0, timeoutMs = 20_000) => waitForEvent(events, pred, from, timeoutMs);
   return { events, driver, waitFor };
+}
+
+/**
+ * PRD-zero F-125/F-126/F-128: a fake browser behind the DevTools pipe (fake-browser.mjs), as the
+ * `spawn` seam of browser.ts: whatever executable CRT resolved, node runs the fake with the same
+ * arguments and stdio — so the launch arguments and the protocol traffic are what CRT really sent.
+ * `messages()` is everything the fake received so far; `launches()` the argument list of each start.
+ */
+export function fakeBrowser(mode: "ok" | "exit" | "silent" | "restored") {
+  const dir = mkdtempSync(join(tmpdir(), "crt-fake-browser-"));
+  const log = join(dir, "received.jsonl");
+  writeFileSync(log, "");
+  const children: ChildProcess[] = [];
+  const entries = () =>
+    readFileSync(log, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { argv?: string[]; method?: string; params?: Record<string, unknown>; sessionId?: string });
+  return {
+    spawn: ((_exe: string, args: readonly string[], options: object) => {
+      const child = spawn(process.execPath, [join(import.meta.dirname, "fake-browser.mjs"), ...args], { ...options, env: { ...process.env, FAKE_BROWSER: mode, FAKE_BROWSER_LOG: log } });
+      children.push(child);
+      return child;
+    }) as unknown as typeof spawn,
+    messages: () => entries().filter((e) => e.method !== undefined),
+    launches: () => entries().flatMap((e) => (e.argv ? [e.argv] : [])),
+    /** Kill what is still running and remove the log. */
+    cleanup: () => {
+      for (const c of children) if (c.exitCode === null && c.signalCode === null) c.kill();
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
 }

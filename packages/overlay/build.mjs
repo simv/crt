@@ -1,10 +1,12 @@
-// Overlay build (PRD §5.1; PRD-embedded F-96, F-97, F-98): five bundles into packages/server/dist/, all
+// Overlay build (PRD §5.1; PRD-embedded F-96, F-97, F-98; PRD-zero F-127): six bundles into packages/server/dist/, all
 // from the esbuild API so the defines need no shell quoting (Windows is the primary dev platform).
 //   overlay.js               the overlay (IIFE), served at /__crt/overlay.js in both modes
 //   early.js                 the console/network hooks (IIFE), injected by proxy mode only (F-20)
 //   loader.js                the loader (IIFE, auto-mounts), served at /__crt/loader.js (F-94, F-96);
 //                            process.env.NODE_ENV is defined as "development" so the F-98 guard
 //                            folds away and no `process` reference reaches a browser
+//   loader-inject.js         the loader (IIFE) for the CRT browser to inject: its origin is a
+//                            placeholder the injector replaces (PRD-zero F-126, F-127)
 //   integrations/loader.js   the same source as an ES module with no side effect on import
 //                            (`claude-review-tool/loader`); process.env.NODE_ENV is left for the
 //                            app's bundler
@@ -30,6 +32,8 @@ export const LOADER_IIFE = {
   minify: true,
   define: { "process.env.NODE_ENV": '"development"' },
 };
+/** PRD-zero F-127: the same loader with the injector's origin in place of a script tag (browser.ts). */
+export const LOADER_INJECT = { ...LOADER_IIFE, entryPoints: [join(here, "src", "loader-inject.ts")] };
 export const LOADER_ESM = {
   entryPoints: [join(here, "src", "loader.ts")],
   bundle: true,
@@ -58,6 +62,7 @@ export async function buildAll(dist = DEFAULT_DIST, logLevel = "info") {
   await build({ ...common, logLevel, entryPoints: [join(here, "src", "index.ts")], outfile: join(dist, "overlay.js") });
   await build({ ...common, logLevel, entryPoints: [join(here, "src", "early.ts")], outfile: join(dist, "early.js") });
   await build({ ...LOADER_IIFE, logLevel, outfile: join(dist, "loader.js") });
+  await build({ ...LOADER_INJECT, logLevel, outfile: join(dist, "loader-inject.js") });
   await buildEntries(dist, logLevel);
 }
 

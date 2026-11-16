@@ -41,6 +41,8 @@ export const INTERNAL_PREFIX = "/__crt/internal";
 export const INTERNAL_WRITE_TASK_PATH = "/__crt/internal/write-task";
 /** PRD-setup F-79: `crt --replace` stops the CRT on a port. */
 export const SHUTDOWN_PATH = "/__crt/internal/shutdown";
+/** PRD-zero F-128: `crt browse` asks the CRT already serving the project to open the CRT browser. */
+export const INTERNAL_BROWSE_PATH = "/__crt/internal/browse";
 
 /** F-4: a request or upgrade CRT answers itself; it never reaches the target. */
 export function isCrtPath(url: string): boolean {
