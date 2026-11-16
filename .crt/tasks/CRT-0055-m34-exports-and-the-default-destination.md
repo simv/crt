@@ -35,7 +35,7 @@ No page capture: created from `docs/PRD-destinations.md` milestone M34. Simon, 2
 - [x] `--to json` writes a file whose `items` equal the `FeedbackItem`s a destination is given (F-145).
 - [x] Neither export makes the review `handed`, and each can be repeated with `--out` elsewhere (F-142, F-144).
 - [x] `handoff.to` sets what plain `crt handoff` does; `--to` wins over it; `--list` shows every destination and imports none (F-146, N-39).
-- [ ] `npm run check` green.
+- [x] `npm run check` green.
 - [ ] Manual: `--to markdown` on a real review of five or more items, opened in a Markdown viewer with its images showing; the viewer named in the Log.
 
 ## Notes
@@ -47,3 +47,4 @@ Read `docs/PRD-destinations.md` §5.5 and §6.2 first. `--to bundle` is unchange
 - 2026-11-16T19:44+08:00 — verified: DoD 1 — "writes one file with every kept item in full, in review order, and images that resolve beside it". DoD 2 — "writes the items as data — exactly what a destination is given". DoD 3 — "leaves the review open after an export, which can be repeated", "takes --out as a file or a directory, and writes no images with --no-screenshots" (an existing file is refused, as `bundle` does: PRD-destinations §14.8). DoD 4 — "reads handoff.to and destinations from the guest file, then the local one, then the project's", "uses handoff.to for plain crt handoff, and --to over it", "lists every destination and imports none, even one whose file is missing".
 - 2026-11-16T19:44+08:00 — DoD 5: typecheck, lint and build green, 976 unit tests pass; the one failing unit test is `test/providers/exec.test.ts` "kills a process and its children", which fails on `main` in this container too and is green in CI — left unticked until CI says so.
 - 2026-11-16T19:44+08:00 — DoD 6 (Manual) open: it needs a real review and a Markdown viewer on Simon's machine.
+- 2026-11-16T19:50+08:00 — verified: CI green on bf4fb6b — `check (ubuntu-latest)`, `check (windows-latest)` and `e2e (ubuntu)` (https://github.com/simv/crt/actions/runs/43860476994); the `npm run check` row ticked. The Manual rows stay open.

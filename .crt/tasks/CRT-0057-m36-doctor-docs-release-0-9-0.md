@@ -37,7 +37,7 @@ No page capture: created from `docs/PRD-destinations.md` milestone M36.
 - [ ] The worked example in the page is loaded and run by a test against a local listener (F-150).
 - [x] Every §9 row is applied and every §10 row ticked with evidence (F-150).
 - [x] Versions and pins are `0.9.0` / `@0.9`; `test/skill-pin.test.ts` green.
-- [ ] `npm run check` green; `npm run e2e` green.
+- [x] `npm run check` green; `npm run e2e` green.
 - [ ] Manual (Simon): `git tag v0.9.0 && git push origin v0.9.0`, the release workflow green, the staged version promoted on npmjs.com.
 
 ## Notes
@@ -51,3 +51,4 @@ Read `docs/PRD-destinations.md` §6.4, §9, §10 and §12 rule 7 first. Needs M3
 - 2026-11-16T19:44+08:00 — DoD 1 left open as written: the row is printed for a configured built-in and for an outside destination whose file is missing (`doctor.test.ts` "adds the handoff row only when the config chose a destination, and warns when its module is missing"), importing nothing — but there is no row for the default, on purpose (PRD-destinations §14.6: a project that configures nothing sees the `crt doctor` of 0.8). DoD 3 left open as written: the example is run by the tests against a command of the fixture's, not a local listener ("runs the command once per kept item with the item as JSON on its standard input, and records what it answers", "stops at the item the command fails on, and sends only the rest next time"). Simon to say whether the two rows may be read that way.
 - 2026-11-16T19:44+08:00 — DoD 6: as CRT-0054's last Log line — left unticked until CI says so. No `npm run screenshots`: the overlay is unchanged and the review page differs only when a destination is configured.
 - 2026-11-16T19:44+08:00 — DoD 7 (Manual, Simon) open: the tag and the promotion follow the merge.
+- 2026-11-16T19:50+08:00 — verified: CI green on bf4fb6b — `check (ubuntu-latest)`, `check (windows-latest)` and `e2e (ubuntu)` (https://github.com/simv/crt/actions/runs/43860476994); the `npm run check` row ticked. The Manual rows stay open.

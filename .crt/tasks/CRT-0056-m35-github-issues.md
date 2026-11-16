@@ -38,7 +38,7 @@ No page capture: created from `docs/PRD-destinations.md` milestone M35. Simon, 2
 - [x] The assets branch holds exactly the kept items' images, is made without touching the checkout, and `capture.json` is never on it (F-148, N-40; the N-35 row).
 - [x] `--no-screenshots` creates text-only issues and pushes nothing (F-148).
 - [x] No `fetch(` and no new dependency in `packages/server` (N-40).
-- [ ] `npm run check` green.
+- [x] `npm run check` green.
 - [ ] Manual: a real review published as issues on a private repository — the issues readable, the screenshots showing for a signed-in reader with access, the checkout untouched; one issue URL and the `gh` version in the Log. Creating issues on a repository is outward-facing: ask Simon which repository before that step.
 
 ## Notes
@@ -50,3 +50,4 @@ Read `docs/PRD-destinations.md` §5.6, §6.3, §7 (N-40), §11 and §12 rules 1�
 - 2026-11-16T19:44+08:00 — verified against real `git` with a bare remote and a `gh` on PATH that records its runs: DoD 1 — "creates one issue per kept item in review order, each with its brief and its screenshots from a branch that holds only images — the checkout untouched", "puts the configured labels on each issue …". DoD 2 — "… refuses before creating anything when the repository lacks one", "refuses without gh, and without a way to tell the repository". DoD 3 — "stops with how many exist when gh fails, and the next run creates only the rest on the same branch". DoD 4 — the first of those: the branch's diff against `origin/main` is the kept items' images only, the checkout byte-equal before and after; "… never capture.json". DoD 5 — "publishes text only with --no-screenshots: no branch, no push, the images named". DoD 6 — "imports a config-named module in one place only, and CRT opens no connection of its own"; `dependencies` unchanged.
 - 2026-11-16T19:44+08:00 — DoD 7: as CRT-0055's — left unticked until CI says so.
 - 2026-11-16T19:44+08:00 — DoD 8 (Manual) open: no issue has been created on any real repository. It waits for Simon to name a private repository; the image links (`https://github.com/<owner>/<name>/blob/<sha>/<path>?raw=true`) are the one thing only a real GitHub can confirm.
+- 2026-11-16T19:50+08:00 — verified: CI green on bf4fb6b — `check (ubuntu-latest)`, `check (windows-latest)` and `e2e (ubuntu)` (https://github.com/simv/crt/actions/runs/43860476994); the `npm run check` row ticked. The Manual rows stay open.
