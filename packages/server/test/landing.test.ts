@@ -141,13 +141,13 @@ describe("the landing page (PRD-polish F-114)", () => {
   it("renders the three hero states: the app known, no app, and the app whose page never loaded the loader — plus the proxy-mode line at /__crt/ (F-114)", () => {
     const none = page({ app: null });
     expect(none).toContain("<h1>No dev server found yet.</h1>");
-    expect(none).toContain("Start yours and open it — the CRT button appears on any localhost page with the CRT integration.");
+    expect(none).toContain("Start yours and open it — the CRT button appears on any localhost page with the CRT integration, or run <code>crt browse</code> and CRT opens a browser with the button already there.");
     expect(none).toContain('<p class="hint" id="hint"><code>crt 3000</code> remembers it.</p>');
     expect(none).not.toContain('id="open"');
     expect(none).not.toContain("Open http");
     const missing = page({ loaderMissing: true });
     expect(missing).toContain('<a class="btn" id="open" href="http://localhost:3100">Open http://localhost:3100');
-    expect(missing).toContain('<p class="hint" id="hint" data-state="missing">Your page has no CRT integration yet — <code>crt init</code> prints the snippet.</p>');
+    expect(missing).toContain('<p class="hint" id="hint" data-state="missing">Your page has no CRT integration yet — run <code>crt browse</code> and CRT opens a browser with the button already there, or <code>crt init</code> prints the snippet.</p>');
     expect(missing).not.toContain("toggles the toolbar on your page</p>");
     const proxy = page({ mode: "proxy", app: "http://localhost:3999", crtOrigin: "http://localhost:4496" });
     expect(proxy).toContain("<h1>You are browsing your app through CRT at <code>localhost:4496</code>.</h1>");

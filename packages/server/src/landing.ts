@@ -115,12 +115,12 @@ export function renderLanding(o: LandingOptions): string {
           `<p class="lead">Open it and look for the CRT button bottom-right: that is where you annotate, chat and file tasks.</p>`,
           `<a class="btn" id="open" href="${escapeHtml(o.app)}">Open ${escapeHtml(o.app)} <span aria-hidden="true">↗</span></a>`,
           o.loaderMissing
-            ? `<p class="hint" id="hint" data-state="missing">Your page has no CRT integration yet — <code>crt init</code> prints the snippet.</p>`
+            ? `<p class="hint" id="hint" data-state="missing">Your page has no CRT integration yet — run <code>crt browse</code> and CRT opens a browser with the button already there, or <code>crt init</code> prints the snippet.</p>`
             : `<p class="hint" id="hint"><kbd>${mod}</kbd>+<kbd>Shift</kbd>+<kbd>.</kbd> toggles the toolbar on your page</p>`,
         ]
       : [
           `<h1>No dev server found yet.</h1>`,
-          `<p class="lead">Start yours and open it — the CRT button appears on any localhost page with the CRT integration.</p>`,
+          `<p class="lead">Start yours and open it — the CRT button appears on any localhost page with the CRT integration, or run <code>crt browse</code> and CRT opens a browser with the button already there.</p>`,
           `<p class="hint" id="hint"><code>crt 3000</code> remembers it.</p>`,
         ];
 

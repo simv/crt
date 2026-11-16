@@ -269,7 +269,7 @@ export function createProxyServer(opts: ProxyOptions): CrtServer {
       state.loaderTimer = null;
       if (state.overlay.loader > 0 || state.overlay.fetched > 0 || state.warned.loader) return;
       state.warned.loader = true;
-      log(`crt: opened ${url} but the page never loaded the CRT loader — add the integration (\`crt init\` prints the snippet, /crt:init applies it), or run \`crt proxy\``);
+      log(`crt: opened ${url} but the page never loaded the CRT loader — add the integration (\`crt init\` prints the snippet, /crt:init applies it), or run \`crt proxy\`, or run \`crt browse\``);
     }, loaderTimeout);
     state.loaderTimer.unref();
   };

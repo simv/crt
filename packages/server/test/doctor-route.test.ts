@@ -79,7 +79,7 @@ describe("GET /__crt/doctor — the rows (PRD-polish F-113)", () => {
     expect(new Date(p.checkedAt).toISOString()).toBe(p.checkedAt);
     expect(Object.keys(p).sort()).toEqual(["checkedAt", "decision", "exitCode", "rows"]);
     // The doctor's order, minus the plugin row (F-76).
-    expect(p.rows.map((x) => x.name)).toEqual(["node", "project", ".crt", "mode", "target", "integration", "instructions", "port", "alpha", "beta"]);
+    expect(p.rows.map((x) => x.name)).toEqual(["node", "project", ".crt", "review", "mode", "target", "integration", "browser", "instructions", "port", "alpha", "beta"]);
     const withPlugin = await r.report(4400, true);
     expect(row(withPlugin, "plugin")).toEqual({ status: "ok", name: "plugin", detail: "crt@crt 0.6.0 installed (claude on PATH)" });
     expect(withPlugin.rows.at(-1)!.name).toBe("plugin");

@@ -1,10 +1,10 @@
 ---
 id: CRT-0053
 title: M32 — Plain crt picks the CRT browser when the app has no integration; doctor rows, docs, release 0.8.0
-status: backlog
+status: review
 priority: normal
 created: 2026-11-16T13:20:00+08:00
-updated: 2026-11-16T15:05:00+08:00
+updated: 2026-11-16T16:28:00+08:00
 url: null
 route: null
 session: null
@@ -34,11 +34,11 @@ No page capture: created from `docs/PRD-zero.md` milestone M32. Goal 1 of the PR
 6. **Release.** `0.8.0` in the package and both manifests, `claude-review-tool@0.8` in the seven skills; merge; give Simon the tag commands; after his promotion, verify `npm view claude-review-tool version` and a clean `npm i -g claude-review-tool@0.8.0` + `crt setup`.
 
 ## Definition of Done
-- [ ] Plain `crt` opens the default browser with the integration, the CRT browser without it, and prints the F-132 line with neither; unit rows for the decision and the ready lines (F-132).
-- [ ] A set-up project with the integration behaves as in 0.7.2: `e2e/embedded.spec.ts`, `proxy.spec.ts` and `chat.spec.ts` pass with only the strings PRD-zero §9 names changed (N-36).
-- [ ] The doctor rows and the landing copy of F-131, on the terminal and at `/__crt/doctor`.
-- [ ] README ≤ 200 lines and leading with the zero-integration block; `docs/review.md` exists; `docs.test.ts` and the CI filter know nine pages; six screenshots regenerated and under budget (F-138).
-- [ ] Versions and pins `0.8.0` / `@0.8`; `test/skill-pin.test.ts` green; `npm run check` and `npm run e2e` green.
+- [x] Plain `crt` opens the default browser with the integration, the CRT browser without it, and prints the F-132 line with neither; unit rows for the decision and the ready lines (F-132).
+- [x] A set-up project with the integration behaves as in 0.7.2: `e2e/embedded.spec.ts`, `proxy.spec.ts` and `chat.spec.ts` pass with only the strings PRD-zero §9 names changed (N-36).
+- [x] The doctor rows and the landing copy of F-131, on the terminal and at `/__crt/doctor`.
+- [x] README ≤ 200 lines and leading with the zero-integration block; `docs/review.md` exists; `docs.test.ts` and the CI filter know nine pages; six screenshots regenerated and under budget (F-138).
+- [x] Versions and pins `0.8.0` / `@0.8`; `test/skill-pin.test.ts` green; `npm run check` and `npm run e2e` green.
 - [ ] Every PRD-zero §9 row applied and every §10 row ticked with evidence.
 - [ ] Manual: goal 1 end to end from the published package on a project that has never seen CRT — `npm run dev`, `npx claude-review-tool`, a Send, `crt review`, `crt handoff` — with `git status` empty until the hand-over.
 - [ ] Manual (Simon): `git tag v0.8.0 && git push origin v0.8.0`, the release workflow green, the staged version promoted on npmjs.com.
@@ -56,3 +56,12 @@ Read `docs/PRD-zero.md` §5.6, §6.5, §9 and §10 first. Depends on M28–M31 (
 - 2026-11-16T15:05+08:00 — Definition of Done gained the Manual row carried from CRT-0050 (a real Claude and Codex session as a guest), for the one manual pass before the tag.
 - 2026-11-16T15:40+08:00 — the Manual row of CRT-0051 (the review page on real items) was added to the Definition of Done here, for the one manual pass before the tag.
 - 2026-11-16T15:56+08:00 — the Manual row of CRT-0052 (a real hand-over on the trial app's repository) was added to the Definition of Done here, for the one manual pass before the tag.
+- 2026-11-16T16:28+08:00 — claimed in the cloud session that built CRT-0049…0052 (Claude Code cloud session 01KVgoZd7cmxUJP97XZgyRn9), branch claude/project-thread-3ddp2m, on Simon's "Do what ever you need to do to get this complete" of 2026-11-16.
+- 2026-11-16T16:28+08:00 — decisions: (1) `openDecision` (`start.ts`) is the pure function; `serve.ts` takes the decision before the port is bound, from `integrationFact` (the doctor row's own detection) and `findBrowser`, so a static page or a loader loaded some other way counts as no integration and gets the CRT browser. (2) A `crt` that finds the project already served never launches a second browser: default browser with the integration, a request to the running server to open its own CRT browser when that is the pick (F-128), the F-132 line with neither. (3) The `browser` row's version is `unknown` on Windows (no `--version` on a pipe there), and the start path's doctor pass skips that spawn. (4) The landing page's footer keeps its pinned F-91 sentence; the "no integration" hint and the no-app lead carry `crt browse`. (5) `review.png` comes from a guest server the screenshot script starts on :4491 with the real overlay filing three items; the stub writes one fixed title and summary, so the script sets each item's `title:` and `## Summary` before opening the page, and `docs/images/README.md` says so. (6) The README dropped its Repository table and `## Develop` heading to stay at 200 lines; the paragraph lives under Docs and `docs/develop.md` links there. (7) The lockfile changed in its two `version` fields only: `npm install --package-lock-only` in this container also stripped every `libc` field, which was reverted. (8) The sample lines that name an older pair of versions (`crt@crt 0.6.0 installed, this is 0.7.0`, `held by CRT 0.7.0`) stay as they are, as they did through 0.7.1 and 0.7.2.
+- 2026-11-16T16:28+08:00 — verified: DoD 1 — `test/start.test.ts` (the `openDecision` rows), `test/guest.test.ts` "what plain `crt` opens (F-132)" (integration, `browser.command`, neither, `--no-open`), `e2e/browser.spec.ts` "plain crt picks the CRT browser when the app carries no integration, and says so on the ready line (F-132)".
+- 2026-11-16T16:28+08:00 — verified: DoD 2 — `e2e/embedded.spec.ts`, `proxy.spec.ts` and `chat.spec.ts`: the only edits are the F-94 line's new ending and the embedded scratch project carrying the Vite integration (so plain `crt` opens the default browser there, as in 0.7.2). In this container `embedded.spec.ts:148` fails at the reuse line, as it does on `main` here (the second `crt` does not see the first on the port); CI is the evidence for it.
+- 2026-11-16T16:28+08:00 — verified: DoD 3 — `test/doctor.test.ts`, `test/doctor-route.test.ts` (the row order node, project, .crt, review, mode, target, integration, browser, …), `test/landing.test.ts`.
+- 2026-11-16T16:28+08:00 — verified: DoD 4 — README 200 lines, `test/docs.test.ts` (nine pages, "Install leads with the zero-integration block"), the `.github/workflows/ci.yml` comment, `npm run screenshots` 6/6 at 0.8.0 (all six PNGs committed; five differ from the committed ones in the version, the new doctor rows, the project path and font rasterisation), `test/docs-images.test.ts` green.
+- 2026-11-16T16:28+08:00 — verified: DoD 5 — `0.8.0` in `packages/server/package.json`, both manifests and the lockfile; `@0.8` in the seven skills; `npm run check`: the one failure is `test/providers/exec.test.ts` "kills a process and its children", which fails on `main` in this container too and is green in CI; build `built marketplace crt 0.8.0`. `npx playwright test --trace off`: 85 passed, 1 failed (the `embedded.spec.ts:148` row above).
+- 2026-11-16T16:28+08:00 — DoD 6 left open: every PRD-zero §9 row is applied (the `*v0.8: …*` notes in PRD.md, PRD-providers.md, PRD-setup.md and PRD-embedded.md, PRD.md's Amended-by row, PRD-zero's Status row and its "As built (M32)" note), and §10 has six rows ticked with evidence; its other five wait on the Manual rows below and on the tag, and say so in place.
+- 2026-11-16T16:28+08:00 — the Manual rows stay open: they need Simon's Windows machine, a real agent login, the published package and — for the hand-over on the trial app's repository — his go-ahead. As with 0.7.0 (CRT-0032), the release PR merges with this task in `review`; the tag and the promotion follow the merge, and the close-out is its own small PR once the Manual rows are done (PRD-chat F-122's fallback).

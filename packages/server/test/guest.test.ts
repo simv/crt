@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { currentReview, projectKey } from "../src/home.js";
+import { INJECT_ORIGIN_PLACEHOLDER } from "../src/browser.js";
+import { currentReview, guestConfigPath, projectKey } from "../src/home.js";
 import { reviewView } from "../src/review.js";
 import { serve, type ServeHandle } from "../src/serve.js";
 import { parseTask } from "../src/tasks.js";
@@ -66,13 +67,14 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-async function start(opts: { command?: "serve" | "proxy"; review?: boolean | string; target?: string } = {}): Promise<{ handle: ServeHandle; api: ReturnType<typeof apiAt> }> {
+async function start(opts: { command?: "serve" | "proxy"; review?: boolean | string; target?: string; open?: boolean } = {}): Promise<{ handle: ServeHandle; api: ReturnType<typeof apiAt> }> {
   const result = await serve({
     cwd: root,
     command: opts.command ?? "serve",
     port: await freePort(),
     review: opts.review,
     target: opts.target,
+    open: opts.open,
     overlayPath: join(root, "overlay.js"), // never read: no page asks for it
     intakePromptPath: INTAKE,
     log: (line) => lines.push(line),
@@ -101,6 +103,56 @@ async function send(api: ReturnType<typeof apiAt>): Promise<{ id: string; path: 
   }
   throw new Error(`no task was written: ${lines.join(" | ")}`);
 }
+
+describe("what plain `crt` opens (F-132)", () => {
+  const APP = "http://localhost:3000";
+  /** No Chrome, Edge or Chromium where F-125 looks (Windows: the three install roots; Linux: PATH). */
+  const noBrowser = () => setEnv({ PATH: root, ProgramFiles: root, "ProgramFiles(x86)": root, LocalAppData: root, LOCALAPPDATA: root });
+  const ready = () => lines.find((l) => l.startsWith("CRT ready at "))!;
+
+  it("with the integration: the default browser on the app, and the ready line of 0.7.2 plus `guest` (F-132, N-36)", async () => {
+    put("package.json", '{ "name": "app", "devDependencies": { "vite": "^7.0.0" } }\n');
+    put("vite.config.ts", 'import { crt } from "claude-review-tool/vite";\nexport default { plugins: [crt()] };\n');
+    noBrowser();
+    setEnv({ CRT_BROWSER: process.execPath }); // "opens" the app with a command that does nothing
+    const { handle } = await start({ target: APP, open: true });
+    expect(ready()).toBe(`CRT ready at ${handle.url} for ${APP} (embedded, guest; project: ${root}, review ${handle.store.review()}: 0 items, provider: stub (CRT_SESSION_STUB), login: unchecked)`);
+    expect(handle.browser?.isOpen).toBe(false);
+    expect(lines.some((l) => l.includes("no CRT integration"))).toBe(false);
+  });
+
+  it("without the integration and with a browser: the CRT browser, named in the ready line (F-132)", async () => {
+    // `browser.command` names a browser (F-125), so the CRT browser is what opens. This one is node, which is no
+    // browser: the launch says so in one line and CRT stays up — a real launch is e2e/browser.spec.ts.
+    put("loader-inject.js", `window.__crtInject = "${INJECT_ORIGIN_PLACEHOLDER}";\n`); // what `npm run build` puts next to the overlay
+    mkdirSync(dirname(guestConfigPath(root)), { recursive: true });
+    writeFileSync(guestConfigPath(root), JSON.stringify({ browser: { command: [process.execPath] } }));
+    setEnv({ CRT_BROWSER: join(root, "the-default-browser-must-not-be-used") });
+    const { handle, api } = await start({ target: APP, open: true });
+    expect(ready()).toBe(`CRT ready at ${handle.url} for ${APP} (embedded, CRT browser, guest; project: ${root}, review ${handle.store.review()}: 0 items, provider: stub (CRT_SESSION_STUB), login: unchecked)`);
+    expect(lines.at(-1)).toMatch(/^crt: .+ did not accept a DevTools connection \(.+\) — set browser\.command in \.crt\/config\.local\.json, or run `crt proxy`$/);
+    expect(lines.some((l) => l.includes("could not open browser"))).toBe(false); // the default opener was never tried
+    expect((await api("GET", "/__crt/health")).json).toMatchObject({ ok: true });
+    // No F-94 timer: nothing in the app asks for the loader.
+    expect(lines.some((l) => l.includes("never loaded the CRT loader"))).toBe(false);
+  });
+
+  it.skipIf(process.platform === "darwin")("with neither: one line, and CRT stays up for a page that loads the loader later (F-132)", async () => {
+    noBrowser();
+    const { handle, api } = await start({ target: APP, open: true });
+    expect(lines.at(-1)).toBe("crt: no CRT integration in this app and no Chrome or Edge found — run `crt proxy`, or set browser.command in .crt/config.local.json");
+    expect(ready()).toContain("(embedded, guest; ");
+    expect(handle.browser?.isOpen).toBe(false);
+    expect((await api("GET", "/__crt/health")).json).toMatchObject({ ok: true });
+  });
+
+  it("--no-open opens nothing, whatever the app carries (F-132)", async () => {
+    const { handle } = await start({ target: APP, open: false });
+    expect(ready()).toContain("(embedded, guest; ");
+    expect(handle.browser?.isOpen).toBe(false);
+    expect(lines.some((l) => l.includes("no CRT integration"))).toBe(false);
+  });
+});
 
 describe("guest start (F-129)", () => {
   it("a project that is not set up starts without asking: the guest line, the guest ready line, health — and R-01 under the home with its assets (F-129, F-130, F-133, F-134)", async () => {

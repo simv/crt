@@ -28,11 +28,19 @@ describe("serve skill (F-83, F-105)", () => {
     expect(skill).toContain("`--replace`");
   });
 
-  it("step ½ asks before setting an un-initialised project up and runs the /crt:init steps on yes, stops on no (F-105)", () => {
+  it("step ½ no longer asks: a project that is not set up starts as a guest, and the reply names /crt:init (F-105 as PRD-zero §9 amends it, F-129)", () => {
     expect(skill).toContain("## ½. Is the project set up?");
-    expect(skill).toContain("When `${CLAUDE_PROJECT_DIR}/.crt/tasks` does not exist, ask (AskUserQuestion): \"CRT is not set up in this project. Set it up now? (creates .crt/, two .gitignore lines and a CRT section in CLAUDE.md, then adds one line to your app)\"");
-    expect(skill).toContain("run the `/crt:init` steps first");
-    expect(skill).toContain('stop with "run /crt:init when you want it"');
+    expect(skill).toContain("Do not ask, and do not set anything up (PRD-zero F-129, §9).");
+    expect(skill).toContain("CRT starts as a **guest**: it writes nothing into the project");
+    expect(skill).not.toContain("Set it up now?");
+    expect(skill).toContain("For a guest (step ½; the ready line says `guest` and `review <name>: N items`) line 2 reads `Project C:\\my-app — not set up, so feedback is kept in review 2026-11-16 under ~/.crt and nothing is written to the project. /crt:init adopts CRT here.`");
+  });
+
+  it("knows the CRT browser: the ready line, nothing to check after it, and the two lines when it cannot open (F-132)", () => {
+    expect(skill).toContain("the ready line then reads `(embedded, CRT browser; …)`");
+    expect(skill).toContain("Embedded mode with the CRT browser (the ready line says `CRT browser`): nothing to check");
+    expect(skill).toContain("`crt: no CRT integration in this app and no Chrome or Edge found — run \\`crt proxy\\`, or set browser.command in .crt/config.local.json` → not a stop");
+    expect(skill).toContain("With the CRT browser it ends `(embedded; opened in the CRT browser window).`");
   });
 
   it("runs `crt serve --open --yes [--target …]` in the background, `crt proxy …` under --proxy, and waits 5 min after the npx fallback, 30 s otherwise (F-105, F-92)", () => {
@@ -54,7 +62,7 @@ describe("serve skill (F-83, F-105)", () => {
     expect(skill).toContain('**"not running yet"** as an option');
     expect(skill).toContain("re-run step 1 with `--target <answer>`");
     expect(skill).toContain("(target came from your answer; remembered in .crt/config.local.json)");
-    expect(skill).toContain("`crt: <root> is not set up for CRT — run \\`crt init\\` (or \\`crt --yes\\`)` → step ½ was skipped; go back to it.");
+    expect(skill).toContain("`crt: <root> is not set up for CRT — keeping this review in <dir> (nothing is written to the project; \\`crt init\\` adopts CRT here).` → **not a stop**");
   });
 
   it("checks overlay.loader and overlay.fetched 10 s after readiness and adds the F-105 sentence when both are 0 (F-105 step 4)", () => {

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Planned — M28–M32 not started (CRT-0049…0053, filed 2026-11-16) |
+| **Status** | Built — M28–M31 landed (CRT-0049 as #125, CRT-0050 as #126, CRT-0051 as #127, CRT-0052 as #128, all 2026-11-16); M32 (CRT-0053) built, the 0.8.0 tag, the npm promotion and the Manual rows of §10 pending Simon |
 | **Owner** | Simon (simv) |
 | **Repo** | https://github.com/simv/crt |
 | **Baseline** | `main` at 2d2b36f = v0.7.2 plus #114 (PRD-chat M25–M27, F-122…F-124) |
@@ -237,6 +237,15 @@ For every destination CRT first prints its plan — the items, the ids they will
 - **F-132 (Must) Plain `crt` picks.** Per §5.6, with the decision a pure function of `{ integration, browser, mode, open }` (unit-tested, the `start.ts` pattern). The ready line names it: `(embedded; …)` as today with the integration, `(embedded, CRT browser; …)` otherwise. With neither: `crt: no CRT integration in this app and no Chrome or Edge found — run \`crt proxy\`, or set browser.command in .crt/config.local.json` and CRT stays up for a page that loads the loader later. The F-94 line fires only in case 1 (the integration was found but the page never asked for the loader) and gains `, or run \`crt browse\``.
 - **F-138 (Must) Docs and release 0.8.0.** README: the front page leads with the zero-integration block of §4, and "Add CRT to your app" becomes the way to keep CRT in a project for good (still ≤ 200 lines, PRD-polish F-115); `docs/cli.md` (the new commands and flags, the guest line, the ready lines), `docs/how-it-works.md` (the CRT browser, the home, what is written where, the policy bypass and what it hides), `docs/integration.md` (when to add the integration at all), `docs/task-format.md` (`branch`, `commit`, `R-NN`), `docs/troubleshooting.md` (the browser failure lines, a hand-over that stopped half-way), a new reference page `docs/review.md` (the review, the page, the hand-over) — nine reference pages, `test/docs.test.ts` and the CI `changes` filter updated together. §9 rows applied and §10 ticked with evidence; version `0.8.0` in `packages/server/package.json`, both plugin manifests and the seven skills' pin (`claude-review-tool@0.8`; `test/skill-pin.test.ts`); `npm run screenshots` re-run (the landing page changed; a sixth image, `review.png`, of the review page is added to the spec and the README); `v0.8.0` tagged, the release workflow green, the staged version promoted on npm (Simon).
 
+**As built (M32).** `openDecision` in `start.ts` is the pure function; `serve.ts` feeds it and acts on its answer. Where the build is more specific than the text above:
+
+- *Integration found* means what the `integration` row of `crt doctor` means (`integrationFact`): the package entries or a loader tag in the framework's candidate files. A static page, or an app that loads the loader some other way, counts as *no integration* and gets the CRT browser, which works on it all the same.
+- The decision is taken before the port is bound, from `findBrowser` alone; a browser that is found but does not start is the F-125 line (`<exe> did not accept a DevTools connection …`), not the F-132 one.
+- A `crt` that finds this project already served opens the default browser when the integration is there, asks the running server to open its own CRT browser when that is the pick (F-128: still one browser per server), and prints the F-132 line when neither is.
+- The `browser` row's version is `unknown` on Windows, where Chrome and Edge do not print `--version` to a pipe; the path is still named. The start path's own doctor pass skips the row's `--version` spawn.
+- `CRT_BROWSER` stays the test seam for the default browser's opener only; it does not stand in for the CRT browser.
+- `review.png` is taken from a guest server the screenshot script starts itself (:4491); the stub writes one fixed title and summary, so the script sets each item's `title:` and `## Summary` before it opens the page (`docs/images/README.md`).
+
 ## 7. Non-functional requirements
 
 - **N-31 No new runtime dependency, no listening debug port.** The CRT browser is driven with `node:child_process` and the pipe transport; `--remote-debugging-port` is never passed; `packages/server/package.json` gains no dependency in v0.8.
@@ -262,7 +271,7 @@ Each milestone is one task file. DoD items are **worker-checkable** unless marke
 
 ## 9. Amendments to the earlier PRDs, the docs and `CLAUDE.md`
 
-Each row names the milestone that applies it; the `*v0.8: …*` notes inline in the earlier PRDs are written by M32, the way M27 wrote the `*v0.7: …*` notes, unless a row says otherwise.
+Every row is applied (M32, CRT-0053). Each row names the milestone that applied it; the `*v0.8: …*` notes inline in the earlier PRDs were written by M32, the way M27 wrote the `*v0.7: …*` notes, unless a row says otherwise.
 
 | Statement | v0.8 |
 |---|---|
@@ -290,17 +299,17 @@ Each row names the milestone that applies it; the `*v0.8: …*` notes inline in 
 
 Ticked by M32 with evidence (test name, e2e spec, task Log entry or run URL).
 
-- [ ] On a project that has never seen CRT, `npm run dev` then `npx claude-review-tool` opens a browser on the app's own URL with the CRT button, with real Chrome and real Edge on Windows (M28, M32 Manual).
-- [ ] The CRT browser works under a strict policy the integration and the proxy cannot (a nonce, `'strict-dynamic'`), and a policy is removed from no document but a loopback main-frame one (F-126, N-32; e2e + unit).
-- [ ] Console errors logged by the app's first script are in the capture (F-127; e2e).
-- [ ] No new runtime dependency and no listening debug port (N-31; `package.json` diff, the launch-arguments row).
-- [ ] A whole review — start, several Sends, `crt review`, stop — creates, modifies and deletes nothing under the project root (N-33; the snapshot row + M29 Manual).
-- [ ] Every item carries `branch` and `commit`; 0.7 task files still validate (F-134; unit).
-- [ ] `crt review` lists the review, and its page keeps, drops, prioritises and orders items by keyboard and by pointer (F-135; e2e + M30 Manual).
-- [ ] `crt handoff` produces one branch and one pull request holding exactly the kept items with fresh `CRT-NNNN` ids, assets and index, leaving the developer's checkout and dev server untouched; `/crt:next` works the first item after the merge (F-136, N-35; unit + M31 Manual).
-- [ ] A set-up project with the integration behaves as in 0.7.2; proxy mode's specs pass unchanged but for the strings §9 names (N-36; `e2e/embedded.spec.ts`, `proxy.spec.ts`).
-- [ ] The README leads with the zero-integration flow; `docs/review.md` exists; the six screenshots are current (F-138).
-- [ ] CI green on `main`; `v0.8.0` tagged, published and promoted; the GitHub Release names M28–M31 (M32).
+- [ ] On a project that has never seen CRT, `npm run dev` then `npx claude-review-tool` opens a browser on the app's own URL with the CRT button, with real Chrome and real Edge on Windows (M28, M32 Manual). *Automated part: `e2e/browser.spec.ts` "plain crt picks the CRT browser when the app carries no integration…" (Chromium on Linux and in CI). The Windows pass with real Chrome and Edge is Simon's, tracked in CRT-0053.*
+- [x] The CRT browser works under a strict policy the integration and the proxy cannot (a nonce, `'strict-dynamic'`), and a policy is removed from no document but a loopback main-frame one (F-126, N-32; e2e + unit). *`e2e/browser.spec.ts` "an app with no CRT in it and a strict policy gets the overlay on its own URL…"; `test/browser.test.ts`.*
+- [x] Console errors logged by the app's first script are in the capture (F-127; e2e). *The same e2e test: "a Send carries its first script's error".*
+- [x] No new runtime dependency and no listening debug port (N-31; `package.json` diff, the launch-arguments row). *`packages/server/package.json` `dependencies` unchanged since v0.7.2; `test/browser.test.ts` "the launch arguments: … and never a debug port (F-125, N-31)".*
+- [ ] A whole review — start, several Sends, `crt review`, stop — creates, modifies and deletes nothing under the project root (N-33; the snapshot row + M29 Manual). *Automated part: `test/store.test.ts` "nothing is written under the project…(N-33)", `test/guest.test.ts`. The pass with a real agent session is Simon's, tracked in CRT-0053.*
+- [x] Every item carries `branch` and `commit`; 0.7 task files still validate (F-134; unit). *`test/git-state.test.ts`; `test/tasks.test.ts` "a 0.7 file — no branch, no commit — stays valid…".*
+- [ ] `crt review` lists the review, and its page keeps, drops, prioritises and orders items by keyboard and by pointer (F-135; e2e + M30 Manual). *Automated part: `e2e/review.spec.ts` (both tests). The pass on real items is Simon's, tracked in CRT-0053.*
+- [ ] `crt handoff` produces one branch and one pull request holding exactly the kept items with fresh `CRT-NNNN` ids, assets and index, leaving the developer's checkout and dev server untouched; `/crt:next` works the first item after the merge (F-136, N-35; unit + M31 Manual). *Automated part: `test/handoff.test.ts` against real `git` repositories and a fake `gh`. A real pull request on the trial app's repository needs Simon's go-ahead, tracked in CRT-0053.*
+- [x] A set-up project with the integration behaves as in 0.7.2; proxy mode's specs pass unchanged but for the strings §9 names (N-36; `e2e/embedded.spec.ts`, `proxy.spec.ts`). *Both pass; the changes are the F-94 line's new ending and the embedded scratch project now carrying the Vite integration it is a test of.*
+- [x] The README leads with the zero-integration flow; `docs/review.md` exists; the six screenshots are current (F-138). *`test/docs.test.ts` "Install leads with the zero-integration block", the nine-page list; `npm run screenshots` 6/6 at 0.8.0, `test/docs-images.test.ts`.*
+- [ ] CI green on `main`; `v0.8.0` tagged, published and promoted; the GitHub Release names M28–M31 (M32). *Pending: the tag and the promotion are Simon's (CRT-0053).*
 
 ## 11. Risks
 

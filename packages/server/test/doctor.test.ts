@@ -65,6 +65,21 @@ function facts(over: Partial<DoctorFacts> = {}): DoctorFacts {
   };
 }
 
+it("names the CRT browser and the current review, or says there is none (F-131)", () => {
+  const f = facts({ review: { name: "2026-11-16", items: 11, kept: 9 }, browser: { name: "Chrome", exe: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", version: "142" } });
+  expect(row(f, "review")).toBe("ok    review    2026-11-16 — 11 items, 9 kept");
+  expect(row(f, "browser")).toBe("ok    browser   Chrome 142 at C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe (CRT browser)");
+  const none = facts({ review: null, browser: null });
+  expect(row(none, "review")).toBe("--    review    none");
+  expect(row(none, "browser")).toBe("--    browser   none found — the integration or `crt proxy`");
+  expect(row(facts({ review: { name: "x", items: 1, kept: 1 }, browser: { name: "Edge", exe: "msedge.exe", version: null } }), "browser")).toBe("ok    browser   Edge unknown at msedge.exe (CRT browser)");
+  expect(row(facts({ review: { name: "x", items: 1, kept: 1 } }), "review")).toBe("ok    review    x — 1 item, 1 kept");
+  // Not looked at (the start path): no row. Neither is ever a FAIL.
+  expect(doctorRows(facts()).rows.some((r) => r.name === "review" || r.name === "browser")).toBe(false);
+  expect(doctorRows(none).exitCode).toBe(0);
+  expect(doctorRows(none).rows.map((r) => r.name).slice(0, 8)).toEqual(["node", "project", ".crt", "review", "mode", "target", "integration", "browser"]);
+});
+
 const lines = (f: DoctorFacts) => renderDoctor(doctorRows(f)).split("\n");
 /** Proxy mode facts: `mode` from config.json, no integration to check. */
 const PROXY: Partial<DoctorFacts> = { mode: { mode: "proxy", source: "project" }, integration: { kind: "proxy" } };
@@ -138,9 +153,9 @@ describe("crt doctor (PRD-setup F-76)", () => {
     expect(report.exitCode).toBe(0);
   });
 
-  it("`--` rows: .crt not initialised (run crt init), claude not on PATH (exit 0) (F-76, F-99, F-103)", () => {
-    const f = facts({ crt: null, plugin: { claudeOnPath: false } });
-    expect(row(f, ".crt")).toBe("--    .crt      not initialised — run crt init");
+  it("a project that is not set up is a guest, never a fault; claude not on PATH is `--` (exit 0) (F-76, F-131)", () => {
+    const f = facts({ crt: null, guest: { reviewsDir: "C:\\Users\\me\\.crt\\reviews\\my-app-3fa9c1" }, plugin: { claudeOnPath: false } });
+    expect(row(f, ".crt")).toBe("ok    .crt      guest — not set up; this review is kept in C:\\Users\\me\\.crt\\reviews\\my-app-3fa9c1 (crt init adopts CRT here)");
     expect(row(f, "plugin")).toBe("--    plugin    claude not on PATH — skipped");
     expect(doctorRows(f).exitCode).toBe(0);
   });
@@ -148,8 +163,8 @@ describe("crt doctor (PRD-setup F-76)", () => {
   it.each([
     ["no README (a pre-v0.4 folder)", facts({ crt: { readme: false, tasks: 4, config: true, localConfig: false, ignore: true } }), "warn  .crt      tasks/ (4 tasks), config.json, .gitignore entries — no README.md — run crt init"],
     ["embedded target remembered but down", facts({ target: { origin: "http://localhost:3100", source: "local", up: false } }), "warn  target    http://localhost:3100 (remembered) — not responding"],
-    ["integration not found (next)", facts({ integration: { kind: "embedded", framework: "next", file: "app/layout.tsx", found: null } }), "warn  integration not found (next) — run crt init for the snippet, or crt proxy"],
-    ["integration not found, no candidate file (bundled)", facts({ integration: { kind: "embedded", framework: "bundled", file: null, found: null } }), "warn  integration not found (bundled) — run crt init for the snippet, or crt proxy"],
+    ["integration not found (next)", facts({ integration: { kind: "embedded", framework: "next", file: "app/layout.tsx", found: null } }), "warn  integration not found (next) — run crt init for the snippet, or crt proxy, or run `crt` — it opens the CRT browser"],
+    ["integration not found, no candidate file (bundled)", facts({ integration: { kind: "embedded", framework: "bundled", file: null, found: null } }), "warn  integration not found (bundled) — run crt init for the snippet, or crt proxy, or run `crt` — it opens the CRT browser"],
     ["CLAUDE.md without the section", facts({ instructions: [{ file: "CLAUDE.md", hasBlock: false }] }), "warn  instructions CLAUDE.md has no CRT section — crt init adds it"],
     ["both files without the section", facts({ instructions: [{ file: "CLAUDE.md", hasBlock: false }, { file: "AGENTS.md", hasBlock: false }] }), "warn  instructions CLAUDE.md and AGENTS.md have no CRT section — crt init adds it"],
     ["one of two files without the section", facts({ instructions: [{ file: "CLAUDE.md", hasBlock: true }, { file: "AGENTS.md", hasBlock: false }] }), "warn  instructions AGENTS.md has no CRT section — crt init adds it"],

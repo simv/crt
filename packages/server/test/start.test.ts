@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CrtError } from "../src/errors.js";
-import { bindPort, chooseTarget, type CrtHealth, isYes, type PortInput, type Prompter, sameProject, since, type StartDeps, type TargetInput, type WaitOutcome } from "../src/start.js";
+import { bindPort, chooseTarget, type CrtHealth, isYes, NO_WAY_LINE, openDecision, type PortInput, type Prompter, sameProject, since, type StartDeps, type TargetInput, type WaitOutcome } from "../src/start.js";
 import type { ProbeHit } from "../src/target.js";
 
 // PRD-setup §5.1 / F-90: every §6.1 transcript (F-70…F-73, F-79) as a row over the pure state
@@ -540,5 +540,25 @@ describe("helpers", () => {
   it("isYes: Enter, y, yes in any case (F-71, F-73 [Y/n])", () => {
     for (const a of ["", "y", "Y", "yes", "YES", " y "]) expect(isYes(a), a).toBe(true);
     for (const a of ["n", "no", "x", "1"]) expect(isYes(a), a).toBe(false);
+  });
+});
+
+describe("what plain `crt` opens (PRD-zero F-132)", () => {
+  const on = { open: true, mode: "embedded" as const };
+  it("prefers the integration, then the CRT browser, then says there is no way; nothing with --no-open (F-132)", () => {
+    expect(openDecision({ ...on, integration: true, browser: true })).toBe("default");
+    expect(openDecision({ ...on, integration: true, browser: false })).toBe("default");
+    expect(openDecision({ ...on, integration: false, browser: true })).toBe("crt-browser");
+    expect(openDecision({ ...on, integration: false, browser: false })).toBe("no-way");
+    for (const integration of [true, false]) for (const browser of [true, false]) expect(openDecision({ open: false, mode: "embedded", integration, browser })).toBe("none");
+  });
+
+  it("proxy mode opens the CRT URL in the default browser; `crt browse` forces the CRT browser (F-132, F-128, N-36)", () => {
+    expect(openDecision({ open: true, mode: "proxy", integration: false, browser: true })).toBe("default");
+    expect(openDecision({ open: true, mode: "proxy", integration: false, browser: false })).toBe("default");
+    expect(openDecision({ ...on, integration: true, browser: true, forced: true })).toBe("crt-browser");
+    expect(openDecision({ ...on, integration: false, browser: false, forced: true })).toBe("crt-browser"); // the launch says what is missing (F-125)
+    expect(openDecision({ open: false, mode: "embedded", integration: false, browser: true, forced: true })).toBe("none");
+    expect(NO_WAY_LINE).toBe("crt: no CRT integration in this app and no Chrome or Edge found — run `crt proxy`, or set browser.command in .crt/config.local.json");
   });
 });

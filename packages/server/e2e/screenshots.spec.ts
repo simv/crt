@@ -1,12 +1,13 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
+import { projectKey } from "../src/home.js";
 import { HOLD_PHRASE } from "../src/providers/stub.js";
 import { SCREENSHOTS_CRT_ORIGIN } from "../playwright.screenshots.config.js";
-import { shadow } from "./helpers.js";
+import { E2E_HOME, PORTS, shadow, startCrt, stopCrts } from "./helpers.js";
 
-// PRD-polish F-116 / N-27 (M22, task CRT-0026): the five README screenshots, written to
+// PRD-polish F-116 / N-27 (M22, task CRT-0026): the six README screenshots, written to
 // docs/images/ by `npm run screenshots` (playwright.screenshots.config.ts — not part of `npm run
 // e2e`, never in CI). The page is the e2e fixture's /shop — the trial app's shop (tool-validation), ported
 // into the fixture so the images are reproducible from this repo alone (CRT-0029) — on its own origin with the
@@ -91,6 +92,8 @@ test.beforeAll(async ({ request }) => {
   }
   mkdirSync(IMAGES, { recursive: true });
 });
+
+test.afterEach(stopCrts);
 
 test.afterEach(async ({ page, request }) => {
   // End every session this image started, so the next one begins on a quiet server.
@@ -213,4 +216,69 @@ test("landing.png — the landing page on the stub server, light (F-114, F-116)"
   await expect(page.locator("#rows tr.row td.nm", { hasText: /^plugin$/ })).toHaveCount(1, { timeout: 20_000 });
   await expect(page.locator("#recheck")).toBeEnabled();
   await shoot(page, "landing.png");
+});
+
+/** The review `review.png` shows: named like the day in the docs' examples, so the heading never moves. */
+const REVIEW_NAME = "2026-11-16";
+const REVIEW_SHA = "4f2a91c0d3b5e6f708192a3b4c5d6e7f8091a2b3";
+/**
+ * What `review.png` files, in order: the page, the element and the note. The stub writes one fixed
+ * title whatever it is told (src/providers/stub.ts), so the script puts the note's words in each
+ * item's `title:` and a sentence of its own under `## Summary` before the page is opened — the one
+ * thing in the six images the overlay and the server did not produce themselves
+ * (docs/images/README.md says so).
+ */
+const REVIEW_ITEMS = [
+  { path: "/shop", sel: "[data-testid=card-mug] .price", title: "Cart total ignores the SAVE10 promo", summary: "The price on the card is right, but the cart total leaves out the promo the page says is applied." },
+  { path: "/shop", sel: "[data-testid=card-notebook] h3", title: "Product name should link to the product page", summary: "Only the picture opens the product page; the name under it is plain text." },
+  { path: "/app", sel: "#heading", title: "Heading reads like a placeholder", summary: "The heading still carries the scaffold's wording." },
+];
+
+test("review.png — the review page of a guest project: three items on two routes, one raised, one dropped (F-135, F-138)", async ({ page, baseURL }) => {
+  // A guest project (no .crt/) with its own server: the feedback lands in a review under the e2e CRT home (F-129, F-130).
+  const root = join(here, ".project", "screenshots-review");
+  rmSync(root, { recursive: true, force: true });
+  mkdirSync(join(root, ".git"), { recursive: true });
+  writeFileSync(join(root, ".git", "HEAD"), `${REVIEW_SHA}\n`);
+  const reviews = join(E2E_HOME, "reviews", projectKey(root));
+  rmSync(reviews, { recursive: true, force: true });
+  expect(await startCrt(root, ["review", "new", REVIEW_NAME]).exited).toBe(0);
+  const origin = `http://localhost:${PORTS.screenshotsReview}`;
+  const crt = startCrt(root, ["serve", "--no-open", "--yes", "--port", String(PORTS.screenshotsReview), "--target", baseURL!]);
+  await crt.waitFor(new RegExp(`^CRT ready at ${origin} `));
+
+  // File the three items with the real overlay: Select, a note, Send, Allow, Accept (the stub writes R-01 … R-03).
+  await page.clock.install({ time: FIXED_TIME });
+  for (const [i, item] of REVIEW_ITEMS.entries()) {
+    const n = 1;
+    await page.goto(`${item.path}?crt=${encodeURIComponent(origin)}`);
+    await page.evaluate(() => (localStorage.clear(), sessionStorage.clear())); // the marker of the item before, kept per page
+    await page.reload();
+    await expect(shadow(page, ".launcher")).toHaveAttribute("data-health", "connected");
+    await page.evaluate(({ sel, note }) => (window.__crt.addSelect(sel), window.__crt.setNote(1, note)), { sel: item.sel, note: item.title });
+    await page.evaluate(() => window.__crt.send({ n: 1 }));
+    const pop = shadow(page, `.pop[data-n="${n}"]`);
+    await pop.locator(".perm button.allow").click();
+    await pop.locator(".chat-accept button").click();
+    await expect(shadow(page, `.mark-state[data-n="${n}"]`)).toHaveText(`R-0${i + 1}`);
+  }
+  const tasks = join(reviews, REVIEW_NAME, "tasks");
+  for (const [i, item] of REVIEW_ITEMS.entries()) {
+    const file = readdirSync(tasks).find((f) => f.startsWith(`R-0${i + 1}-`))!;
+    writeFileSync(join(tasks, file), readFileSync(join(tasks, file), "utf8").replace(/^title: .*$/m, `title: ${item.title}`).replace(/^(## Summary\n).*$/m, `$1${item.summary}`));
+  }
+
+  // The page itself, driven as a reviewer would: raise the first item, drop the last.
+  await page.goto(`${origin}/__crt/review`);
+  await expect(page.locator("main[data-state=ready]")).toBeVisible();
+  await expect(page.locator("h1")).toHaveText(`Review ${REVIEW_NAME}`);
+  await page.locator('li[data-id="R-01"] select').selectOption("high");
+  await expect(page.locator("#status")).toHaveText("R-01 is now high priority.");
+  await page.getByRole("button", { name: "Drop R-03" }).click();
+  await expect(page.locator('li[data-id="R-03"]')).toHaveClass(/dropped/);
+  await expect(page.locator("#totals")).toHaveText("3 items · 2 kept · 2 routes");
+  for (const img of await page.locator("li.item img").all()) await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0)).toBe(true);
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await shoot(page, "review.png");
 });

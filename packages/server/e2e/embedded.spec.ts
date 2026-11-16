@@ -27,7 +27,7 @@ import { FIXTURE_ORIGIN, health, scratch, shadow, startCrt, stopCrts } from "./h
 const here = dirname(fileURLToPath(import.meta.url));
 const LOADER_SRC = join(here, "..", "..", "overlay", "src", "loader.ts");
 const FIXTURE = FIXTURE_ORIGIN;
-const NEVER_LOADED = "crt: opened http://localhost:3999 but the page never loaded the CRT loader — add the integration (`crt init` prints the snippet, /crt:init applies it), or run `crt proxy`";
+const NEVER_LOADED = "crt: opened http://localhost:3999 but the page never loaded the CRT loader — add the integration (`crt init` prints the snippet, /crt:init applies it), or run `crt proxy`, or run `crt browse`";
 
 test.afterEach(stopCrts);
 
@@ -147,6 +147,10 @@ test.describe("an embedded server of its own (F-91, F-93, F-94, F-96)", () => {
 
   test("health says embedded, / is the landing page, the ready and reuse lines, and the line once the opened page never loads the loader (F-91, F-93, F-94)", async ({ page }) => {
     const root = scratch("embedded", "landing", 4461);
+    // PRD-zero F-132: the app carries the integration, so plain `crt` opens the default browser as in 0.7.2 (N-36)
+    // and the F-94 line is worth saying when the page then never asks for the loader.
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "app", devDependencies: { vite: "^7.0.0" } }) + "\n");
+    writeFileSync(join(root, "vite.config.ts"), 'import { crt } from "claude-review-tool/vite";\nexport default { plugins: [crt()] };\n');
     // CRT_BROWSER: "open" the app with a command that does nothing (node exits on a URL argument) — no real browser.
     const crt = startCrt(root, ["--target", FIXTURE, "--yes", "--open"], { CRT_BROWSER: process.execPath });
     const ready = await crt.waitFor(/^CRT ready at /);
