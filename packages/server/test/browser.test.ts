@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BROWSER_CLOSED_LINE,
@@ -78,8 +78,9 @@ describe("finding the browser (F-125)", () => {
   });
 
   it("the profile lives under the CRT home, keyed by folder name plus a hash of the absolute root (F-125, F-130)", () => {
-    const home = join("/tmp", "crt-home");
-    expect(crtHome({ CRT_HOME: home })).toBe(join("/tmp", "crt-home"));
+    // `CRT_HOME` is made absolute (on Windows a rooted path gains the current drive).
+    const home = resolve("/tmp", "crt-home");
+    expect(crtHome({ CRT_HOME: join("/tmp", "crt-home") })).toBe(home);
     expect(crtHome({})).toMatch(/\.crt$/);
     const key = projectKey(join("/work", "My App!"), "linux");
     expect(key).toMatch(/^my-app-[0-9a-f]{6}$/);
