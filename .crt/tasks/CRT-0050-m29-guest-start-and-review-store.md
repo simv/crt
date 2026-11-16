@@ -1,10 +1,10 @@
 ---
 id: CRT-0050
 title: M29 — Guest start and the review store: crt runs in a project that is not set up and writes nothing into it
-status: review
+status: done
 priority: high
 created: 2026-11-16T13:20:00+08:00
-updated: 2026-11-16T15:05:00+08:00
+updated: 2026-11-16T15:30:00+08:00
 url: null
 route: null
 session: null
@@ -55,3 +55,4 @@ Read `docs/PRD-zero.md` §5.2, §5.3, §6.2, §7 (N-33, N-34), §9 (the F-99, N-
 - 2026-11-16T15:05+08:00 — verified. DoD 1: `test/guest.test.ts` (embedded and `crt proxy`, in-process `serve()` on the stub: the guest line, the ready line, health, `R-01` with its five asset files and index under a temp `CRT_HOME`) and `e2e/start.spec.ts` "a project that is not set up…" on the real CLI. DoD 2: the N-33 snapshot (paths, sizes, mtimes) is identical across start, Send, the review read and stop in both of those, and in `test/store.test.ts` for `--review` on a set-up project. DoD 3: `test/guest.test.ts` "a set-up project" rows (`CRT-0001` in `.crt/tasks` with nothing under the home; `--review`, `"store": "review"` and `--review sprint-12` → `R-NN`). DoD 4: `test/git-state.test.ts` (a branch, a detached HEAD, packed refs, a worktree's `.git` file, none, an unborn branch, unread shapes), `test/tasks.test.ts` (both id shapes, 0.7 files without the keys, this repository's own tasks). DoD 5: `test/store.test.ts` and `test/home.test.ts` (the announcement once, write roots, nothing under the home for a project store); `crtHome()` refuses the real home under a test runner. DoD 6: `npm run check` green; `npx playwright test` 80 passed, 1 failed — `embedded.spec.ts:148`, which fails the same way on `main` in this container only (the reuse line; CI is the judge, as on PR #125). Existing specs changed only where they asserted the F-99 plan under `--yes` (`start.spec.ts` "remember" row) or the refusal (the "un-initialised" row, now the guest row); `scratch()` and the fixture's `crt.mjs` create `.crt/tasks` so every other spec stays a set-up project.
 - 2026-11-16T15:05+08:00 — the Manual row is not ticked: a real Claude (and Codex) session against a fresh clone needs Simon's machine and login, which a cloud session does not have. Carried to CRT-0053's Definition of Done with the other v0.8 manual checks, to be run in one pass before `v0.8.0` is tagged; `docs/providers.md` says which provider rows are checked against fakes only.
 - 2026-11-16T15:20+08:00 — requirements review (prd-reviewer): ready, with notes. Applied: `crt providers`, `crt skills install` and `crt init`'s provider lookup now read the configuration a start would (the home's file for a guest or `"store": "review"`), and a set-up project also gets the one `could not read the current commit from .git` line (a `test/store.test.ts` row). Left for M32 with the other F-131 rows: the doctor's target-source label for a guest.
+- 2026-11-16T15:30+08:00 — done; closed in https://github.com/simv/crt/pull/126 (checks green on ubuntu and windows, e2e green; the Manual row is carried to CRT-0053).
