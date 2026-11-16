@@ -26,7 +26,7 @@ describe("mode selection (F-91, F-92)", () => {
     expect(resolveMode({ command: "serve", config: readConfig(tmp) })).toBe("embedded");
   });
 
-  it("browser.command is read from either file, the local one first, and anything but a list of strings is ignored (PRD-zero F-125)", () => {
+  it("browser.command is read from either file, the local one first, and anything but a list of strings is ignored (F-125)", () => {
     expect(readConfig(tmp).browserCommand).toBeNull();
     write("config.json", { browser: { command: ["chromium", "--headless=new"] } });
     expect(readConfig(tmp).browserCommand).toEqual(["chromium", "--headless=new"]);

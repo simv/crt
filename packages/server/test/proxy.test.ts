@@ -632,7 +632,7 @@ describe("embedded mode (PRD-embedded F-91, F-93, F-94)", () => {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const NEVER_LOADED = "crt: opened http://localhost:3000 but the page never loaded the CRT loader — add the integration (`crt init` prints the snippet, /crt:init applies it), or run `crt proxy`";
 
-  it("POST /__crt/internal/browse opens the CRT browser for a local process and never for a page; a server without one says so (PRD-zero F-128, N-8)", async () => {
+  it("POST /__crt/internal/browse opens the CRT browser for a local process and never for a page; a server without one says so (F-128, N-8)", async () => {
     const asked: Array<string | null> = [];
     let fails = false;
     const server = createProxyServer({
