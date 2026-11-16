@@ -4,5 +4,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: ["test/**/*.test.ts"],
+    // PRD-zero N-34: a temp CRT home per worker (test/helpers/setup.ts).
+    setupFiles: ["test/helpers/setup.ts"],
   },
 });

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeCapture } from "../src/captures.js";
 import {
   allocateTaskId,
+  compareTaskIds,
   createTask,
   findTaskFile,
   listTasks,
@@ -17,7 +18,10 @@ import {
   serializeTask,
   slugify,
   type Task,
+  TASK_FILE_RE,
+  TASK_ID_RE,
   TaskFormatError,
+  taskIdNumber,
   validateTaskText,
   writeIndex,
   yamlScalar,
@@ -50,6 +54,8 @@ function sampleTask(): Task {
       updated: "2026-09-14T10:32:00+08:00",
       url: "http://localhost:3000/cart?promo=SAVE10",
       route: "/cart",
+      branch: "main",
+      commit: "4f2a91c0d3b5e6f708192a3b4c5d6e7f8091a2b3",
       session: "7a3d0000-0000-4000-8000-000000000000",
       provider: "claude",
       tags: ["cart", "pricing"],
@@ -79,6 +85,37 @@ describe("ids and slugs (F-31)", () => {
     mkdirSync(join(tasksDir, "assets", "CRT-0040"), { recursive: true });
     expect(allocateTaskId(tasksDir)).toBe("CRT-0041");
     expect(allocateTaskId(join(root, "missing"))).toBe("CRT-0001");
+  });
+
+  it("a review allocates R-01 … R-99, then R-100, by the same scan, and the two shapes never count each other (F-134)", () => {
+    expect(allocateTaskId(tasksDir, undefined, "R")).toBe("R-01");
+    writeFileSync(join(tasksDir, "R-03-x.md"), "");
+    writeFileSync(join(tasksDir, "CRT-0012-y.md"), "");
+    writeFileSync(join(tasksDir, "R-1000-not-an-id.md"), "");
+    writeFileSync(join(tasksDir, "README.md"), "");
+    expect(allocateTaskId(tasksDir, undefined, "R")).toBe("R-04");
+    expect(allocateTaskId(tasksDir)).toBe("CRT-0013");
+    mkdirSync(join(tasksDir, "assets", "R-09"), { recursive: true });
+    expect(allocateTaskId(tasksDir, undefined, "R")).toBe("R-10");
+    // An id just found taken is skipped even when the scan cannot see it.
+    expect(allocateTaskId(tasksDir, "R-41", "R")).toBe("R-42");
+    writeFileSync(join(tasksDir, "R-99-z.md"), "");
+    expect(allocateTaskId(tasksDir, undefined, "R")).toBe("R-100");
+    writeFileSync(join(tasksDir, "R-100-z.md"), "");
+    expect(allocateTaskId(tasksDir, undefined, "R")).toBe("R-101");
+  });
+
+  it("ids of both shapes are ids; R-99 sorts before R-100 and a file is found by either (F-134)", () => {
+    for (const id of ["CRT-0001", "CRT-9999", "R-01", "R-99", "R-100"]) expect(TASK_ID_RE.test(id), id).toBe(true);
+    for (const id of ["CRT-1", "CRT-00001", "R-1", "R-1000", "r-01", "X-01", "R-01-x"]) expect(TASK_ID_RE.test(id), id).toBe(false);
+    expect(TASK_FILE_RE.exec("R-07-cart-total.md")?.slice(1)).toEqual(["R-07", "cart-total"]);
+    expect(TASK_FILE_RE.test("R-7-cart-total.md")).toBe(false);
+    expect(["R-100", "R-02", "CRT-0002", "R-99", "CRT-0001"].sort(compareTaskIds)).toEqual(["CRT-0001", "CRT-0002", "R-02", "R-99", "R-100"]);
+    expect(taskIdNumber("R-100")).toBe(100);
+    expect(taskIdNumber("nope")).toBeNaN();
+    writeFileSync(join(tasksDir, "R-07-cart-total.md"), "");
+    expect(findTaskFile(tasksDir, "r-07")).toBe(join(tasksDir, "R-07-cart-total.md"));
+    expect(findTaskFile(tasksDir, "R-08")).toBeNull();
   });
 
   it("slugs are ≤ 40 chars, lowercase, hyphenated, never empty", () => {
@@ -170,7 +207,7 @@ Do it.
     const errors = validateTaskText(bad, "CRT-0007-bad.md");
     expect(errors).toEqual(
       expect.arrayContaining([
-        'frontmatter: id "CRT-7" is not CRT-NNNN',
+        'frontmatter: id "CRT-7" is not CRT-NNNN or R-NN',
         'frontmatter: "title" must not be empty',
         'frontmatter: status "pending" is not one of backlog|in_progress|review|done|blocked',
         'frontmatter: priority "urgent" is not one of low|normal|high',
@@ -202,6 +239,29 @@ Do it.
       ]),
     );
     expect(() => parseTask(serializeTask(t))).toThrow(TaskFormatError);
+  });
+
+  it("a review's file validates with its R-NN id and name; an id that is neither shape, or a mismatched name, does not (F-134)", () => {
+    const t = sampleTask();
+    t.frontmatter.id = "R-03";
+    const text = serializeTask(t);
+    expect(text).toContain("\nroute: /cart\nbranch: main\ncommit: 4f2a91c0d3b5e6f708192a3b4c5d6e7f8091a2b3\nsession: ");
+    expect(validateTaskText(text, "R-03-cart-total.md")).toEqual([]);
+    expect(parseTask(text, "R-03-cart-total.md").frontmatter).toMatchObject({ id: "R-03", branch: "main" });
+    expect(validateTaskText(text, "R-04-cart-total.md")).toEqual(["file name id R-04 does not match frontmatter id R-03"]);
+    expect(validateTaskText(text, "CRT-0003-cart-total.md")).toEqual(["file name id CRT-0003 does not match frontmatter id R-03"]);
+    expect(validateTaskText(text.replace("id: R-03", "id: R-3"), "R-03-cart-total.md")).toEqual(['frontmatter: id "R-3" is not CRT-NNNN or R-NN', "file name id R-03 does not match frontmatter id R-3"]);
+    expect(validateTaskText(text, "R-3-x.md")).toEqual(['file name "R-3-x.md" is not CRT-NNNN-<slug>.md or R-NN-<slug>.md']);
+  });
+
+  it("a 0.7 file — no branch, no commit — stays valid and parses with nulls; a list there is the one thing refused (F-134)", () => {
+    const text = serializeTask(sampleTask()).replace(/^branch: .*\n/m, "").replace(/^commit: .*\n/m, "");
+    expect(text).not.toMatch(/^(branch|commit):/m);
+    expect(validateTaskText(text, "CRT-0007-cart-total-excludes-applied-discount.md")).toEqual([]);
+    expect(parseTask(text).frontmatter).toMatchObject({ branch: null, commit: null, session: "7a3d0000-0000-4000-8000-000000000000" });
+    // Re-serialised, it gains the two keys as `null`, after `route:`.
+    expect(serializeTask(parseTask(text))).toContain("\nroute: /cart\nbranch: null\ncommit: null\nsession: ");
+    expect(validateTaskText(text.replace("\nsession:", "\nbranch: [a, b]\nsession:"))).toEqual(['frontmatter: "branch" must be a scalar']);
   });
 
   it("this repo's own task files validate (dogfood)", () => {
@@ -474,7 +534,7 @@ describe("golden task (PRD-providers M7 DoD, F-48)", () => {
   const CAPTURE_ID = "20260915-103200-g01d";
   const SESSION = "7a3d0000-0000-4000-8000-000000000000";
 
-  it("a task rendered from a fixed request with clock, session and capture stubbed equals the v0.1 golden plus `provider: claude` and the Log suffix (F-48)", () => {
+  it("a task rendered from a fixed request with clock, session and capture stubbed equals the v0.1 golden plus `branch`, `commit`, `provider: claude` and the Log suffix (F-48, F-134)", () => {
     // Stub the capture id: writeCapture salts it, so rename the directory to the fixed one.
     const cap = writeCapture(root, samplePost(), NOW);
     renameSync(cap.dir, join(root, ".crt", "captures", CAPTURE_ID));
@@ -500,7 +560,7 @@ describe("golden task (PRD-providers M7 DoD, F-48)", () => {
     const offset = localIso(NOW).slice(-6);
     const golden = readFileSync(GOLDEN_V01, "utf8").split("+08:00").join(offset);
     const expected = golden
-      .replace(`session: ${SESSION}\n`, `session: ${SESSION}\nprovider: claude\n`)
+      .replace(`session: ${SESSION}\n`, `branch: null\ncommit: null\nsession: ${SESSION}\nprovider: claude\n`)
       .replace(`created by intake session ${SESSION} from capture`, `created by intake session ${SESSION} (claude) from capture`);
     expect(expected).not.toBe(golden);
     expect(readFileSync(created.path, "utf8")).toBe(expected);

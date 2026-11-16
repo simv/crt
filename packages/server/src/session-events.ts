@@ -234,6 +234,16 @@ export interface StartSessionOptions {
   /** Project root: the session's cwd (PRD goal 6). */
   cwd: string;
   /**
+   * PRD-zero F-129: directories outside `cwd` the session reads — the project's folder under the
+   * CRT home when feedback is kept in a review (the capture bundle and the screenshots are there).
+   * Empty or absent for a project store. Each driver passes them the way its agent takes them.
+   */
+  readDirs?: string[];
+  /** F-26: where file writes are allowed without a card; defaults to `<cwd>/.crt` (drivers that decide for themselves). */
+  writeRoots?: string[];
+  /** Where a driver keeps per-session files of its own (the Antigravity plugin); defaults to `<cwd>/.crt/captures`. */
+  scratchDir?: string;
+  /**
    * Intake instructions for the agent's system prompt (F-24). Empty when the profile declares
    * `instructions: "first-message"`: the registry has then already prepended them to `first` (F-51).
    */

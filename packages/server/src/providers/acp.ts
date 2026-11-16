@@ -44,7 +44,7 @@
 import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { IMAGES_DROPPED_LINE } from "../intake-message.js";
-import { isReadOnlyGit, isUnderCrtDir } from "../permissions.js";
+import { isReadOnlyGit, isUnderWriteRoot } from "../permissions.js";
 import type { PermissionDecision, PermissionSubject, ProviderCapabilities, SessionDriver, SessionEvent, StartSessionOptions, UserInput } from "../session-events.js";
 import { packageVersion } from "../version.js";
 import { CRT_MCP_SERVER, WRITE_TASK_TOOL } from "../write-task.js";
@@ -211,7 +211,7 @@ export function negotiateCapabilities(declared: ProviderCapabilities, init: AcpI
  * locations → allow; edit / delete / move → allow when every location is under `.crt/`, else ask;
  * execute → allow for a read-only git command, else ask; fetch → deny (N-4); anything else → ask.
  */
-export function decideAcpPermission(toolCall: AcpToolCall, projectRoot: string): PermissionDecision {
+export function decideAcpPermission(toolCall: AcpToolCall, projectRoot: string, writeRoots?: readonly string[]): PermissionDecision {
   const kind = toolCall.kind ?? "other";
   const locations = (toolCall.locations ?? []).map((l) => l.path).filter((p): p is string => typeof p === "string");
   switch (kind) {
@@ -224,7 +224,7 @@ export function decideAcpPermission(toolCall: AcpToolCall, projectRoot: string):
     case "edit":
     case "delete":
     case "move":
-      return locations.length > 0 && locations.every((p) => isUnderCrtDir(p, projectRoot)) ? { kind: "allow" } : { kind: "ask" };
+      return locations.length > 0 && locations.every((p) => isUnderWriteRoot(p, projectRoot, writeRoots)) ? { kind: "allow" } : { kind: "ask" };
     case "execute":
       return isReadOnlyGit(commandOf(toolCall)) ? { kind: "allow" } : { kind: "ask" };
     case "fetch":
@@ -455,7 +455,7 @@ export function startAcpSession(opts: StartSessionOptions, profile: ProviderProf
     const toolCall: AcpToolCall = req.toolCall ?? { toolCallId: randomUUID() };
     const options = req.options ?? [];
     if (em.isClosed() || interrupted) return { outcome: { outcome: "cancelled" } };
-    const decision = decideAcpPermission(toolCall, opts.cwd);
+    const decision = decideAcpPermission(toolCall, opts.cwd, opts.writeRoots);
     if (decision.kind === "allow") return pickPermissionOption(options, "allow");
     if (decision.kind === "deny") return pickPermissionOption(options, "deny");
     const subject = acpSubject(toolCall);

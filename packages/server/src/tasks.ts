@@ -8,11 +8,17 @@
  * there is no counter file to conflict on. `README.md` in the same directory is a generated table
  * and is rewritten whenever a task is created or `crt tasks` notices it is stale.
  * Everything is written with `\n` line endings.
+ *
+ * PRD-zero F-134: a review under the CRT home holds the same files with review-local ids —
+ * `R-01` … `R-99`, then `R-100` — until `crt handoff` gives them the project's next `CRT-NNNN`;
+ * every id-shaped check here accepts both. Every task written since 0.8 also records the `branch`
+ * and `commit` the reviewer was looking at (after `route:`); files without the two keys stay valid.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import type { CaptureBundle } from "./capture-schema.js";
 import { CaptureNotFoundError, capturesDir, readCapture } from "./captures.js";
+import { type GitState, readGitState } from "./git-state.js";
 import type { WriteTaskRequest } from "./session-events.js";
 
 export const TASK_STATUSES = ["backlog", "in_progress", "review", "done", "blocked"] as const;
@@ -31,6 +37,8 @@ export const FRONTMATTER_KEYS = [
   "updated",
   "url",
   "route",
+  "branch",
+  "commit",
   "session",
   "provider",
   "tags",
@@ -40,8 +48,25 @@ export type FrontmatterKey = (typeof FRONTMATTER_KEYS)[number];
 // Compile-time: every `TaskFrontmatter` field is listed, so `serializeTask` writes them all.
 true satisfies [Exclude<keyof TaskFrontmatter, FrontmatterKey>] extends [never] ? true : false;
 
-export const TASK_ID_RE = /^CRT-\d{4}$/;
-export const TASK_FILE_RE = /^(CRT-\d{4})-([a-z0-9-]+)\.md$/;
+/** F-31 `CRT-NNNN` in a project; PRD-zero F-134 `R-NN` (two digits, growing to three) in a review. */
+export const TASK_ID_RE = /^(?:CRT-\d{4}|R-\d{2,3})$/;
+export const TASK_FILE_RE = /^(CRT-\d{4}|R-\d{2,3})-([a-z0-9-]+)\.md$/;
+/** What an id is called in a message. */
+export const TASK_ID_SHAPES = "CRT-NNNN or R-NN";
+export type TaskIdPrefix = "CRT" | "R";
+const ID_WIDTH: Record<TaskIdPrefix, number> = { CRT: 4, R: 2 };
+
+/** `CRT-0007` → 7, `R-12` → 12; NaN for anything else. Ids sort by this within one prefix. */
+export function taskIdNumber(id: string): number {
+  return TASK_ID_RE.test(id) ? Number(id.slice(id.indexOf("-") + 1)) : NaN;
+}
+
+/** Ids in order: by prefix, then by number (`R-99` before `R-100`). */
+export function compareTaskIds(a: string, b: string): number {
+  const pa = a.slice(0, a.indexOf("-"));
+  const pb = b.slice(0, b.indexOf("-"));
+  return pa.localeCompare(pb) || taskIdNumber(a) - taskIdNumber(b) || a.localeCompare(b);
+}
 export const MAX_SLUG_LENGTH = 40;
 export const ASSETS_DIRNAME = "assets";
 export const INDEX_FILENAME = "README.md";
@@ -55,6 +80,10 @@ export interface TaskFrontmatter {
   updated: string;
   url: string | null;
   route: string | null;
+  /** PRD-zero F-134: the branch the project was on at capture time; null when detached, not a repository, or a pre-0.8 file. */
+  branch: string | null;
+  /** PRD-zero F-134: the full SHA of `HEAD` at capture time; null when there is none or in a pre-0.8 file. */
+  commit: string | null;
   /** The provider's own session id (PRD-providers §5.4), or null. */
   session: string | null;
   /** Provider that wrote the task (F-48); null in v0.1 files. */
@@ -239,7 +268,7 @@ export function validateTaskText(text: string, fileName?: string): string[] {
   };
 
   const id = str("id");
-  if (id !== null && !TASK_ID_RE.test(id)) errors.push(`frontmatter: id "${id}" is not CRT-NNNN`);
+  if (id !== null && !TASK_ID_RE.test(id)) errors.push(`frontmatter: id "${id}" is not ${TASK_ID_SHAPES}`);
   const title = str("title");
   if (title !== null && title.trim() === "") errors.push("frontmatter: title is empty");
   const status = str("status");
@@ -259,12 +288,15 @@ export function validateTaskText(text: string, fileName?: string): string[] {
   str("session", true);
   // F-48: `provider:` is optional (v0.1 files) and, like any key this version does not know,
   // never a reason to reject the file.
-  if (d.provider !== undefined && Array.isArray(d.provider)) errors.push('frontmatter: "provider" must be a scalar');
+  // PRD-zero F-134: so are `branch:` and `commit:` (0.7 files have neither).
+  for (const key of ["provider", "branch", "commit"]) {
+    if (d[key] !== undefined && Array.isArray(d[key])) errors.push(`frontmatter: "${key}" must be a scalar`);
+  }
   list("tags");
   list("files");
   if (fileName !== undefined) {
     const fm2 = TASK_FILE_RE.exec(fileName);
-    if (!fm2) errors.push(`file name "${fileName}" is not CRT-NNNN-<slug>.md`);
+    if (!fm2) errors.push(`file name "${fileName}" is not CRT-NNNN-<slug>.md or R-NN-<slug>.md`);
     else if (id !== null && fm2[1] !== id) errors.push(`file name id ${fm2[1]} does not match frontmatter id ${id}`);
   }
 
@@ -312,6 +344,8 @@ export function parseTask(text: string, fileName?: string): Task {
       updated: s("updated"),
       url: n("url"),
       route: n("route"),
+      branch: n("branch"),
+      commit: n("commit"),
       session: n("session"),
       provider: n("provider"),
       tags: data.tags as string[],
@@ -347,14 +381,16 @@ export function serializeTask(task: Task): string {
  * `assets/<ID>/` folder holds its id too, so a task deleted after its screenshots moved, or one
  * another CRT server is writing, never has its id (and its assets folder) handed out again.
  */
-export function allocateTaskId(tasksDir: string, after?: string): string {
+export function allocateTaskId(tasksDir: string, after?: string, prefix: TaskIdPrefix = "CRT"): string {
   // `after`: an id just found taken, so the result is above it even if the scan cannot see it.
-  let max = after === undefined ? 0 : Number(after.slice("CRT-".length));
+  let max = after === undefined ? 0 : taskIdNumber(after);
+  // PRD-zero F-134: the same rule for a review's `R-NN` (`R-01` … `R-99`, then `R-100`).
+  const shape = prefix === "CRT" ? /^CRT-(\d{4})(?![\w])/ : /^R-(\d{2,3})(?![\w])/;
   for (const name of [...safeReaddir(tasksDir), ...safeReaddir(join(tasksDir, ASSETS_DIRNAME))]) {
-    const m = /^CRT-(\d{4})\b/.exec(name);
+    const m = shape.exec(name);
     if (m) max = Math.max(max, Number(m[1]));
   }
-  return `CRT-${String(max + 1).padStart(4, "0")}`;
+  return `${prefix}-${String(max + 1).padStart(ID_WIDTH[prefix], "0")}`;
 }
 
 /** F-31: ≤ 40 chars, lowercase, hyphenated, never empty. */
@@ -377,7 +413,7 @@ export function taskFileName(id: string, title: string): string {
   return `${id}-${slugify(title)}.md`;
 }
 
-/** Find the file for an id (exact match on the `CRT-NNNN-` prefix). */
+/** Find the file for an id (exact match on the `CRT-NNNN-` / `R-NN-` prefix). */
 export function findTaskFile(tasksDir: string, id: string): string | null {
   const upper = id.toUpperCase();
   for (const name of safeReaddir(tasksDir)) {
@@ -403,7 +439,7 @@ export function listTasks(tasksDir: string): TaskSummary[] {
     const summary = TASK_FILE_RE.test(name) ? readSummary(tasksDir, name) : null;
     if (summary) out.push(summary);
   }
-  return out.sort((a, b) => a.id.localeCompare(b.id));
+  return out.sort((a, b) => compareTaskIds(a.id, b.id));
 }
 
 /**
@@ -495,6 +531,16 @@ export type NewTaskInput = WriteTaskRequest & {
   captureId?: string | null;
 };
 
+/** Where `createTask` writes when it is not the project's own `.crt/` (PRD-zero F-130, F-134). */
+export interface CreateTaskOptions {
+  /** The directory holding `<captureId>/`; defaults to `<root>/.crt/captures`. */
+  capturesDir?: string;
+  /** `R` in a review; defaults to `CRT`. */
+  prefix?: TaskIdPrefix;
+  /** What the project was on when the capture was taken; read from `<root>/.git` now when absent. */
+  git?: GitState;
+}
+
 export interface CreatedTask {
   id: string;
   path: string;
@@ -511,13 +557,15 @@ const MAX_ID_ATTEMPTS = 10;
  * disk, so the capture is still there when the agent retries. The file is created exclusively:
  * when another CRT server on the project wrote the same file first, the next id is used instead
  * of overwriting that task. (Two servers writing different titles under one id in the same
- * instant still both succeed; only the file name is exclusive.) All inside `<root>/.crt/` (N-5).
+ * instant still both succeed; only the file name is exclusive.) All inside `<root>/.crt/` (N-5),
+ * or — with `opts`, for a review — inside the CRT home (PRD-zero N-34), where the id is `R-NN`.
+ * Either way the file records the project's `branch` and `commit` (PRD-zero F-134).
  *
  * The required fields follow `writeTaskShape`'s minimums, counted after trimming: a title of 3
  * characters, a non-blank summary, context and ask, one non-blank definition-of-done item. Text
  * that is only whitespace passes zod's length but not this check, and answers the 400 naming the field.
  */
-export function createTask(root: string, tasksDir: string, input: NewTaskInput, now: Date = new Date()): CreatedTask {
+export function createTask(root: string, tasksDir: string, input: NewTaskInput, now: Date = new Date(), opts: CreateTaskOptions = {}): CreatedTask {
   const errors: string[] = [];
   const trimmedTitle = input.title?.trim() ?? "";
   if (!trimmedTitle) errors.push("title is required");
@@ -533,7 +581,7 @@ export function createTask(root: string, tasksDir: string, input: NewTaskInput, 
   let captureDir: string | null = null;
   let captureFiles: string[] = [];
   if (input.captureId) {
-    captureDir = join(capturesDir(root), input.captureId);
+    captureDir = join(opts.capturesDir ?? capturesDir(root), input.captureId);
     try {
       capture = readCapture(captureDir);
     } catch (err) {
@@ -546,6 +594,8 @@ export function createTask(root: string, tasksDir: string, input: NewTaskInput, 
 
   const title = trimmedTitle;
   const stamp = localIso(now);
+  const git = opts.git ?? readGitState(root);
+  const prefix = opts.prefix ?? "CRT";
   const dod = input.definitionOfDone
     .map((d) => demoteHeadings(d.trim()))
     .filter(Boolean)
@@ -562,6 +612,8 @@ export function createTask(root: string, tasksDir: string, input: NewTaskInput, 
         updated: stamp,
         url: capture?.page.url ?? null,
         route: capture?.framework.route ?? capture?.page.pathname ?? null,
+        branch: git.branch,
+        commit: git.commit,
         session: input.session,
         provider: input.provider ?? null,
         tags: (input.tags ?? []).map((t) => t.trim()).filter(Boolean),
@@ -579,7 +631,7 @@ export function createTask(root: string, tasksDir: string, input: NewTaskInput, 
       },
     });
 
-  let id = allocateTaskId(tasksDir);
+  let id = allocateTaskId(tasksDir, undefined, prefix);
   for (let attempt = 1; ; attempt++) {
     const file = taskFileName(id, title);
     const text = render(id);
@@ -591,7 +643,7 @@ export function createTask(root: string, tasksDir: string, input: NewTaskInput, 
       writeFileSync(path, text, { encoding: "utf8", flag: "wx" });
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "EEXIST" || attempt >= MAX_ID_ATTEMPTS) throw err;
-      id = allocateTaskId(tasksDir, id);
+      id = allocateTaskId(tasksDir, id, prefix);
       continue;
     }
     const assetsDir = captureDir ? join(tasksDir, ASSETS_DIRNAME, id) : null;

@@ -246,6 +246,8 @@ export function startSession(opts: StartSessionOptions): SessionDriver {
 
   const options: Options = {
     cwd: opts.cwd,
+    // PRD-zero F-129: a review lives under the CRT home, outside `cwd`; the session reads its captures there.
+    ...(opts.readDirs?.length ? { additionalDirectories: [...opts.readDirs] } : {}),
     sessionId: opts.id,
     settingSources: ["user", "project", "local"],
     systemPrompt: { type: "preset", preset: "claude_code", append: opts.systemPromptAppend },

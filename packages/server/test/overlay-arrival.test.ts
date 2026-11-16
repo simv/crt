@@ -53,6 +53,18 @@ describe("launcher health states (F-81)", () => {
 });
 
 describe("welcome card (F-82)", () => {
+  it("in a review the second sentence says where the feedback is and what to do with it (F-129)", () => {
+    const review = health({ store: "review", review: "2026-11-16", guest: true, tasks: 3, tasksDir: "C:\\Users\\me\\.crt\\reviews\\my-app-3fa9c1\\2026-11-16\\tasks" });
+    expect(welcomeCopy(review, { name: "Claude", problem: null }).where).toBe(
+      "Proxying http://localhost:3000 for C:\\my-app. Feedback is kept in a review (3 items) — `crt review` shows it, `crt handoff` sends it to the project.",
+    );
+    expect(welcomeCopy({ ...review, tasks: 1, mode: "embedded" }, { name: "Claude", problem: null }, "http://localhost:4400").where).toBe(
+      "Talking to CRT at http://localhost:4400 for C:\\my-app. Feedback is kept in a review (1 item) — `crt review` shows it, `crt handoff` sends it to the project.",
+    );
+    // A project store (and a pre-0.8 server, which sends no `store`) keeps the F-82 sentence.
+    expect(welcomeCopy(health({ store: "project" }), { name: "Claude", problem: null }).where).toContain("Tasks are written to .crt\\tasks (3 there now).");
+  });
+
   it("has the copy with live values from health, and the agent line per login state (F-82)", () => {
     const copy = welcomeCopy(health(), { name: "Claude", problem: null });
     expect(copy.title).toBe("CRT is on this page");

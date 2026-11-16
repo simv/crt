@@ -25,6 +25,11 @@ import { DEFAULT_CONFIG_FILE } from "../../dist/init.js";
 const here = dirname(fileURLToPath(import.meta.url));
 const project = join(here, "..", ".project", ...(process.env.CRT_E2E_PROJECT ? [process.env.CRT_E2E_PROJECT] : []));
 mkdirSync(join(project, ".git"), { recursive: true });
+// PRD-zero F-129: a project is set up when `.crt/tasks/` exists; without it the server would run as a
+// guest and write to a review. These servers are the set-up case (start.spec.ts has the guest rows).
+mkdirSync(join(project, ".crt", "tasks"), { recursive: true });
+// PRD-zero N-34: the CRT home of every e2e server is under e2e/.project/ (helpers.ts `E2E_HOME`).
+process.env.CRT_HOME = join(here, "..", ".project", ".home");
 process.chdir(project);
 if (!("CRT_SESSION_STUB" in process.env)) process.env.CRT_SESSION_STUB = "1";
 if (process.env.CRT_E2E_FAKE_CODEX) {
@@ -56,6 +61,6 @@ for (const name of ["log", "error"]) {
 // becomes the `crt proxy` command (≡ `crt serve --mode proxy`) for the dedicated proxy server.
 const args = process.argv.slice(2);
 const proxy = args.includes("--proxy");
-// PRD-embedded F-99: the scratch project is created here, so `--yes` sets it up (no terminal to ask on).
+// `--yes`: there is no terminal to ask on.
 process.argv = [process.argv[0], join(here, "..", "..", "dist", "cli.js"), proxy ? "proxy" : "serve", ...args.filter((a) => a !== "--proxy"), ...(args.includes("--yes") ? [] : ["--yes"])];
 await import("../../dist/cli.js");

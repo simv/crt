@@ -1,5 +1,6 @@
 /**
- * Capture store (PRD F-13, F-23): `.crt/captures/<id>/` holds `capture.json` plus the PNGs the
+ * Capture store (PRD F-13, F-23): `.crt/captures/<id>/` (in a review, PRD-zero F-130, its
+ * `captures/<id>/` under the CRT home) holds `capture.json` plus the PNGs the
  * overlay sent. Ids are time-ordered so the folder lists chronologically. Captures older than
  * `PRUNE_AFTER_MS` are removed on server start; a capture that became a task has already been
  * moved to `.crt/tasks/assets/<TASK-ID>/` (M3), so pruning only ever hits unsent/abandoned ones.
@@ -74,12 +75,17 @@ export function readCapture(dir: string): CaptureBundle {
  * whatever the overlay sent is overwritten. Files are written with `\n` line endings.
  */
 export function writeCapture(projectRoot: string, body: unknown, now: Date = new Date()): WrittenCapture {
+  return writeCaptureIn(capturesDir(projectRoot), body, now);
+}
+
+/** `writeCapture` into any captures directory: a review's, under the CRT home (PRD-zero F-130). */
+export function writeCaptureIn(capturesRoot: string, body: unknown, now: Date = new Date()): WrittenCapture {
   const errors = validateCapturePost(body);
   if (errors.length) throw new CaptureValidationError(errors);
   const post = body as CapturePost;
 
   const id = newCaptureId(now);
-  const dir = join(capturesDir(projectRoot), id);
+  const dir = join(capturesRoot, id);
   mkdirSync(dir, { recursive: true });
 
   const files: string[] = [];
@@ -96,7 +102,11 @@ export function writeCapture(projectRoot: string, body: unknown, now: Date = new
 
 /** Remove capture directories whose mtime is older than `maxAgeMs`. Returns the ids removed. */
 export function pruneCaptures(projectRoot: string, now: Date = new Date(), maxAgeMs = PRUNE_AFTER_MS): string[] {
-  const dir = capturesDir(projectRoot);
+  return pruneCapturesIn(capturesDir(projectRoot), now, maxAgeMs);
+}
+
+/** `pruneCaptures` over any captures directory (PRD-zero F-130: the current review's). */
+export function pruneCapturesIn(dir: string, now: Date = new Date(), maxAgeMs = PRUNE_AFTER_MS): string[] {
   let entries: string[];
   try {
     entries = readdirSync(dir);

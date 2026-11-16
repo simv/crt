@@ -4,6 +4,8 @@ The task file the intake session writes to `.crt/tasks/` — its frontmatter, it
 
 Tasks live at `.crt/tasks/CRT-NNNN-<slug>.md` (the ID is allocated by scanning the folder for the highest one, so there is no counter file to conflict on), with a generated `.crt/tasks/README.md` index that the server and `crt tasks` rewrite whenever a task changes. Commit `.crt/`; only `.crt/captures/` and `.crt/config.local.json` are ignored.
 
+When feedback is kept in a **review** — a project that is not set up, or `crt --review` — the same files are written under the CRT home instead (`~/.crt/reviews/<project>/<review>/tasks/`), with review-local ids: `R-01` … `R-99`, then `R-100`, in `R-NN-<slug>.md`, their screenshots in `assets/R-NN/`. They get the project's next `CRT-NNNN` when the review is handed over. See [The `crt` command › Reviews](cli.md#reviews).
+
 ```markdown
 ---
 id: CRT-0007
@@ -14,6 +16,8 @@ created: 2026-09-14T10:32:00+08:00
 updated: 2026-09-14T10:32:00+08:00
 url: http://localhost:4400/cart?promo=SAVE10
 route: /cart
+branch: main               # the branch the project was on when this was captured (null when detached or not a git repository)
+commit: 4f2a91c0d3b5e6f708192a3b4c5d6e7f8091a2b3   # the full SHA of HEAD at that moment (null when there is none)
 session: 7a3d…             # intake session id — `claude --resume 7a3d…` continues it
 provider: claude           # which agent ran the intake (absent in v0.1 files)
 tags: [cart, pricing]
@@ -46,4 +50,6 @@ Constraints, hunches, non-goals, alternatives considered during intake.
 - 2026-09-14T10:32+08:00 — created by intake session 7a3d… (claude) from capture 20260914-103200-ab12.
 ```
 
-The seven sections are fixed and in this order. The **Log** is append-only: every status change, work session and verification result is a new bullet with a timestamp and the session that wrote it. A task is workable cold when a session that has never seen the page can start from the file alone — that is the bar intake holds itself to. `crt task CRT-0007 --validate` checks a file against the format; `crt tasks --json` is what the skills read.
+The seven sections are fixed and in this order. The **Log** is append-only: every status change, work session and verification result is a new bullet with a timestamp and the session that wrote it. A task is workable cold when a session that has never seen the page can start from the file alone — that is the bar intake holds itself to. `crt task CRT-0007 --validate` checks a file against the format; `crt tasks --json` is what the skills read (`crt task R-03 --review --validate` and `crt tasks --review --json` for a review's items).
+
+`branch` and `commit` say what the reviewer was looking at, so whoever works the task later can tell how far the code has moved; they are read from the project's `.git` when the capture is taken (a dirty working tree is not detected) and are absent from files written before v0.8, which stay valid.

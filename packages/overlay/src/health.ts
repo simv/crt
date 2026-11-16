@@ -25,6 +25,12 @@ export interface HealthPayload {
   projectRoot: string;
   tasksDir: string | null;
   tasks: number;
+  /** PRD-zero F-129: where tasks go; absent from a pre-0.8 server (`project`). */
+  store?: "project" | "review";
+  /** The review's name in a review store, else null. */
+  review?: string | null;
+  /** The project is not set up: CRT runs as a guest and writes nothing into it. */
+  guest?: boolean;
   provider: string | null;
   login: "ok" | "missing" | "unchecked";
   sessions: number;

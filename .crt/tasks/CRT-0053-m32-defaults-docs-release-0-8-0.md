@@ -4,7 +4,7 @@ title: M32 — Plain crt picks the CRT browser when the app has no integration; 
 status: backlog
 priority: normal
 created: 2026-11-16T13:20:00+08:00
-updated: 2026-11-16T13:20:00+08:00
+updated: 2026-11-16T15:05:00+08:00
 url: null
 route: null
 session: null
@@ -43,6 +43,7 @@ No page capture: created from `docs/PRD-zero.md` milestone M32. Goal 1 of the PR
 - [ ] Manual: goal 1 end to end from the published package on a project that has never seen CRT — `npm run dev`, `npx claude-review-tool`, a Send, `crt review`, `crt handoff` — with `git status` empty until the hand-over.
 - [ ] Manual (Simon): `git tag v0.8.0 && git push origin v0.8.0`, the release workflow green, the staged version promoted on npmjs.com.
 - [ ] Manual, carried from CRT-0049 (M28): on Windows with real Chrome and with real Edge, `crt browse` on the trial app (Jack of Clubs, `C:\Projects\Claude\jack-of-clubs`, app on :3000) with its CRT integration not loaded and its policy as committed — the button appears on `:3000`, a Send reaches a real Claude session, a second tab works, closing the window and stopping CRT behave per F-128. Browser versions and screenshots in the Log. If the DevTools pipe does not work on Windows, PRD-zero §12 rule 2 applies: stop and report, never a debug port.
+- [ ] Manual (carried from CRT-0050): `crt proxy` as a guest in a fresh clone of a real project with a real Claude session — an accepted proposal lands as `R-01` under the home with its screenshots readable, and `git status` in the project is empty; the same with Codex when it is installed, recording what it needed in `docs/providers.md` (PRD-zero §12 rule 5).
 
 ## Notes
 Read `docs/PRD-zero.md` §5.6, §6.5, §9 and §10 first. Depends on M28–M31 (CRT-0049…0052) being `done`; if a Should from M30 or M31 was left out, say so in §10 and the release notes without holding the release. Decision already taken (§13): plain `crt` prefers the integration when the app has one. Keep every string `docs.test.ts` pins unless a §9 row changes it (§12 rule 8). Features have shipped as patch releases under the `@0.7` pin since 0.7.0; this is a minor release because the default behaviour of plain `crt` in a project that is not set up changes.
@@ -50,3 +51,4 @@ Read `docs/PRD-zero.md` §5.6, §6.5, §9 and §10 first. Depends on M28–M31 (
 ## Log
 - 2026-11-16T13:20+08:00 — created from docs/PRD-zero.md milestone M32 by the planning session that wrote it (Claude Code cloud session 01KVgoZd7cmxUJP97XZgyRn9), on Simon's go-ahead of 2026-11-16.
 - 2026-11-16T16:40+08:00 — Definition of Done gained the Manual Windows row of CRT-0049 (M28): that task was built in a Linux cloud session that cannot run it; see CRT-0049's Log.
+- 2026-11-16T15:05+08:00 — Definition of Done gained the Manual row carried from CRT-0050 (a real Claude and Codex session as a guest), for the one manual pass before the tag.

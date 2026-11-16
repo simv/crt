@@ -175,9 +175,8 @@ describe("README › Troubleshooting and docs/troubleshooting.md (F-88, N-17)", 
   });
 
   it.each([
-    // F-99
-    "crt: C:\\my-app is not set up for CRT — run `crt init` (or `crt --yes`)",
-    "Set up CRT in C:\\my-app? [Y/n]",
+    // PRD-zero F-129 (retiring PRD-embedded F-99's question and refusal)
+    "crt: C:\\my-app is not set up for CRT — keeping this review in C:\\Users\\me\\.crt\\reviews\\my-app-3fa9c1 (nothing is written to the project; `crt init` adopts CRT here).",
     "no tasks (CRT is not set up here — run crt init)",
     // F-100 (the Production footer re-pointed by PRD-polish §9, M23)
     "crt init will, in C:\\my-app:\n  create .crt/README.md\n  create .crt/tasks/\n  create .crt/config.json\n  add .crt/captures/ and .crt/config.local.json to .gitignore\n  add a CRT section to CLAUDE.md",
@@ -209,12 +208,17 @@ describe("README › Troubleshooting and docs/troubleshooting.md (F-88, N-17)", 
     "--    instructions no CLAUDE.md or AGENTS.md — crt init creates one",
     // F-106
     "CRT: .crt/ is set up but CLAUDE.md has no CRT section — run crt init to add it",
-  ])("quotes %s (PRD-embedded F-99, F-100, F-103, F-106)", (line) => {
+  ])("quotes %s (PRD-embedded F-100, F-103, F-106; PRD-zero F-129)", (line) => {
     expect(trouble).toContain(line);
   });
 
   it("has the CRT is not set up entry, and the loop no longer claims an implicit init (F-99)", () => {
     expect(trouble).toContain("### CRT is not set up");
+    // PRD-zero F-129: no page still says a start asks to set the project up, or refuses.
+    for (const page of ["README.md", ...PAGES]) {
+      expect(read(page), page).not.toContain("Set up CRT in");
+      expect(read(page), page).not.toContain("(or `crt --yes`)");
+    }
     for (const page of ["README.md", ...PAGES]) expect(read(page), page).not.toContain("`crt` first runs `crt init`");
     expect(section("docs/cli.md", "## What `crt` prints")).toContain("`crt` never sets a project up on its own");
   });
