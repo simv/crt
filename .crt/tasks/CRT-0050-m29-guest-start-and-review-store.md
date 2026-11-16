@@ -1,0 +1,52 @@
+---
+id: CRT-0050
+title: M29 — Guest start and the review store: crt runs in a project that is not set up and writes nothing into it
+status: backlog
+priority: high
+created: 2026-11-16T13:20:00+08:00
+updated: 2026-11-16T13:20:00+08:00
+url: null
+route: null
+session: null
+tags: [m29, guest, review, home, tasks, f-129, f-130, f-133, f-134, n-33, n-34, prd-zero]
+files: [docs/PRD-zero.md, packages/server/src/home.ts, packages/server/src/serve.ts, packages/server/src/start.ts, packages/server/src/cli.ts, packages/server/src/args.ts, packages/server/src/config.ts, packages/server/src/tasks.ts, packages/server/src/write-task.ts, packages/server/src/sessions.ts, packages/server/src/captures.ts, packages/server/src/permissions.ts, packages/server/src/providers/claude.ts, packages/server/src/proxy.ts, packages/overlay/src/welcome.ts, packages/overlay/src/health.ts, docs/task-format.md, docs/cli.md, docs/providers.md, CLAUDE.md, .claude/agents/prd-reviewer.md]
+---
+
+## Summary
+The first `crt` run in a project asks to run `crt init` (or refuses off a terminal), and every task is written straight into the project's `.crt/tasks/`. Make reviewing possible without touching the project: in a project without `.crt/tasks/`, `crt` starts as a **guest**, says so in one line, and keeps everything — captures, the remembered target, the provider choice and the tasks — in a **review** under the CRT home (`~/.crt`, `CRT_HOME`). Items in a review get review-local ids (`R-01`, `R-02`, …), and every task file, wherever it is written, records the `branch` and `commit` the reviewer was looking at. `--review` gives a project that is already set up the same store. Nothing under the project root is created, modified or deleted until `crt handoff` (M31).
+
+## Context
+- "Set up" is the F-99 test: `<root>/.crt/tasks/` exists. `serve.ts` / `start.ts` implement the question and the refusal; `init.ts` is `crt init` and does not change.
+- The server writes through `tasksDir` (`config.ts`, default `.crt/tasks`) resolved against the project root: `sessions.ts` calls `createTask(projectRoot, tasksDir, …)` (`tasks.ts`), which allocates the id with `allocateTaskId` (scan the folder for the highest), writes the file, moves the capture's assets and regenerates the index. Ids are pinned by `TASK_ID_RE = /^CRT-\\d{4}$/` and `TASK_FILE_RE` in `tasks.ts`; the validator rejects any other shape.
+- Captures are written to `.crt/captures/<id>/` (`captures.ts`) and pruned after 7 days on start; the first message gives the agent the bundle's absolute path (`intake-message.ts`).
+- The Claude driver starts the session with `cwd: opts.cwd` (`providers/claude.ts`); writes under `.crt/` are allowed silently by the F-26 policy (`permissions.ts`). `write_task` runs on the server (`write-task.ts`), so the agent itself never needs to write the task file.
+- F-72 (remembered target) and F-57 (`PUT /__crt/config`) write `.crt/config.local.json`.
+- The task frontmatter has no record of the git state; `url:` is a `localhost` URL.
+
+## Evidence
+No page capture: created from `docs/PRD-zero.md` milestone M29, after Simon's requests of 2026-11-16 (PRD-zero §1). In the investigation's prototype, `crt --yes` in a scratch project created `.crt/README.md`, `.crt/tasks/`, a `.gitignore` and an `AGENTS.md` before the first page was opened.
+
+## Ask
+1. **`packages/server/src/home.ts`** (new, or extend what M28 added): `crtHome(env)`, `projectKey(root)`, the layout of PRD-zero §5.3, `currentReview(root)` / `createReview(root, name?)` and atomic `review.json` read/write per F-130 and F-133; the first write under the home in a run announced once.
+2. **Guest start (F-129).** In `serve.ts` / `start.ts`: no question, no refusal, no `crt init` under `--yes`; the guest line; the ready line's `(embedded, guest; project: <root>, review <name>: N items, …)`; `--review [name]` and config `"store": "review"` for a set-up project; the store threaded to the capture store, the session registry and `write_task` in place of the project's `.crt/`. Guest config (F-72, F-57) read and written under the home with today's precedence. Capture pruning over the current review.
+3. **The session.** `cwd` stays the project root; the review directory is added as a readable directory for the Claude driver (the SDK's additional-directories option — check its exact name against the pinned SDK version) and writes under it are allowed silently by the F-26 policy; sandboxed providers per PRD-zero §12 rule 5.
+4. **Ids and git state (F-134).** `R-NN` allocation in a review; both id shapes accepted by `TASK_ID_RE`, `TASK_FILE_RE` and the validator; `crt tasks --review [--json]` and `crt task R-03 --review`; `branch:` and `commit:` after `route:` in every task 0.8 writes, read from `.git` without spawning `git` (a branch, a detached HEAD, packed refs, a worktree's `.git` file, none → `null`).
+5. **`crt review new [name]`, `crt review list`, `crt review --json`** (F-133) — the list and JSON forms only; the page is M30.
+6. **Health and overlay.** Health gains `store`, `review`, `guest`; the welcome card's second sentence in a review (F-129).
+7. **Tests.** Under a temp `CRT_HOME` always. Unit: the key, config precedence, the announcement, review creation and naming clashes, id allocation, validator rows for both shapes and for 0.7 files without the new keys, the `.git` reader over fixtures. Integration: a start in a scratch project with no `.crt/` — the guest line, the ready line, health — and a full stub Send that lands as `R-01` with its assets under the home. **N-33**: a recursive listing (paths, sizes, mtimes) of the scratch project before the start and after a Send, `crt review --json` and a stop is identical.
+8. **Docs and guards.** `docs/task-format.md` (`branch`, `commit`, `R-NN`); `docs/cli.md` (the guest line, `--review`, the `crt review` forms); `CLAUDE.md` Don'ts and entry points and the reviewer agent's write-roots row per PRD-zero §9.
+
+## Definition of Done
+- [ ] `crt` (and `crt proxy`) in a project without `.crt/tasks/` starts without asking, prints the guest line and the guest ready line, and a stub Send writes `R-01` under `<CRT_HOME>/reviews/<key>/<review>/tasks/` with its assets and index (F-129, F-130, F-133).
+- [ ] The N-33 snapshot row: nothing under the project root is created, modified or deleted across start, Send, `crt review --json` and stop.
+- [ ] `--review` and `"store": "review"` send a set-up project's tasks to a review; without them a set-up project writes to `.crt/tasks/` with `CRT-NNNN` ids exactly as before.
+- [ ] Every task written carries `branch` and `commit`; the `.git` fixture rows are green; 0.7 task files and this repository's own `.crt/tasks/` still validate (F-134).
+- [ ] The server writes only under a set-up project's `.crt/`, the CRT home and the OS temp dir, and the first write under the home is announced (N-34).
+- [ ] `npm run check` green; `npm run e2e` green, with the existing specs edited only where they asserted the F-99 question or refusal.
+- [ ] Manual: `crt proxy` as a guest in a fresh clone of a real project with a real Claude session — an accepted proposal lands as `R-01` under the home with its screenshots readable, and `git status` in the project is empty; the same with Codex when it is installed, recording what it needed (§12 rule 5). Run by the worker session (standing rule 2026-09-18).
+
+## Notes
+Read `docs/PRD-zero.md` §5.2, §5.3, §6.2, §7 (N-33, N-34), §9 (the F-99, N-19, N-5 and F-72 rows) and §12 rules 5 and 6 first. Decisions already taken (§13): a review lives outside the project until hand-over; ids are review-local until then; no `.crt/.gitignore` — a guest writes nothing in the project, so there is nothing to ignore; `crt init` is unchanged. The server never spawns `git` at runtime (§12 rule 6). Tests must never touch the real home: fail fast if `CRT_HOME` is unset under Vitest or Playwright. M29 is independent of M28 (use `crt proxy` or the integration to exercise it); M30 and M31 build on it.
+
+## Log
+- 2026-11-16T13:20+08:00 — created from docs/PRD-zero.md milestone M29 by the planning session that wrote it (Claude Code cloud session 01KVgoZd7cmxUJP97XZgyRn9), on Simon's go-ahead of 2026-11-16.
