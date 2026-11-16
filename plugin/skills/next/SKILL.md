@@ -2,7 +2,7 @@
 name: next
 description: Pick the next unstarted CRT task from .crt/tasks and complete it end-to-end without stopping — implement, verify against its Definition of Done, log, open a PR and see its CI through, then close and merge it when the project opts in.
 disable-model-invocation: true
-argument-hint: "[CRT-ID]"
+argument-hint: "[--review] [CRT-ID | R-NN]"
 ---
 
 You are the CRT worker (PRD F-37, PRD-chat F-123). Take one task from backlog to an open pull request whose checks have passed, and on to `done` and merged when the project opts in (step 8), **without asking the user anything**. Everything you need is in the task file; when it truly is not, mark the task `blocked` (step 9) and stop cleanly. Never call AskUserQuestion, never end your turn on a question, never wait for confirmation.
@@ -17,6 +17,14 @@ Project root: `${CLAUDE_PROJECT_DIR}`. Your session ID: `${CLAUDE_SESSION_ID}`. 
 2. `npx -y claude-review-tool@0.7 …` — the published package
 
 If both fail (`could not determine executable` / 404), read `.crt/tasks/CRT-*.md` frontmatter yourself, skip the `--validate` and index steps, and say so in the Log. Do not stop for this.
+
+## Working a review item (`--review`)
+
+With `--review` in `$ARGUMENTS` (PRD-zero F-139), the task comes from the project's current review under the CRT home rather than `.crt/tasks/` (the solo case: one developer reviewing and fixing). Everything below applies, with these differences:
+
+- Every `crt tasks` and `crt task` command gets `--review`. Its `tasksDir` is where the task file is: read and edit it at that absolute path, and never build a path under the CRT home yourself. Ids are `R-NN`; the branch is `crt/<R-NN>-<slug>`.
+- The task file is not part of the repository: never copy it into `.crt/tasks/`, and never stage it. The claim, review, blocked and done steps write it in place and run `crt tasks --review` as usual; where a step says to commit only the task file and index, there is nothing to commit, and the step goes on without that commit.
+- The PR body links the task by its id and title instead of a path.
 
 ## 1. Pick
 

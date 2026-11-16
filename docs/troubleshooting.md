@@ -123,6 +123,19 @@ crt: `claude plugin install crt@crt` failed: <first line of what claude printed>
 
 `crt setup` needs the `claude` CLI (it runs `claude plugin list --json`, `claude plugin marketplace add <dir>` and `claude plugin install crt@crt` — or `update` when an older `crt@crt` is there — and writes nothing itself). Install Claude Code, or pass the executable with `crt setup --claude <path>`; the second line quotes Claude Code's own error and the same two commands work by hand from GitHub. On success it prints `crt setup: registered marketplace crt from <path>` and `crt setup: installed crt@crt 0.7.0 — restart Claude Code to load /crt:serve, /crt:next, /crt:tasks, /crt:task, /crt:done, /crt:intake, /crt:init`; `crt setup: crt@crt 0.7.0 is already installed` means there was nothing to do. When the plugin and the project's `claude-review-tool` disagree on major.minor, the SessionStart hook says `CRT: plugin 0.7.0 but the project's claude-review-tool is 0.6.0 — npm update claude-review-tool (or crt setup after updating)`.
 
+### A hand-over stopped half-way
+
+```
+crt: committed crt/review-2026-11-16 locally but could not push it (<what git said>) — the review is still open; push it and open the pull request with: git push origin crt/review-2026-11-16 && gh pr create --base main --head crt/review-2026-11-16 --title "CRT review 2026-11-16: 9 items" --body-file <file>
+crt: pushed crt/review-2026-11-16 but could not open the pull request (<what gh said>) — the review is still open; open it with: gh pr create --base main --head crt/review-2026-11-16 --title "CRT review 2026-11-16: 9 items" --body-file <file>
+```
+
+`crt handoff --to pr` commits, pushes, then opens the pull request; the line names the step that failed and quotes `git` or `gh`. The branch is there (locally, or also on the remote), your checkout is as it was, and the review stays `open`. Fix the cause — usually `gh auth login`, or push rights on the remote — and run the command the line ends with (the body file is kept for it). Running `crt handoff` again instead makes a second branch (`…-2`) with the same items; delete the first with `git branch -D <branch>` (and `git push origin --delete <branch>` if it was pushed) if you go that way.
+
+A failure before the commit (`could not fetch origin`, `could not create the branch …`, `could not commit …`) leaves no branch behind and nothing written: fix the cause and run `crt handoff` again. `--to branch` or `--to here` hand over without a remote or `gh`; `--to bundle` without git at all.
+
+`crt: review <name> was already handed over (…) — pass --again to hand it over once more` means it worked the first time: the pull request or branch it names holds the items.
+
 ### No `.git` in the project
 
 Not an error. CRT uses the nearest ancestor of the launch directory that contains `.git` as the project root and falls back to the launch directory itself, so `.crt/` is created wherever you ran `crt`. If the `project:` path in the ready line (or in `/__crt/health`) is not where you want `.crt/tasks/` to live, run `crt` from your project root — or `git init` it. `crt doctor` warns about it.

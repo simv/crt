@@ -53,4 +53,15 @@ describe("next skill (F-37, F-123)", () => {
     expect(readme).toContain('put `"worker": { "merge": true }` in `.crt/config.json`, or in `.crt/config.local.json` for yourself only.');
     expect(readme).toContain("Then it waits for the PR's checks and fixes what its own change broke.");
   });
+
+  it("works a review item in place through `crt tasks --review`, never staging its file (F-139)", () => {
+    expect(skill).toContain("## Working a review item (`--review`)");
+    expect(skill).toContain("Every `crt tasks` and `crt task` command gets `--review`.");
+    expect(skill).toContain("never build a path under the CRT home yourself");
+    expect(skill).toContain("the branch is `crt/<R-NN>-<slug>`");
+    expect(skill).toContain("never copy it into `.crt/tasks/`, and never stage it");
+    const tasks = readFileSync(join(repo, "plugin", "skills", "tasks", "SKILL.md"), "utf8");
+    expect(tasks).toContain("With `--review` in `$ARGUMENTS` (PRD-zero F-139)");
+    expect(tasks).toContain("read nothing under the CRT home yourself");
+  });
 });
