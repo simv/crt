@@ -1,10 +1,10 @@
 ---
 id: CRT-0052
 title: M31 — Hand-over: crt handoff delivers the kept items to the project as one branch and one pull request
-status: review
+status: done
 priority: high
 created: 2026-11-16T13:20:00+08:00
-updated: 2026-11-16T15:56:00+08:00
+updated: 2026-11-16T16:02:00+08:00
 url: null
 route: null
 session: null
@@ -62,3 +62,4 @@ Read `docs/PRD-zero.md` §5.5, §6.4, §7 (N-35), §11 and §12 rule 7 first. De
 - 2026-11-16T15:56+08:00 — Should items: the bundle (F-137) is built; F-139 is built as `--review` in /crt:tasks and /crt:next, through `crt tasks --review --json`, the task file never staged.
 - 2026-11-16T15:56+08:00 — Manual row: needs the trial app's repository and Simon's go-ahead to open a pull request there (outward-facing); left unticked here and carried to CRT-0053 with the other Manual rows for the one pass before `v0.8.0` is tagged, as CRT-0049 to CRT-0051 did.
 - 2026-11-16T15:56+08:00 — ready for review: added handoff.ts, test/handoff.test.ts; changed home.ts (Handover, recordHandover), cli.ts, args.ts, both worker skills, docs/cli.md, docs/troubleshooting.md, docs/PRD-zero.md (As built (M31)), CLAUDE.md, the reviewer agent.
+- 2026-11-16T16:02+08:00 — done; closed in https://github.com/simv/crt/pull/128 (checks green on ubuntu and windows, e2e green on 82d8a9b; the Manual row is carried to CRT-0053).
