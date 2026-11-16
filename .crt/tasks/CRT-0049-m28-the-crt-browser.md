@@ -1,10 +1,10 @@
 ---
 id: CRT-0049
 title: M28 — The CRT browser: crt launches Chrome or Edge and injects the loader over the DevTools protocol
-status: review
+status: done
 priority: high
 created: 2026-11-16T13:20:00+08:00
-updated: 2026-11-16T16:45:00+08:00
+updated: 2026-11-16T17:00:00+08:00
 url: null
 route: null
 session: null
@@ -56,3 +56,5 @@ Read `docs/PRD-zero.md` §5.1, §6.1, §7 (N-31, N-32), §11 and §12 first. Dec
 - 2026-11-16T16:35+08:00 — one more from the e2e: a browser that restores its last session at launch has tabs already on their pages when CRT attaches, so they had no loader; such a tab (a loopback URL at attach) is reloaded once after it is prepared (unit row against the fake browser's `restored` mode). `npm run check`: typecheck, lint, build and 859 unit rows green; the one red row, `test/providers/exec.test.ts` "kills a process and its children", is red on `main` in this cloud container too (nothing reaps the killed grandchild there) and is untouched by this change. `npm run e2e`: `browser.spec.ts` green (and 3× in a row serially); in the container `embedded.spec.ts` "health says embedded …" fails the same way on `main` (the second start does not see the first one's health in time there). CI is the judge for both.
 - 2026-11-16T16:40+08:00 — **Manual row carried to CRT-0053, not ticked.** This session runs in a Linux cloud container: there is no Windows, no real Chrome or Edge, and no trial app here, so the row cannot be run where the code was built. What is verified is Chromium 153 on Linux over the real pipe (e2e). The Windows run — handle inheritance for the two extra stdio pipes is the part worth seeing — moves to CRT-0053's Definition of Done as its own row, to be done on Simon's machine before `v0.8.0` is tagged; if the pipe does not work there, PRD-zero §12 rule 2 applies (stop and report, no debug port). Status → review with that one box open, on Simon's instruction of 2026-11-16 to carry the v0.8 work through.
 - 2026-11-16T16:50+08:00 — prd-reviewer run before the PR: no blocking findings; applied its four notes (PRD-zero §5.1 now names every protocol call including the one reload and the blank-tab step, the §10 row reworded to the per-document form, two test titles end with the bare requirement id, `files:` lists what was touched — `args.ts` needed no change).
+- 2026-11-16T16:55+08:00 — CI on the PR: `check (windows-latest)` failed once on a test row of this PR that compared a POSIX-rooted path (`CRT_HOME` is made absolute, so Windows adds the drive); fixed in the test. The fake-browser rows passed on Windows, so two extra stdio pipes do reach a child process there. All checks green on the fixed head, e2e included.
+- 2026-11-16T17:00+08:00 — done; closed in https://github.com/simv/crt/pull/125 (the Manual Windows row stays open in CRT-0053, as logged above).
