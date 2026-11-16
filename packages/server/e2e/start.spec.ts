@@ -199,7 +199,7 @@ test("a project that is not set up: `crt` starts as a guest, a Send lands as R-0
   const json = JSON.parse((await run(["review", "--json"])).lines.join("\n")) as { review: string; status: string; items: Array<Record<string, unknown>>; totals: unknown };
   expect(json).toMatchObject({ review, status: "open", totals: { items: 1, kept: 1, routes: 1 } });
   expect(json.items).toEqual([{ id: "R-01", keep: true, order: 1, title: "Cart total excludes applied discount", priority: "normal", status: "backlog", route: "/cart", branch: null, commit: SHA, file: "R-01-cart-total-excludes-applied-discount.md" }]);
-  expect((await run(["review"])).lines).toEqual(["R-01  normal  kept     /cart  Cart total excludes applied discount", `Review ${review}: 1 item · 1 kept · 1 route`]);
+  expect((await run(["review"])).lines).toEqual(["R-01  normal  kept     /cart  Cart total excludes applied discount", `Review ${review}: 1 item · 1 kept · 1 route`, "Next: `crt handoff` sends the kept items to the project."]);
   expect((await run(["review", "list"])).lines).toEqual([`${review}  open    1 item, 1 kept  (current)`]);
   const listed = await run(["tasks", "--review"]);
   expect(listed.lines[0]).toMatch(/^R-01 {2}backlog {2}stub {2}normal {2}Cart total excludes applied discount {2}\(\d{4}-\d{2}-\d{2}\)$/);

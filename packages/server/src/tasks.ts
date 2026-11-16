@@ -423,6 +423,48 @@ export function findTaskFile(tasksDir: string, id: string): string | null {
   return null;
 }
 
+/**
+ * PRD-zero F-135: set a task's `priority:` — the one thing the review page rewrites in a task file.
+ * A textual edit of the two frontmatter lines (`priority:`, `updated:`) and one appended Log line,
+ * so everything else in the file stays byte for byte. Returns the previous priority, or null when
+ * the file is not there or has no frontmatter; an unchanged priority writes nothing.
+ */
+export function setTaskPriority(tasksDir: string, id: string, priority: TaskPriority, now: Date = new Date(), by = "the review page (`crt review`)"): TaskPriority | null {
+  const path = findTaskFile(tasksDir, id);
+  if (!path) return null;
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+  const fm = /^---\n([\s\S]*?)\n---\n/.exec(text);
+  if (!fm) return null;
+  const was = /^priority:[ \t]*(\S*)[ \t]*$/m.exec(fm[1]!)?.[1];
+  const previous: TaskPriority = (TASK_PRIORITIES as readonly string[]).includes(was ?? "") ? (was as TaskPriority) : "normal";
+  if (was === priority) return previous;
+  let head = fm[1]!;
+  head = /^priority:.*$/m.test(head) ? head.replace(/^priority:.*$/m, `priority: ${priority}`) : `${head}\npriority: ${priority}`;
+  head = /^updated:.*$/m.test(head) ? head.replace(/^updated:.*$/m, `updated: ${localIso(now)}`) : `${head}\nupdated: ${localIso(now)}`;
+  const body = text.slice(fm[0].length).replace(/\s+$/, "");
+  const line = `- ${logStamp(now)} — priority ${previous} → ${priority}, set on ${by}.`;
+  writeFileSync(path, `---\n${head}\n---\n${body}${/^## Log[ \t]*$/m.test(body) ? "" : "\n\n## Log"}\n${line}\n`, "utf8");
+  return previous;
+}
+
+/** The first paragraph of a task's `## Summary`, on one line, for a list that shows more than the title (PRD-zero F-135). "" when unreadable. */
+export function taskSummaryText(path: string, max = 320): string {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return "";
+  }
+  const section = /^## Summary[ \t]*\n([\s\S]*?)(?=^## |(?![\s\S]))/m.exec(text)?.[1] ?? "";
+  const first = section.trim().split(/\n[ \t]*\n/)[0]?.replace(/\s+/g, " ").trim() ?? "";
+  return first.length > max ? `${first.slice(0, max - 1).trimEnd()}…` : first;
+}
+
 /** How many task files the directory holds (the ready line's "N tasks", F-5; health's `tasks`, F-78). */
 export function countTaskFiles(tasksDir: string): number {
   return safeReaddir(tasksDir).filter((name) => TASK_FILE_RE.test(name)).length;

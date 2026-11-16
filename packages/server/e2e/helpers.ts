@@ -38,6 +38,8 @@ export const PORTS = {
   start: { from: 4480, to: 4489 },
   /** browser.spec.ts (PRD-zero M28): the servers that launch the CRT browser. */
   browser: { from: 4450, to: 4459 },
+  /** review.spec.ts (PRD-zero M30): the servers behind the review page. */
+  review: { from: 4440, to: 4449 },
 } as const;
 
 /** The app origin: what every browser spec navigates to (F-110). */
@@ -68,7 +70,7 @@ export const E2E_HOME = join(here, ".project", ".home");
  * PRD-zero F-129) and `port` in .crt/config.json (no `mode`: embedded is the default, F-91). The
  * port must be in the spec's `PORTS` range.
  */
-export function scratch(spec: "arrival" | "embedded" | "start" | "browser", name: string, port: number): string {
+export function scratch(spec: "arrival" | "embedded" | "start" | "browser" | "review", name: string, port: number): string {
   const range = PORTS[spec];
   if (port < range.from || port > range.to) throw new Error(`${spec}.spec.ts owns ports ${range.from}–${range.to} (e2e/helpers.ts PORTS); got ${port}`);
   const root = join(here, ".project", `${spec}-${name}`);

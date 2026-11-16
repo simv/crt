@@ -13,7 +13,8 @@
  *   crt init [--yes] [--no-instructions] [--snippet [--json]]              F-100 (explicit, itemised, idempotent; the F-101 section, the F-102 snippet)
  *   crt tasks [--json] [--review [name]]                                 F-33 (also refreshes the README index, F-34); PRD-zero F-134 (a review's items)
  *   crt task <ID> [--validate] [--review [name]]                         F-33 (F-32 format check); `R-NN` ids live in a review (PRD-zero F-134)
- *   crt review [--json] | crt review list | crt review new [name]       PRD-zero F-133 (the current review, every review, a new one)
+ *   crt review [--json] [--open|--no-open] [--port <n>]                  PRD-zero F-135 (the current review as a list; on a terminal its page, /__crt/review)
+ *   crt review list | crt review new [name]                              PRD-zero F-133 (every review, a new one)
  *   crt providers [--json] [--refresh]                                   F-45 (every provider's state + the F-44 decision)
  *   crt mcp                                                              F-49 (stdio write_task server; spawned by an agent, not by hand)
  *   crt skills install [--provider <id>] [--global] [--dir <path>]       F-58 (the plugin's skills as portable Agent Skills)
@@ -31,6 +32,7 @@ import { readConfig } from "./config.js";
 import { CrtError } from "./errors.js";
 import { runInit } from "./init.js";
 import { findProjectRoot } from "./project.js";
+import type { ServeResult } from "./serve.js";
 import { readStoreConfig, storeKind } from "./store.js";
 import { looksLikeTarget } from "./target.js";
 import { findTaskFile, listTasks, TASK_ID_RE, validateTaskText, writeIndex } from "./tasks.js";
@@ -52,7 +54,8 @@ const USAGE = [
   "      [--yes] [--no-instructions] [--snippet [--json]]",
   "  crt tasks [--json] [--review [name]]",
   "  crt task <ID> [--validate] [--review [name]]",
-  "  crt review              the current review: its items, kept or dropped, and the totals [--json]",
+  "  crt review              the current review: its items, kept or dropped, and the totals [--json];",
+  "                          on a terminal it also opens the review page [--open | --no-open] [--port <n>]",
   "  crt review list         every review of this project, with its status and counts",
   "  crt review new [name]   start a new review (named after today's date by default)",
   "  crt providers [--json] [--refresh]",
@@ -139,22 +142,7 @@ async function main(argv: string[]): Promise<number> {
         overlayPath: fileURLToPath(new URL("./overlay.js", import.meta.url)),
         intakePromptPath: fileURLToPath(new URL("./intake.md", import.meta.url)),
       });
-      if (result.kind === "reused") return 0;
-      const { handle } = result;
-      // F-77: Ctrl+C / SIGTERM close cleanly and exit 0; a second Ctrl+C within 2 s exits at once.
-      let stopping = false;
-      const stop = () => {
-        if (stopping) process.exit(0);
-        stopping = true;
-        const n = handle.openSessions();
-        // PRD-zero F-128: stopping CRT closes the CRT browser, and the line says so.
-        console.log(`Stopping CRT … ${n} session${n === 1 ? "" : "s"} ended; ${handle.browser?.isOpen ? "the CRT browser was closed; " : ""}written task files are kept.`);
-        void handle.close().then(() => process.exit(0));
-        setTimeout(() => process.exit(0), FORCE_EXIT_MS).unref();
-      };
-      process.on("SIGINT", stop);
-      process.on("SIGTERM", stop);
-      return -1; // keep running
+      return keepRunning(result);
     }
     case "doctor": {
       const { runDoctor } = await import("./doctor.js");
@@ -200,7 +188,7 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     case "review": {
-      // PRD-zero F-133: the forms that read and start reviews; the page is M30.
+      // PRD-zero F-133: the forms that read and start reviews. F-135: the list, and on a terminal its page.
       const root = findProjectRoot();
       const { createReview, currentReview, listReviews, REVIEW_NAME_RE } = await import("./home.js");
       const { noReviewLine, renderReviewItems, reviewView, totalsLine } = await import("./review.js");
@@ -242,7 +230,38 @@ async function main(argv: string[]): Promise<number> {
       const view = reviewView(review);
       for (const line of renderReviewItems(view)) console.log(line);
       console.log(`Review ${view.name}: ${totalsLine(view.totals)}`);
-      return 0;
+      console.log("Next: `crt handoff` sends the kept items to the project.");
+      // F-135: on a terminal the page opens too (`--open` asks for it anywhere, `--no-open` never) — on the CRT
+      // already serving this project, else on one started here, which then runs until Ctrl+C.
+      const { isInteractive, createTerminalPrompter } = await import("./prompt.js");
+      const interactive = isInteractive({ yes: flags.yes === true });
+      if (flags["no-open"] === true || !(flags.open === true || interactive)) return 0;
+      const { REVIEW_PATH } = await import("./routes.js");
+      const { findCrtFor, openBrowser, serve } = await import("./serve.js");
+      const running = await findCrtFor(root, portFlag(flags.port) ?? configOf(root).port);
+      if (running) {
+        const { hasReviewPage } = await import("./probes.js");
+        if (!(await hasReviewPage(running.port))) {
+          console.log(`crt: the CRT at ${running.url} is ${running.health.version ?? "an older version"}, which has no review page — run \`crt --replace\`, then \`crt review\``);
+          return 0;
+        }
+        openBrowser(running.url + REVIEW_PATH, (line) => console.log(line));
+        console.log(`Opened ${running.url}${REVIEW_PATH} (CRT is already serving this project).`);
+        return 0;
+      }
+      return keepRunning(
+        await serve({
+          command: "serve",
+          mode: "embedded",
+          port: portFlag(flags.port),
+          open: true,
+          openPath: REVIEW_PATH,
+          interactive,
+          ...(interactive ? { prompt: createTerminalPrompter({ input: process.stdin, output: process.stdout }) } : {}),
+          overlayPath: fileURLToPath(new URL("./overlay.js", import.meta.url)),
+          intakePromptPath: fileURLToPath(new URL("./intake.md", import.meta.url)),
+        }),
+      );
     }
     case "tasks": {
       const root = findProjectRoot();
@@ -353,6 +372,28 @@ function configOf(root: string): ReturnType<typeof readConfig> {
 
 function tasksDirOf(root: string): string {
   return resolve(root, readConfig(root).tasksDir);
+}
+
+/**
+ * A started server runs until it is stopped; a reused one means this command is done.
+ * F-77: Ctrl+C / SIGTERM close cleanly and exit 0; a second Ctrl+C within 2 s exits at once.
+ */
+function keepRunning(result: ServeResult): number {
+  if (result.kind === "reused") return 0;
+  const { handle } = result;
+  let stopping = false;
+  const stop = () => {
+    if (stopping) process.exit(0);
+    stopping = true;
+    const n = handle.openSessions();
+    // PRD-zero F-128: stopping CRT closes the CRT browser, and the line says so.
+    console.log(`Stopping CRT … ${n} session${n === 1 ? "" : "s"} ended; ${handle.browser?.isOpen ? "the CRT browser was closed; " : ""}written task files are kept.`);
+    void handle.close().then(() => process.exit(0));
+    setTimeout(() => process.exit(0), FORCE_EXIT_MS).unref();
+  };
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+  return -1; // keep running
 }
 
 /** `--review [name]` as `serve()` takes it: absent, `true`, or a valid review name. */

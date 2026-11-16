@@ -255,3 +255,15 @@ export function addReviewItem(dir: string, id: string): ReviewManifest | null {
   }
   return manifest;
 }
+
+/**
+ * F-135: the reviewer's choices — which items are kept and in what order — replace `items` (ids in
+ * the order given, `order` 1…n). Everything else in the manifest stays. Returns the manifest written.
+ */
+export function writeReviewItems(dir: string, items: readonly Pick<ReviewItem, "id" | "keep">[]): ReviewManifest | null {
+  const manifest = readReview(dir);
+  if (!manifest) return null;
+  manifest.items = items.map((item, i) => ({ id: item.id, keep: item.keep, order: i + 1 }));
+  writeReview(dir, manifest);
+  return manifest;
+}
