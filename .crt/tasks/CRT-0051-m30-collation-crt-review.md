@@ -1,10 +1,10 @@
 ---
 id: CRT-0051
 title: M30 — Collation: crt review lists the review and its page keeps, drops, prioritises and orders the items
-status: review
+status: done
 priority: normal
 created: 2026-11-16T13:20:00+08:00
-updated: 2026-11-16T15:40:00+08:00
+updated: 2026-11-16T15:45:00+08:00
 url: null
 route: null
 session: null
@@ -50,3 +50,5 @@ Read `docs/PRD-zero.md` §5.4, §6.3 and §13 first. Decisions already taken: co
 - 2026-11-16T15:40+08:00 — built: `review-page.ts` (the page, `GET /__crt/review/items`, `PATCH /__crt/review/items/<id>`, `PATCH /__crt/review/groups`, `GET /__crt/review/assets/<id>/<file>`, the reducers `groupByRoute` / `setKeep` / `moveItem` / `moveGroup`), `writeReviewItems` in `home.ts`, `setTaskPriority` and `taskSummaryText` in `tasks.ts`, `findCrtFor` and `openPath` in `serve.ts`, `hasReviewPage` in `probes.ts`, and `crt review [--open | --no-open] [--port <n>]`. The origin rule is stricter than the Ask: a loopback `Host`, the server's own `Origin` when one is sent, and `Sec-Fetch-Site` `same-origin` or `none` when a browser sends it, all before CORS. Tests: `test/review-page.test.ts` (19 rows) and `e2e/review.spec.ts` (4 rows: keyboard, every control by Tab and by pointer, an app page refused and `crt review --open` on a running and on a fresh server, no review). `npm run check`: 912 pass; the one failure is `test/providers/exec.test.ts` (process-group kill), which fails the same way on `main` in this cloud container. `npx playwright test`: 84 pass; `embedded.spec.ts:148` fails here as it does on `main` in this container (the reuse row), and `chat.spec.ts:401` failed once in the full run and passes on its own. `docs/cli.md` has the page; `docs/PRD-zero.md` §5.4 has an "As built (M30)" list.
 - 2026-11-16T15:40+08:00 — Ask 6 (`Suggest merges`, a Should) is left out: it needs a session whose proposal is a structured list the page can accept or refuse, and the session machinery has no such shape yet. Said in the PRD's "As built (M30)" list.
 - 2026-11-16T15:40+08:00 — Manual row: run here on a five-item review seeded with stub Sends on three routes (one dropped, light and dark checked by eye); no trial app or agent login in this cloud session, so the pass on real items, with its screenshot, is carried to CRT-0053 with the other Manual rows for the one pass before `v0.8.0` is tagged.
+- 2026-11-16T15:42+08:00 — the requirements review (prd-reviewer) found every hunk traceable to F-135 and no invariant broken; its one note, the favicon and home link written out instead of `FAVICON_PATH` / `CRT_PREFIX`, is fixed.
+- 2026-11-16T15:45+08:00 — done; closed in https://github.com/simv/crt/pull/127 (checks green on ubuntu and windows, e2e green; the Manual row is carried to CRT-0053).
