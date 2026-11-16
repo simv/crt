@@ -104,6 +104,17 @@ describe("a set-up project without --review writes exactly as before (F-129, F-1
     expect(lines).toEqual([]);
   });
 
+  it("a .git it cannot read is reported once in a set-up project too (F-134)", () => {
+    setUp();
+    put(".git/HEAD", "what\n");
+    const store = openStore({ root, env, log });
+    const capture = store.writeCapture(samplePost(), NOW);
+    const written = store.createTask(task({ captureId: capture.id }), NOW);
+    store.createTask(task({ title: "Second thing" }), NOW);
+    expect(lines).toEqual(["crt: could not read the current commit from .git (HEAD is neither a ref nor a commit)"]);
+    expect(parseTask(readFileSync(join(root, written.path), "utf8")).frontmatter).toMatchObject({ branch: null, commit: null });
+  });
+
   it("the git state is the one at capture time, not at write time (F-134)", () => {
     setUp();
     onMain();

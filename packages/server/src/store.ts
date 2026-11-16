@@ -118,14 +118,15 @@ export function openStore(opts: StoreOptions): Store {
   const env = opts.env ?? process.env;
   const base = readConfig(root);
   const { kind, guest } = storeKind(root, { review: opts.review !== undefined && opts.review !== false, config: base });
-  return kind === "project" ? projectStore(root, base.tasksDir) : reviewStore(root, guest, typeof opts.review === "string" ? opts.review : null, env, opts.log, opts.onCreate ?? announceOnce(opts.log));
+  return kind === "project" ? projectStore(root, base.tasksDir, opts.log) : reviewStore(root, guest, typeof opts.review === "string" ? opts.review : null, env, opts.log, opts.onCreate ?? announceOnce(opts.log));
 }
 
 /** The pre-0.8 store: `<root>/.crt/` and the tasks directory (absolute, or relative to the root). */
-export function projectStore(root: string, tasksDirSetting: string): Store {
+export function projectStore(root: string, tasksDirSetting: string, log?: (line: string) => void): Store {
   const tasksDir = resolve(root, tasksDirSetting);
   /** F-134: the git state at capture time, by capture id (a restart forgets; `createTask` then reads it afresh). */
   const git = new Map<string, GitState>();
+  const gitState = unreadOnce(root, log);
   return {
     kind: "project",
     guest: false,
@@ -136,14 +137,14 @@ export function projectStore(root: string, tasksDirSetting: string): Store {
     tasksLabel: () => displayPath(root, tasksDir) || ".",
     writeCapture: (body, now) => {
       const written = writeCaptureIn(capturesDir(root), body, now);
-      git.set(written.id, readGitState(root));
+      git.set(written.id, gitState());
       return written;
     },
     captureDir: (id) => join(capturesDir(root), id),
     pruneCaptures: (now) => (existsSync(capturesDir(root)) ? pruneCapturesIn(capturesDir(root), now) : []),
     createTask: (input, now) => {
       const state = input.captureId ? git.get(input.captureId) : undefined;
-      const created = createTask(root, tasksDir, input, now, state ? { git: state } : {});
+      const created = createTask(root, tasksDir, input, now, { git: state ?? gitState() });
       return { id: created.id, path: displayPath(root, created.path), created };
     },
     readConfig: () => readConfig(root),
@@ -155,15 +156,19 @@ export function projectStore(root: string, tasksDirSetting: string): Store {
   };
 }
 
+/** F-134: the project's git state now; PRD-zero §12 rule 6: a `.git` shape that was not read is said once per run, and the items carry nulls. */
+function unreadOnce(root: string, log: ((line: string) => void) | undefined): () => GitState {
+  let warned = false;
+  return () =>
+    readGitState(root, (why) => {
+      if (!warned) log?.(`crt: could not read the current commit from .git (${why})`);
+      warned = true;
+    });
+}
+
 function reviewStore(root: string, guest: boolean, named: string | null, env: NodeJS.ProcessEnv, log: ((line: string) => void) | undefined, onCreate: OnCreate): Store {
   const home = projectReviewsDir(root, env);
-  let warnedGit = false;
-  const gitState = (): GitState =>
-    readGitState(root, (why) => {
-      // PRD-zero §12 rule 6: say once which shape was not read; the items carry nulls.
-      if (!warnedGit) log?.(`crt: could not read the current commit from .git (${why})`);
-      warnedGit = true;
-    });
+  const gitState = unreadOnce(root, log);
   /** A capture stays with the review it was written into (and remembers the git state it saw, F-134). */
   const captures = new Map<string, { dir: string; git: GitState }>();
   /** `--review <name>`: that review when it is open, else it is created by the first capture. */

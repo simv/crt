@@ -31,6 +31,7 @@ import { readConfig } from "./config.js";
 import { CrtError } from "./errors.js";
 import { runInit } from "./init.js";
 import { findProjectRoot } from "./project.js";
+import { readStoreConfig, storeKind } from "./store.js";
 import { looksLikeTarget } from "./target.js";
 import { findTaskFile, listTasks, TASK_ID_RE, validateTaskText, writeIndex } from "./tasks.js";
 import { packageVersion } from "./version.js";
@@ -190,7 +191,7 @@ async function main(argv: string[]): Promise<number> {
         version: packageVersion(),
         provider: async () => {
           const { ProviderRegistry } = await import("./session.js");
-          const providers = new ProviderRegistry({ root, config: readConfig(root) });
+          const providers = new ProviderRegistry({ root, config: configOf(root) });
           await providers.refresh();
           return providers.resolve(null).provider;
         },
@@ -305,7 +306,7 @@ async function main(argv: string[]): Promise<number> {
       // --refresh (which bypasses a running server's cache) is accepted and changes nothing here.
       const root = findProjectRoot();
       const { ProviderRegistry, renderProviders } = await import("./session.js");
-      const providers = new ProviderRegistry({ root, config: readConfig(root) });
+      const providers = new ProviderRegistry({ root, config: configOf(root) });
       await providers.refresh();
       if (flags.json === true) {
         console.log(JSON.stringify(providers.payload(), null, 2));
@@ -322,7 +323,7 @@ async function main(argv: string[]): Promise<number> {
       const providerId = stringFlag(flags.provider, "--provider <id>");
       const { ProviderRegistry } = await import("./session.js");
       const { installSkills } = await import("./skills.js");
-      const providers = new ProviderRegistry({ root, config: readConfig(root) });
+      const providers = new ProviderRegistry({ root, config: configOf(root) });
       let profile = null;
       if (providerId) {
         profile = providers.get(providerId);
@@ -340,6 +341,14 @@ async function main(argv: string[]): Promise<number> {
       console.log(USAGE);
       return 0;
   }
+}
+
+/**
+ * The configuration a start in `root` would read (PRD-zero F-130): for a guest or a project whose
+ * `store` is `review`, the machine-local file under the CRT home over the project's two.
+ */
+function configOf(root: string): ReturnType<typeof readConfig> {
+  return readStoreConfig(root, storeKind(root, { config: readConfig(root) }).kind);
 }
 
 function tasksDirOf(root: string): string {
