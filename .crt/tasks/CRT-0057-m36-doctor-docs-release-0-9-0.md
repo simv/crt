@@ -1,10 +1,10 @@
 ---
 id: CRT-0057
 title: M36 — The handoff row in crt doctor, the destinations reference page with a worked example, release 0.9.0
-status: backlog
+status: review
 priority: normal
 created: 2026-11-16T19:20:00+08:00
-updated: 2026-11-16T19:20:00+08:00
+updated: 2026-11-16T19:44:00+08:00
 url: null
 route: null
 session: null
@@ -33,10 +33,10 @@ No page capture: created from `docs/PRD-destinations.md` milestone M36.
 
 ## Definition of Done
 - [ ] `crt doctor` prints the `handoff` row for a default, a configured built-in and an external destination whose file is missing, importing nothing (F-149, N-39).
-- [ ] `docs/destinations.md` is the tenth reference page; `test/docs.test.ts` and the CI filter name ten (F-150).
+- [x] `docs/destinations.md` is the tenth reference page; `test/docs.test.ts` and the CI filter name ten (F-150).
 - [ ] The worked example in the page is loaded and run by a test against a local listener (F-150).
-- [ ] Every §9 row is applied and every §10 row ticked with evidence (F-150).
-- [ ] Versions and pins are `0.9.0` / `@0.9`; `test/skill-pin.test.ts` green.
+- [x] Every §9 row is applied and every §10 row ticked with evidence (F-150).
+- [x] Versions and pins are `0.9.0` / `@0.9`; `test/skill-pin.test.ts` green.
 - [ ] `npm run check` green; `npm run e2e` green.
 - [ ] Manual (Simon): `git tag v0.9.0 && git push origin v0.9.0`, the release workflow green, the staged version promoted on npmjs.com.
 
@@ -45,3 +45,9 @@ Read `docs/PRD-destinations.md` §6.4, §9, §10 and §12 rule 7 first. Needs M3
 
 ## Log
 - 2026-11-16T19:20+08:00 — created from docs/PRD-destinations.md by the planning session that wrote it (Claude Code cloud session 01KVgoZdv6kTpuPsfwiirKoq), on Simon's go-ahead of 2026-11-16 ("stop at GitHub issues for now, with the system built so we can add more later, or others can").
+- 2026-11-16T19:44+08:00 — claimed (in_progress) and built in the same pull request as CRT-0054 (https://github.com/simv/crt/pull/131): the `handoff` row in `doctor.ts`, ` — to <title>` on the review page, `docs/destinations.md`, the other pages, `CLAUDE.md`, the reviewer agent, the `*v0.9: …*` notes in PRD.md and PRD-zero.md, PRD-destinations §14 "As built", versions `0.9.0` and pins `@0.9`.
+- 2026-11-16T19:44+08:00 — Simon, 2026-11-16: "create a 'send to for own command' plugin as a proof of concept and example for how others can build a plugin". Built as the worked example of F-150 instead of the HTTP poster this task's Ask named: `packages/server/examples/destination-command.mjs`, shipped as `claude-review-tool/destination-command` (`files` gains `examples`). It runs the developer's command once per item, the item as JSON on its standard input.
+- 2026-11-16T19:44+08:00 — verified: DoD 2 — `test/docs.test.ts` with ten pages, `destinations.test.ts` "lists every built-in destination as `crt handoff --list` prints it"; the CI filter comment names ten. DoD 4 — every §9 row applied; §10 has nine rows ticked with evidence, the other two wait on the Manual rows and say so. DoD 5 — `0.9.0` in `packages/server/package.json`, both manifests and the lockfile, `@0.9` in the seven skills, `test/skill-pin.test.ts` green.
+- 2026-11-16T19:44+08:00 — DoD 1 left open as written: the row is printed for a configured built-in and for an outside destination whose file is missing (`doctor.test.ts` "adds the handoff row only when the config chose a destination, and warns when its module is missing"), importing nothing — but there is no row for the default, on purpose (PRD-destinations §14.6: a project that configures nothing sees the `crt doctor` of 0.8). DoD 3 left open as written: the example is run by the tests against a command of the fixture's, not a local listener ("runs the command once per kept item with the item as JSON on its standard input, and records what it answers", "stops at the item the command fails on, and sends only the rest next time"). Simon to say whether the two rows may be read that way.
+- 2026-11-16T19:44+08:00 — DoD 6: as CRT-0054's last Log line — left unticked until CI says so. No `npm run screenshots`: the overlay is unchanged and the review page differs only when a destination is configured.
+- 2026-11-16T19:44+08:00 — DoD 7 (Manual, Simon) open: the tag and the promotion follow the merge.

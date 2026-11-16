@@ -21,6 +21,7 @@ import { join, resolve } from "node:path";
 import { findBrowser } from "./browser.js";
 import { type CrtMode, readConfig } from "./config.js";
 import { currentReview, projectReviewsDir } from "./home.js";
+import { destinationFact, readDestinationsConfig } from "./destinations/index.js";
 import { reviewView } from "./review.js";
 import { isInitialised, missingIgnoreLines } from "./init.js";
 import { type InstructionFile, instructionsStatus, README_FILE } from "./instructions.js";
@@ -55,6 +56,8 @@ export interface DoctorFacts {
   guest?: { reviewsDir: string };
   /** PRD-zero F-131: the project's current review; null when there is none; omitted when not looked at. */
   review?: { name: string; items: number; kept: number } | null;
+  /** PRD-destinations F-149: the destination `handoff.to` names, and whether it is there; omitted when the config names none. */
+  handoff?: { name: string; ok: boolean; title: string; detail: string };
   /** PRD-zero F-131: the browser `crt browse` would launch (`version` null when `--version` gave none within 3 s); null when none was found; omitted when not looked for. */
   browser?: { name: string; exe: string; version: string | null } | null;
   /** F-103: the mode and which config file set it (null: the embedded default, or a flag). */
@@ -119,6 +122,11 @@ export function doctorRows(f: DoctorFacts): DoctorReport {
         ? { status: "--", name: "review", detail: "none" }
         : { status: "ok", name: "review", detail: `${f.review.name} — ${f.review.items} item${f.review.items === 1 ? "" : "s"}, ${f.review.kept} kept` },
     );
+  }
+  if (f.handoff) {
+    // PRD-destinations F-149: where plain `crt handoff` sends a review, when the config chose — nothing is imported or run to say so.
+    const h = f.handoff;
+    rows.push({ status: h.ok ? "ok" : "warn", name: "handoff", detail: `${h.name}${h.title !== h.name ? ` (${h.title})` : ""} — ${h.detail}` });
   }
   const embedded = f.mode.mode === "embedded";
   rows.push({ status: "ok", name: "mode", detail: `${f.mode.mode}${f.mode.source ? ` (.crt/${f.mode.source === "local" ? "config.local.json" : "config.json"})` : ""}` });
@@ -264,6 +272,8 @@ export async function collectDoctorFacts(opts: CollectOptions): Promise<DoctorFa
   const review = currentReview(root, env);
   const totals = review ? reviewView(review).totals : null;
   facts.review = review && totals ? { name: review.name, items: totals.items, kept: totals.kept } : null;
+  const destinations = readDestinationsConfig(root, env);
+  if (destinations.defaultTo) facts.handoff = { name: destinations.defaultTo, ...destinationFact(destinations.defaultTo, destinations, root) };
   if (opts.browser !== false) facts.browser = await browserFact(config.browserCommand, env);
   if (opts.target) {
     if (config.target && config.targetSource) {

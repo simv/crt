@@ -20,10 +20,10 @@ Release: re-run `npm run screenshots` when the overlay's UI changed since the la
 
 | Path | What |
 |---|---|
-| `packages/server` | npm package `claude-review-tool` — the `crt` CLI, the CRT server (embedded and proxy modes), capture store, session manager, the `claude-review-tool/{react,vite,loader}` entries; its `dist/plugin-marketplace/` is the plugin as `crt setup` installs it |
+| `packages/server` | npm package `claude-review-tool` — the `crt` CLI, the CRT server (embedded and proxy modes), capture store, session manager, the `claude-review-tool/{react,vite,loader,destination}` entries, the example destination under `examples/`; its `dist/plugin-marketplace/` is the plugin as `crt setup` installs it |
 | `packages/overlay` | in-page UI and the loader, bundled into the server |
 | `plugin/` | the Claude Code plugin (skills + hooks); marketplace manifest at `.claude-plugin/marketplace.json` |
-| `docs/` | the nine reference pages the README indexes, the product requirements documents (`PRD.md`, `PRD-providers.md`, `PRD-setup.md`, `PRD-embedded.md`, `PRD-polish.md`, `PRD-chat.md`, `PRD-zero.md` — below), the design review, the spikes, the brand files and the images |
+| `docs/` | the ten reference pages the README indexes, the product requirements documents (`PRD.md`, `PRD-providers.md`, `PRD-setup.md`, `PRD-embedded.md`, `PRD-polish.md`, `PRD-chat.md`, `PRD-zero.md`, `PRD-destinations.md` — below), the design review, the spikes, the brand files and the images |
 | `.crt/tasks` | this repo's own work items, in CRT's task format |
 
 ## The PRDs
@@ -37,5 +37,6 @@ The requirement IDs (F-n, N-n) referenced in code comments, tests, commits and P
 - [PRD-polish.md](PRD-polish.md) — v0.6: the brand mark, the landing page as a status page, the README as a front page with the reference under `docs/`, reproducible screenshots, release 0.6.0, F-112…F-118, N-23…N-27, M20–M24.
 - [PRD-chat.md](PRD-chat.md) — v0.7: compact chat (the first bubble shows the developer's words, the agent's proposal folds to its restatement and item count, the full text one click away), the close-out in the PR, release 0.7.0, the worker's CI wait and opt-in merge, F-119…F-123, N-28…N-30, M25–M27.
 - [PRD-zero.md](PRD-zero.md) — v0.8: zero integration (the CRT browser, the guest start that writes nothing into the project, reviews under `~/.crt`, the review page, `crt handoff`), release 0.8.0, F-125…F-139, N-31…N-36, M28–M32.
+- [PRD-destinations.md](PRD-destinations.md) — v0.9: hand-over destinations as modules behind one published contract (`claude-review-tool/destination`), the review as one Markdown or JSON file, GitHub Issues through `gh`, a publish recorded item by item, the command destination as the worked example, release 0.9.0, F-140…F-150, N-37…N-40, M33–M36.
 
 Alongside them: the design review ([design/design-review-2026-09-21.md](design/design-review-2026-09-21.md)), the spikes under [spikes/](spikes/), the brand files under [brand/](brand/README.md) and the images under [images/](images/README.md).

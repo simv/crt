@@ -1,6 +1,6 @@
 {
   "name": "claude-review-tool",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Claude Review Tool (CRT): annotate your local site in the browser, talk to Claude in-page, get a self-contained task file in your repo.",
   "license": "MIT",
   "homepage": "https://github.com/simv/crt#readme",
@@ -41,10 +41,16 @@
       "types": "./dist/integrations/vite.d.ts",
       "default": "./dist/integrations/vite.js"
     },
+    "./destination": {
+      "types": "./dist/destinations/api.d.ts",
+      "default": "./dist/destinations/api.js"
+    },
+    "./destination-command": "./examples/destination-command.mjs",
     "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "examples"
   ],
   "engines": {
     "node": ">=20"

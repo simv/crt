@@ -73,15 +73,21 @@ export interface ReviewItem {
   order: number;
 }
 
-export type HandoverDestination = "pr" | "branch" | "here" | "bundle";
-
-/** One `crt handoff` of a review (F-136): where it went and which id each kept item got there. */
+/**
+ * One `crt handoff` of a review (F-136; PRD-destinations F-142): where it went and which id each
+ * item got there. Written when the first item lands and after each one; `state: "partial"` until
+ * the destination finished — an entry without `state` is complete (every 0.8 entry is).
+ */
 export interface Handover {
-  to: HandoverDestination;
+  /** The destination's name: `pr`, `github`, or a name from the config. */
+  to: string;
   /** ISO-8601 with offset. */
   at: string;
-  /** Review id → the id in the destination (`R-01` → `CRT-0031`; unchanged in a bundle). */
+  /** Review id → the id in the destination (`R-01` → `CRT-0031`, `R-01` → `#412`; unchanged in a bundle). */
   items: Record<string, string>;
+  /** Review id → its link in the destination, when the destination has links. */
+  urls?: Record<string, string>;
+  state?: "partial";
   branch?: string;
   /** The ref the branch was made from (`origin/main`). */
   base?: string;
@@ -89,6 +95,8 @@ export interface Handover {
   url?: string;
   /** A bundle's folder. */
   dir?: string;
+  /** Anything else the destination recorded. */
+  [key: string]: unknown;
 }
 
 /** `review.json` (F-133). `handovers` is filled by `crt handoff` (M31). */
@@ -185,14 +193,61 @@ export function writeReview(dir: string, manifest: ReviewManifest): void {
   writeJsonAtomic(join(dir, REVIEW_FILE), manifest);
 }
 
-/** F-136: a hand-over succeeded — it is recorded and the review becomes `handed` (new feedback then starts a new review). */
-export function recordHandover(dir: string, handover: Handover): ReviewManifest | null {
+/** The hand-overs of a manifest as records, junk entries left out. */
+export function handoversOf(manifest: Pick<ReviewManifest, "handovers">): Handover[] {
+  return manifest.handovers.filter((h): h is Handover => !!h && typeof h === "object" && typeof (h as Handover).to === "string" && typeof (h as Handover).items === "object" && (h as Handover).items !== null);
+}
+
+function partialEntry(manifest: ReviewManifest, key: { to: string; at: string }): Handover | null {
+  return handoversOf(manifest).find((h) => h.to === key.to && h.at === key.at && h.state === "partial") ?? null;
+}
+
+/**
+ * PRD-destinations F-142: one item landed in a destination — it is recorded at once, in the
+ * `partial` entry of this run (`to` + `at`), which is created by the first item. A run that stops
+ * leaves exactly what landed.
+ */
+export function recordPublished(dir: string, key: { to: string; at: string }, item: { item: string; id: string; url?: string }): ReviewManifest | null {
   const manifest = readReview(dir);
   if (!manifest) return null;
-  manifest.handovers.push(handover);
-  manifest.status = "handed";
+  let entry = partialEntry(manifest, key);
+  if (!entry) {
+    entry = { to: key.to, at: key.at, items: {}, state: "partial" };
+    manifest.handovers.push(entry);
+  }
+  entry.items[item.item] = item.id;
+  if (item.url) entry.urls = { ...entry.urls, [item.item]: item.url };
   writeReview(dir, manifest);
   return manifest;
+}
+
+/** F-142: what a destination wants kept with its unfinished entry (the branch its images are on), so a later run can use it. */
+export function noteHandover(dir: string, key: { to: string; at: string }, fields: Record<string, string>): void {
+  const manifest = readReview(dir);
+  if (!manifest) return;
+  let entry = partialEntry(manifest, key);
+  if (!entry) {
+    entry = { to: key.to, at: key.at, items: {}, state: "partial" };
+    manifest.handovers.push(entry);
+  }
+  Object.assign(entry, fields);
+  writeReview(dir, manifest);
+}
+
+/**
+ * F-136, F-142: the destination finished — its entry loses `state`, gains what the destination
+ * recorded, and a `final` destination makes the review `handed` (new feedback then starts a new
+ * review). Returns the entry; null when nothing was recorded for this run.
+ */
+export function completeHandover(dir: string, key: { to: string; at: string }, fields: Record<string, string>, final: boolean): Handover | null {
+  const manifest = readReview(dir);
+  const entry = manifest ? partialEntry(manifest, key) : null;
+  if (!manifest || !entry) return null;
+  delete entry.state;
+  Object.assign(entry, fields);
+  if (final) manifest.status = "handed";
+  writeReview(dir, manifest);
+  return entry;
 }
 
 /** Every review of the project, oldest first (by `created`, then name). */

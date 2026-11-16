@@ -42,18 +42,25 @@ describe("package entries — the build (F-97, F-98)", () => {
     );
   });
 
-  it("every `exports` target is a built file under dist/, which `files` ships; `./loader`, `./react`, `./vite`, `./package.json` and nothing else, no main (F-97)", () => {
-    expect(Object.keys(pkg.exports)).toEqual(["./loader", "./react", "./vite", "./package.json"]);
+  it("every `exports` target is a built file under dist/, which `files` ships; `./loader`, `./react`, `./vite`, the two destination entries, `./package.json` and nothing else, no main (F-97, PRD-destinations F-143)", () => {
+    expect(Object.keys(pkg.exports)).toEqual(["./loader", "./react", "./vite", "./destination", "./destination-command", "./package.json"]);
     expect(pkg.main).toBeUndefined();
-    expect(pkg.files).toContain("dist");
+    expect(pkg.files).toEqual(["dist", "examples"]);
     for (const [entry, value] of Object.entries(pkg.exports)) {
       const targets = typeof value === "string" ? [value] : Object.values(value);
       for (const t of targets) {
         if (t === "./package.json") continue;
-        expect(t, `${entry} → ${t}`).toMatch(/^\.\/dist\/integrations\//);
+        if (entry === "./destination-command") {
+          // The example destination is shipped as its source: one file, no build.
+          expect(t).toBe("./examples/destination-command.mjs");
+          expect(existsSync(join(SERVER_DIR, t))).toBe(true);
+          continue;
+        }
+        expect(t, `${entry} → ${t}`).toMatch(entry === "./destination" ? /^\.\/dist\/destinations\/api\./ : /^\.\/dist\/integrations\//);
         expect(existsSync(join(dist, t.replace(/^\.\/dist\//, ""))), `${entry} → ${t}`).toBe(true);
       }
     }
+    expect(pkg.exports["./destination"]).toEqual({ types: "./dist/destinations/api.d.ts", default: "./dist/destinations/api.js" });
     // The browser entries route production builds to the no-ops and every entry names its types first (F-98 layer 1).
     expect(pkg.exports["./loader"]).toEqual({ types: "./dist/integrations/loader.d.ts", production: "./dist/integrations/noop-loader.js", default: "./dist/integrations/loader.js" });
     expect(pkg.exports["./react"]).toEqual({ types: "./dist/integrations/react.d.ts", production: "./dist/integrations/noop-react.js", default: "./dist/integrations/react.js" });

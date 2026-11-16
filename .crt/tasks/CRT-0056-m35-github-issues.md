@@ -1,10 +1,10 @@
 ---
 id: CRT-0056
 title: M35 — GitHub Issues: crt handoff --to github creates one issue per kept item, with its screenshots
-status: backlog
+status: review
 priority: high
 created: 2026-11-16T19:20:00+08:00
-updated: 2026-11-16T19:20:00+08:00
+updated: 2026-11-16T19:44:00+08:00
 url: null
 route: null
 session: null
@@ -32,12 +32,12 @@ No page capture: created from `docs/PRD-destinations.md` milestone M35. Simon, 2
 6. **Docs and guards**: `docs/cli.md`, `docs/how-it-works.md` (what leaves the machine), `docs/troubleshooting.md`; the `CLAUDE.md` Don'ts line and the reviewer agent's row per PRD-destinations §9.
 
 ## Definition of Done
-- [ ] `--to github` creates one issue per kept item, in review order, with the configured labels, each recorded with its number and URL as it is created (F-147).
-- [ ] A label the repository lacks, a missing remote and a missing `gh` are each refused in one line before anything is created (F-147).
-- [ ] A failure after some issues says how many exist; the next run creates only the rest and reuses the assets branch (F-142, F-148).
-- [ ] The assets branch holds exactly the kept items' images, is made without touching the checkout, and `capture.json` is never on it (F-148, N-40; the N-35 row).
-- [ ] `--no-screenshots` creates text-only issues and pushes nothing (F-148).
-- [ ] No `fetch(` and no new dependency in `packages/server` (N-40).
+- [x] `--to github` creates one issue per kept item, in review order, with the configured labels, each recorded with its number and URL as it is created (F-147).
+- [x] A label the repository lacks, a missing remote and a missing `gh` are each refused in one line before anything is created (F-147).
+- [x] A failure after some issues says how many exist; the next run creates only the rest and reuses the assets branch (F-142, F-148).
+- [x] The assets branch holds exactly the kept items' images, is made without touching the checkout, and `capture.json` is never on it (F-148, N-40; the N-35 row).
+- [x] `--no-screenshots` creates text-only issues and pushes nothing (F-148).
+- [x] No `fetch(` and no new dependency in `packages/server` (N-40).
 - [ ] `npm run check` green.
 - [ ] Manual: a real review published as issues on a private repository — the issues readable, the screenshots showing for a signed-in reader with access, the checkout untouched; one issue URL and the `gh` version in the Log. Creating issues on a repository is outward-facing: ask Simon which repository before that step.
 
@@ -46,3 +46,7 @@ Read `docs/PRD-destinations.md` §5.6, §6.3, §7 (N-40), §11 and §12 rules 1�
 
 ## Log
 - 2026-11-16T19:20+08:00 — created from docs/PRD-destinations.md by the planning session that wrote it (Claude Code cloud session 01KVgoZdv6kTpuPsfwiirKoq), on Simon's go-ahead of 2026-11-16 ("stop at GitHub issues for now, with the system built so we can add more later, or others can").
+- 2026-11-16T19:44+08:00 — claimed (in_progress) and built in the same pull request as CRT-0054 (https://github.com/simv/crt/pull/131): `destinations/github.ts` — `gh label list` before anything, the assets branch through the worktree helper of `project.ts`, `gh issue create --body-file` per item, each recorded as it is created; `"index": true` (Should) adds the listing issue.
+- 2026-11-16T19:44+08:00 — verified against real `git` with a bare remote and a `gh` on PATH that records its runs: DoD 1 — "creates one issue per kept item in review order, each with its brief and its screenshots from a branch that holds only images — the checkout untouched", "puts the configured labels on each issue …". DoD 2 — "… refuses before creating anything when the repository lacks one", "refuses without gh, and without a way to tell the repository". DoD 3 — "stops with how many exist when gh fails, and the next run creates only the rest on the same branch". DoD 4 — the first of those: the branch's diff against `origin/main` is the kept items' images only, the checkout byte-equal before and after; "… never capture.json". DoD 5 — "publishes text only with --no-screenshots: no branch, no push, the images named". DoD 6 — "imports a config-named module in one place only, and CRT opens no connection of its own"; `dependencies` unchanged.
+- 2026-11-16T19:44+08:00 — DoD 7: as CRT-0055's — left unticked until CI says so.
+- 2026-11-16T19:44+08:00 — DoD 8 (Manual) open: no issue has been created on any real repository. It waits for Simon to name a private repository; the image links (`https://github.com/<owner>/<name>/blob/<sha>/<path>?raw=true`) are the one thing only a real GitHub can confirm.

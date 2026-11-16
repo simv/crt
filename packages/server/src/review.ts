@@ -77,6 +77,22 @@ export function reviewView(review: Review): ReviewView {
   };
 }
 
+/** Items by `route`, groups in the order of their first item, items in review order (§5.4). */
+export function groupByRoute<T extends { route: string | null }>(items: readonly T[]): { route: string | null; items: T[] }[] {
+  const groups: { route: string | null; items: T[] }[] = [];
+  const at = new Map<string | null, number>();
+  for (const item of items) {
+    let i = at.get(item.route);
+    if (i === undefined) {
+      i = groups.length;
+      at.set(item.route, i);
+      groups.push({ route: item.route, items: [] });
+    }
+    groups[i]!.items.push(item);
+  }
+  return groups;
+}
+
 function frontmatterOf(path: string): Record<string, unknown> {
   try {
     return parseFrontmatter(readFileSync(path, "utf8"))?.data ?? {};

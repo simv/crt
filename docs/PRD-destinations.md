@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Planned — M33–M36 (CRT-0054…0057) not started |
+| **Status** | Built — M33–M36 (CRT-0054…0057) in one pull request; the manual rows of §10 (real issues on a private repository, the `v0.9.0` tag and the npm promotion) are open. §14 lists where the build differs from the text above it |
 | **Owner** | Simon (simv) |
 | **Repo** | https://github.com/simv/crt |
 | **Baseline** | `main` at 9236988 = 0.8.0 as built (PRD-zero M28–M32; the `v0.8.0` tag and the npm promotion pending) |
@@ -50,7 +50,7 @@ What 0.8 already does: every Send is recorded in a review before anything is del
 - **Per-item destinations.** One run sends every kept item to one destination.
 - **A Publish button on the review page.** The page keeps offering the command to copy (F-149 makes it the configured one).
 - **A model anywhere in the publish path** (PRD-zero decision 7): rendering and field mapping are deterministic.
-- **A `command` destination** that pipes items to a program. An external module (F-143) covers it, in one mechanism instead of two; a module may spawn whatever it likes.
+- **A built-in `command` destination** that pipes items to a program. An external module (F-143) covers it, in one mechanism instead of two; a module may spawn whatever it likes. *As built (Simon, 2026-11-16: "create a 'send to for own command' plugin as a proof of concept and example for how others can build a plugin"): that module exists — it is the worked example of F-150, shipped with the package as `claude-review-tool/destination-command` and named in the config like any other outside module. It is not in the built-in list (§14).*
 
 ## 4. Scenario changes
 
@@ -299,21 +299,22 @@ Each row names the milestone that applies it; the `*v0.9: …*` notes inline in 
 | `CLAUDE.md` Don'ts "`crt handoff` is the only command that moves review items into a project …" | gains: "An external destination's module is imported only by `crt handoff` (PRD-destinations N-39), and CRT opens no network connection of its own (N-40)." (M33, M35). |
 | `.claude/agents/prd-reviewer.md` spawn row "`git` / `gh` in `handoff.ts`" | "… in `handoff.ts` and `destinations/`, through the context's `run`"; a new invariant row: no `import(` of a config-named module outside `destinations/index.ts`, no `fetch(` in `packages/server/src` (M33, M35). |
 | "the nine reference pages" in `CLAUDE.md`, the CI filter and `test/docs.test.ts` | ten, with `docs/destinations.md` (M36). |
+| PRD-embedded F-97 as tested (`test/integrations-build.test.ts`: the package's `exports` are the four integration entries under `dist/integrations/`; `files` is `dist`) | `exports` gains `./destination` (`dist/destinations/api.js` and its `.d.ts`, built by `scripts/integrations.mjs`) and `./destination-command` (`examples/destination-command.mjs`); `files` gains `examples`. Neither is a browser entry, so N-18 does not apply to them (M33, M36). |
 
 ## 10. Definition of done (v0.9)
 
 Ticked by M36 with evidence (test name, task Log entry or run URL).
 
-- [ ] `runHandoff` holds no destination-specific branch; the four destinations of 0.8 pass their tests with assertions untouched (F-140, N-37).
-- [ ] A module named in the config is a destination, loaded only by `crt handoff` after the line naming it; a malformed one is refused in one line (F-143, N-39).
-- [ ] `plan` runs before the question and `publish` only after the yes, for a built-in and for an external destination (N-38).
-- [ ] A publish that stops after some items records exactly those; the next run creates only the rest; a review can go to a second destination without `--again` (F-142).
-- [ ] `--to markdown` writes one file holding every kept item in full with working image links; `--to json` writes the `FeedbackItem`s (F-144, F-145).
-- [ ] `handoff.to` sets the default; `crt handoff --list` shows every destination and loads none (F-146).
-- [ ] `--to github` creates one issue per kept item in review order with the configured labels, and refuses before creating anything when a label is missing (F-147).
-- [ ] The issues show their screenshots from a branch that holds only images, made without touching the checkout; `--no-screenshots` sends none; `capture.json` is never pushed (F-148, N-40; unit + M35 Manual).
-- [ ] No `fetch` and no new dependency in `packages/server` (N-40; the `package.json` diff, a grep row).
-- [ ] `docs/destinations.md` exists and its worked example is run by the tests; `crt doctor` has the `handoff` row (F-149, F-150).
+- [x] `runHandoff` holds no destination-specific branch; the four destinations of 0.8 pass their tests with assertions untouched (F-140, N-37). *`test/handoff.test.ts` passes with no line of it changed (`git diff main -- packages/server/test/handoff.test.ts` is empty); `destinations.test.ts` "knows the seven built-in destinations, each with the contract's shape".*
+- [x] A module named in the config is a destination, loaded only by `crt handoff` after the line naming it; a malformed one is refused in one line (F-143, N-39). *`destinations.test.ts` "loads a module named by `use`, says which file first, plans, asks, publishes and records ids and links", "refuses a module that is not there, speaks another contract version, or lacks a function — one line each", "imports a config-named module in one place only, and CRT opens no connection of its own", "lists every destination and imports none, even one whose file is missing".*
+- [x] `plan` runs before the question and `publish` only after the yes, for a built-in and for an external destination (N-38). *"never calls publish when the answer is no, or off a terminal without --yes"; the PRD-zero rows of `handoff.test.ts` for the built-ins.*
+- [x] A publish that stops after some items records exactly those; the next run creates only the rest; a review can go to a second destination without `--again` (F-142). *"keeps exactly what landed when a destination stops, and offers only the rest next time", "sends a handed review to a second destination without --again, and refuses the same one without it".*
+- [x] `--to markdown` writes one file holding every kept item in full with working image links; `--to json` writes the `FeedbackItem`s (F-144, F-145). *"writes one file with every kept item in full, in review order, and images that resolve beside it", "writes the items as data — exactly what a destination is given". The look in a Markdown viewer is CRT-0055's Manual row, open.*
+- [x] `handoff.to` sets the default; `crt handoff --list` shows every destination and loads none (F-146). *"uses handoff.to for plain crt handoff, and --to over it", "lists every destination and imports none, even one whose file is missing".*
+- [x] `--to github` creates one issue per kept item in review order with the configured labels, and refuses before creating anything when a label is missing (F-147). *"creates one issue per kept item in review order, each with its brief and its screenshots from a branch that holds only images — the checkout untouched", "puts the configured labels on each issue, and refuses before creating anything when the repository lacks one" — against a `gh` on PATH that records its runs.*
+- [ ] The issues show their screenshots from a branch that holds only images, made without touching the checkout; `--no-screenshots` sends none; `capture.json` is never pushed (F-148, N-40; unit + M35 Manual). *Unit: "creates one issue per kept item …" (the branch's tree is images only, the checkout byte-equal before and after), "publishes text only with --no-screenshots: no branch, no push, the images named", "gives the frontmatter, every section but the Log, and the images — never capture.json". Open: the Manual row — real issues on a private repository on github.com, to see the images render (Simon names the repository).*
+- [x] No `fetch` and no new dependency in `packages/server` (N-40; the `package.json` diff, a grep row). *"imports a config-named module in one place only, and CRT opens no connection of its own" greps `src/` for `fetch(`, `node:http(s)` requests and `import(`; `dependencies` in `packages/server/package.json` is unchanged.*
+- [x] `docs/destinations.md` exists and its worked example is run by the tests; `crt doctor` has the `handoff` row (F-149, F-150). *`destinations.test.ts` "walks through the example that ships and is tested here, and the contract's version", "runs the command once per kept item with the item as JSON on its standard input, and records what it answers"; `doctor.test.ts` the `handoff` row; `docs.test.ts` with ten pages.*
 - [ ] CI green on `main`; `v0.9.0` tagged, published and promoted (M36).
 
 ## 11. Risks
@@ -358,3 +359,16 @@ Ticked by M36 with evidence (test name, task Log entry or run URL).
 3. Should CRT ship a conformance helper (`testDestination(dest)`) in the `./destination` entry for authors' own test suites?
 4. Should the assets branch be deletable by CRT (`crt review prune`, PRD-zero Open question 2)?
 5. Which token-based tracker is built in first, and does the credential store arrive with it as `crt connect`?
+
+## 14. As built (v0.9.0)
+
+Where the build differs from the text above, the build is what the docs (`docs/destinations.md`) and the tests describe. Each difference, and why:
+
+1. **The worked example is the command destination** (§3, F-150), not a sixty-line HTTP poster: `packages/server/examples/destination-command.mjs`, published as `claude-review-tool/destination-command`. It runs a command of the developer's once per item with the item as JSON on standard input, and reads `{"id", "url"}`, a bare URL or nothing from the command's last line. Simon asked for it as the proof of concept for outside modules; it is also the shortest way to reach a tracker CRT does not ship (a ten-line script that posts the item is in the docs page). It imports nothing from CRT and makes no connection itself, so N-40 holds for what CRT ships; what the command does is the developer's own, and its plan says exactly that (`Sends each item to that command — what it sends on is the command's own.`).
+2. **`use` resolves from the project root**, not from the config file that names it (§5.3): three files can name a destination (guest, local, project) and a path must mean the same in each. A package specifier is resolved from the project and then from CRT's own package, which is how `claude-review-tool/destination-command` works in a project with nothing installed.
+3. **The config layering is guest, then `.crt/config.local.json`, then `.crt/config.json`** (F-146 says "local over project over guest"): the same order every other key has since PRD-zero §5.3.
+4. **`state` is only ever `"partial"`** (§5.4): an entry without it is complete, so every 0.8 entry reads as complete and the 0.8 tests' `toEqual` rows stand unchanged (N-37).
+5. **The contract gained fields** (§5.2), all within version 1: `FeedbackItem.file` and `.path` (the task file); `ctx.has(tool)`, `ctx.record(fields)` and `ctx.recorded` (a destination's own strings in its `review.json` entry — the assets branch and commit of `github`, the branch of `pr` — handed back to a run that continues); `ctx.run` takes any tool on PATH, not only `git` and `gh`.
+6. **The `handoff` doctor row appears only when `handoff.to` is set** (F-149): no `--    handoff   default …` row, so a project that configures nothing sees the same `crt doctor` as in 0.8. Its detail is what can be known without running anything: `github (GitHub Issues) — built in`, `tracker — tools/crt-to-tracker.mjs`, or `warn  … not found`. Whether `gh` is logged in is said by the plan, which is where it matters.
+7. **The review page names the destination only when one is configured** (F-149): ` — to GitHub Issues` after the command; otherwise the page is as it was, and the 0.8 screenshot stands (no `npm run screenshots` for this release).
+8. **An export refuses an existing file** (F-144, F-145) instead of overwriting it, like `bundle` does: remove it or pass `--out`.

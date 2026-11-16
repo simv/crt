@@ -34,7 +34,8 @@ import { join } from "node:path";
 import { currentReview, type Review, writeReviewItems } from "./home.js";
 import { isLocalOrigin, json, readJson } from "./http.js";
 import { LANDING_TOKENS } from "./landing.js";
-import { noReviewLine, type ReviewItemView, reviewView, totalsLine } from "./review.js";
+import { destinationFact, readDestinationsConfig } from "./destinations/index.js";
+import { groupByRoute, noReviewLine, type ReviewItemView, reviewView, totalsLine } from "./review.js";
 import { CRT_PREFIX, FAVICON_PATH, REVIEW_ASSETS_PATH, REVIEW_GROUPS_PATH, REVIEW_ITEMS_PATH, REVIEW_PATH } from "./routes.js";
 import { ASSETS_DIRNAME, setTaskPriority, TASK_ID_RE, TASK_PRIORITIES, type TaskPriority, taskSummaryText, writeIndex } from "./tasks.js";
 
@@ -63,21 +64,7 @@ export interface ReviewEntry {
 
 export type MoveDirection = "up" | "down";
 
-/** Items by `route`, groups in the order of their first item, items in review order (§5.4). */
-export function groupByRoute<T extends { route: string | null }>(items: readonly T[]): { route: string | null; items: T[] }[] {
-  const groups: { route: string | null; items: T[] }[] = [];
-  const at = new Map<string | null, number>();
-  for (const item of items) {
-    let i = at.get(item.route);
-    if (i === undefined) {
-      i = groups.length;
-      at.set(item.route, i);
-      groups.push({ route: item.route, items: [] });
-    }
-    groups[i]!.items.push(item);
-  }
-  return groups;
-}
+export { groupByRoute };
 
 /** Keep or drop one item; null when the review has no such item. */
 export function setKeep<T extends ReviewEntry>(items: readonly T[], id: string, keep: boolean): T[] | null {
@@ -138,6 +125,8 @@ export interface ReviewPagePayload {
   totalsLine: string;
   groups: { route: string | null; items: ReviewPageItem[] }[];
   handoff: string;
+  /** PRD-destinations F-149: where that command sends the review, when `handoff.to` in the config says ("GitHub Issues"). */
+  handoffTo?: string;
 }
 
 function isFile(path: string): boolean {
@@ -145,6 +134,16 @@ function isFile(path: string): boolean {
     return lstatSync(path).isFile();
   } catch {
     return false;
+  }
+}
+
+/** F-149: the configured default destination's title, without importing a module from outside (N-39). */
+function handoffTo(root: string): { handoffTo?: string } {
+  try {
+    const config = readDestinationsConfig(root);
+    return config.defaultTo ? { handoffTo: destinationFact(config.defaultTo, config, root).title } : {};
+  } catch {
+    return {};
   }
 }
 
@@ -160,7 +159,7 @@ export function reviewPayload(root: string, review: Review | null): ReviewPagePa
     summary: taskSummaryText(join(view.tasksDir, item.file)),
     screenshot: SHOTS.find((name) => isFile(join(view.tasksDir, ASSETS_DIRNAME, item.id, name))) ?? null,
   }));
-  return { ok: true, review: view.name, message: null, project: root, totals: view.totals, totalsLine: totalsLine(view.totals), groups: groupByRoute(items), handoff: HANDOFF_COMMAND };
+  return { ok: true, review: view.name, message: null, project: root, totals: view.totals, totalsLine: totalsLine(view.totals), groups: groupByRoute(items), handoff: HANDOFF_COMMAND, ...handoffTo(root) };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -400,7 +399,7 @@ export function renderReviewPage(o: ReviewPageOptions): string {
     '<h1>Review <span id="name"></span></h1>',
     '<p class="lead">Keep or drop each item, set how urgent it is and put them in order. Nothing reaches the project until you hand the review over.</p>',
     '<p class="totals" id="totals"></p>',
-    `<p class="hand">When it reads right: <code id="handoff">${HANDOFF_COMMAND}</code> <button type="button" id="copy">Copy</button></p>`,
+    `<p class="hand">When it reads right: <code id="handoff">${HANDOFF_COMMAND}</code><span id="handoff-to"></span> <button type="button" id="copy">Copy</button></p>`,
     "</section>",
     "<noscript><p>Run <code>crt review</code> in a terminal for this list.</p></noscript>",
     '<p id="status" class="sr" role="status" aria-live="polite"></p>',
@@ -460,7 +459,7 @@ where?el("p",{class:"meta",text:where}):null,
 el("div",{class:"ctl"},[btn(it.id+":keep",it.keep?"Drop":"Keep",(it.keep?"Drop ":"Keep ")+it.id),el("label",{},[d.createTextNode("Priority"),sel]),btn(it.id+":up","Move up","Move "+it.id+" up",i===0),btn(it.id+":down","Move down","Move "+it.id+" down",i===n-1)])
 ])])}
 function render(p){
-d.getElementById("name").textContent=p.review||"";d.getElementById("totals").textContent=p.review?p.totalsLine:"";d.getElementById("handoff").textContent=p.handoff;
+d.getElementById("name").textContent=p.review||"";d.getElementById("totals").textContent=p.review?p.totalsLine:"";d.getElementById("handoff").textContent=p.handoff;d.getElementById("handoff-to").textContent=p.handoffTo?" \u2014 to "+p.handoffTo:"";
 if(!p.review){note("empty",p.message||"No review yet.");return}
 if(!p.groups.length){note("empty","Review "+p.review+" has no items yet — send some feedback from the page, then come back.");return}
 main.textContent="";
