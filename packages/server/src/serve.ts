@@ -40,7 +40,7 @@ import { sdkVersion } from "./providers/claude.js";
 import { createProxyServer, type CrtServer } from "./proxy.js";
 import { describeResolution, loginField, ProviderRegistry } from "./session.js";
 import { SessionRegistry } from "./sessions.js";
-import { bindPort, chooseTarget, type CrtHealth, type Prompter, type StartDeps } from "./start.js";
+import { bindPort, chooseTarget, type CrtHealth, PORT_STEPS, type Prompter, sameProject, type StartDeps } from "./start.js";
 import { guestLine, openStore, type Store } from "./store.js";
 import { parseFrontmatter } from "./tasks.js";
 import { isReachable, PROBE_PORTS, probeAll, safeOrigin } from "./target.js";
@@ -61,6 +61,8 @@ export interface ServeOptions {
   port?: number | undefined;
   /** `--open`: launch the default browser on the CRT URL. */
   open?: boolean;
+  /** `crt review` (PRD-zero F-135): what `open` opens is this path on the CRT server — its own page — in place of the app. */
+  openPath?: string | undefined;
   /** `--provider <id>`: the active provider (F-43 step 2); else `CRT_PROVIDER`, config, detection. */
   provider?: string | undefined;
   /** `--replace`: stop a CRT holding the port (F-79). */
@@ -249,7 +251,7 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
   );
   if (bound.kind === "reused") {
     // F-93: embedded mode opens the app (this run's, else the running server's); proxy mode opens the CRT URL.
-    const toOpen = mode === "embedded" ? (app ?? bound.health.target) : bound.url;
+    const toOpen = opts.openPath !== undefined ? bound.url + opts.openPath : mode === "embedded" ? (app ?? bound.health.target) : bound.url;
     if (opts.open && toOpen && !browse) openBrowser(toOpen, log); // `crt browse`: bindPort asked that server (F-128)
     return { kind: "reused", url: bound.url, target, projectRoot, health: bound.health };
   }
@@ -276,11 +278,16 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
     // F-74: the N-6 line at start, before anyone writes a note.
     const problem = providers.preflight(resolution.provider).problem;
     if (problem) log(`crt: ${problem}`);
+  } else if (opts.openPath !== undefined) {
+    log(`${opts.open ? "Opening" : "Open"} ${url}${opts.openPath} — Ctrl+C stops CRT.`);
   } else if (interactive) {
     const open = launch ? "In the CRT browser window" : mode === "embedded" ? (app ? `Open ${app}` : "Open your dev server in the browser") : `Open ${url}`;
     log(`${open} → CRT button bottom-right (Ctrl/Cmd+Shift+.) → Select · note · Send. Ctrl+C stops CRT; your dev server keeps running.`);
   }
-  if (launch) {
+  if (opts.openPath !== undefined) {
+    // F-135: CRT's own page; the app is not opened and no loader request is expected (no F-94 timer).
+    if (opts.open) openBrowser(url + opts.openPath, log);
+  } else if (launch) {
     // F-125/F-128: the app when one answers, else CRT's own page (the browser is then ready for the app's URL).
     // A failure is one line and CRT stays up; no F-94 timer — nothing in the app asks for the loader.
     await browser.open(app ?? url);
@@ -309,6 +316,18 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
       close,
     },
   };
+}
+
+/**
+ * PRD-zero F-135: the CRT already serving `projectRoot`, in either mode, on `port` or one of the
+ * ports a start steps to (F-73) — where `crt review` opens its page without starting a second server.
+ */
+export async function findCrtFor(projectRoot: string, port: number, health: (port: number) => Promise<CrtHealth | null> = (p) => fetchHealth(p)): Promise<{ port: number; url: string; health: CrtHealth } | null> {
+  for (let p = port; p <= port + PORT_STEPS; p++) {
+    const h = await health(p);
+    if (h && sameProject(h.projectRoot, projectRoot)) return { port: p, url: `http://localhost:${p}`, health: h };
+  }
+  return null;
 }
 
 /**

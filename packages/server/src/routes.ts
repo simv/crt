@@ -35,6 +35,15 @@ export const CONFIG_PATH = "/__crt/config";
 /** PRD-polish F-113: the `crt doctor` rows (doctor-route.ts). */
 export const DOCTOR_PATH = "/__crt/doctor";
 
+/**
+ * PRD-zero F-135: the review page, its items API, the group moves and an item's screenshots
+ * (review-page.ts). Same-origin only: every one refuses an `Origin` that is not this server's own.
+ */
+export const REVIEW_PATH = "/__crt/review";
+export const REVIEW_ITEMS_PATH = "/__crt/review/items";
+export const REVIEW_GROUPS_PATH = "/__crt/review/groups";
+export const REVIEW_ASSETS_PATH = "/__crt/review/assets";
+
 /** PRD-providers F-49, N-8: local processes only — a request carrying `Origin` is refused before anything else. */
 export const INTERNAL_PREFIX = "/__crt/internal";
 /** F-49: `crt mcp` posts `write_task` here with the session's bearer token. */

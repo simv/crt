@@ -132,7 +132,7 @@ A review's task file is an F-32 file in every respect but two: its `id` is `R-NN
 - **The announcement names what was created**: the outermost directory that did not exist (`crt: created C:\Users\me\.crt\reviews` on a first run), once per run, shared with the CRT browser's profile; a run that creates nothing under the home says nothing.
 - **A task written in a review is named by its absolute path** in the `task_written` event and the log line (it is not under the project). `review.json` records the remote without any credentials its URL carried.
 - **A driver's own per-session files** (the Antigravity plugin) go to the OS temp dir in a review, not `.crt/captures/`.
-- **`crt review`** without the page (M30) already prints the F-135 item lines and totals; `crt review --json` adds each item's `branch` and `commit`.
+- **`crt review`** already prints the F-135 item lines and totals; `crt review --json` adds each item's `branch` and `commit`.
 - **Under a test runner `crtHome()` refuses to fall back to the real home** (`VITEST`, Playwright's worker variables): a test that did not set `CRT_HOME` fails instead of writing to `~/.crt`.
 
 ### 5.4 Collation: `crt review`
@@ -140,6 +140,17 @@ A review's task file is an F-32 file in every respect but two: its `id` is `R-NN
 `crt review` prints the current review as a list and, on a terminal, opens its page: `GET /__crt/review`, served by the CRT server like the landing page (starting the server when none is running for the project). The page lists the items grouped by `route`, each with its title, summary, priority, the annotated screenshot, the reviewed commit, and three controls: **Keep / Drop**, the priority, and **Move up / Move down**. A group can be moved as a whole. Every change is written to `review.json` at once; the task files are not rewritten until hand-over, except `priority:`. Dropped items stay in the review, greyed, and can be kept again. The page states the totals (`11 items · 9 kept · 3 routes`) and offers the hand-over command to copy.
 
 Grouping and ordering are deterministic: groups in the order of their first item, items in the order filed, until the reviewer moves them. A **Should**: a `Suggest merges` action that starts an agent session over the review's task files and proposes which items duplicate each other; accepting a suggestion drops the duplicates and adds a line to the kept item's Notes. No item is ever merged or dropped by the agent alone.
+
+**As built (M30).** `review-page.ts` holds the page, its routes and the pure reducers; `review.ts` the view both the CLI and the page read. Where the build is more specific than the text above:
+
+- **The page shows the project's current review** (the newest open one), whichever store the server writes to — a set-up project started without `--review` can still collate a review made earlier.
+- **Move up / Move down are within the item's group**: the item changes places with the nearest item of the same route, so the groups and the other groups' items stay where they are; at the edge of its group the button is disabled. A group move lays the groups end to end in `review.json`. `crt review` lists the items in `review.json` order.
+- **Who may call the routes**: the request's `Host` must be a loopback name, an `Origin` — when sent — must be the server's own, and a browser's `Sec-Fetch-Site` — when sent — must be `same-origin` or `none`. Anything else is a 403 before CORS, a body read or a file read. A local process (no `Origin`) is allowed, as on the other routes; the page is served with its own `Content-Security-Policy` (nothing off its origin, never framed).
+- **Screenshots** are `GET /__crt/review/assets/<id>/<file>`: an id of the `R-NN` / `CRT-NNNN` shape and a plain image file name, joined under the review's `tasks/assets/`; a symlink is not followed.
+- **A priority change** edits the two frontmatter lines and appends one Log line as text, so the rest of the file is byte for byte what the agent wrote; the review's `README.md` index is refreshed.
+- **`crt review` and the page.** On a terminal (or with `--open`) the page opens on the CRT serving the project — found on the configured port or one a start stepped to (F-73), in either mode — else on an embedded one started by the command, which opens the page in place of the app. `--no-open` only prints. A server from before 0.8 is named with the `crt --replace` fix.
+- **The page reads the review again** when its tab becomes visible, never on a timer, and `<main data-state>` says `loading`, `ready`, `empty` or `error`.
+- **`Suggest merges` (Should) is not built**: it needs a session whose proposal is a structured list the page can accept or refuse, which the session machinery does not have yet.
 
 ### 5.5 Hand-over: `crt handoff`
 

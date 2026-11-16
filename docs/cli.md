@@ -9,7 +9,7 @@ crt [target] [--port <n>] [--open | --no-open] [--yes] [--replace] [--provider <
 crt serve [target] [--target <url>] [--mode <embedded|proxy>] …   # the same command under its explicit name
 crt proxy [target] …                           # proxy your app through http://localhost:4400 instead (= crt serve --mode proxy)
 crt browse [target] …                          # the same server, your app in a Chrome or Edge window CRT starts itself: nothing to add to the app
-crt review [--json]                            # the current review: its items, kept or dropped, and the totals
+crt review [--json] [--open | --no-open]       # the current review: its items, kept or dropped, and the totals; on a terminal, its page
 crt review list                                # every review of this project, with its status and counts
 crt review new [name]                          # start a new review (named after today's date by default)
 crt doctor                                     # checklist: node, project, .crt, mode, target, integration, instructions, port, providers, plugin
@@ -92,11 +92,19 @@ The first Send starts a review when the project has no open one, and the first t
 
 | Command | What it does |
 |---|---|
-| `crt review` | Prints the current review, one line per item in order — `R-03  high    kept     /checkout  Cart total excludes applied discount` — then `Review 2026-11-16: 11 items · 9 kept · 3 routes`. With no review: `crt: no review for <root> yet — run \`crt\`, send some feedback, then \`crt review\``, exit 0. |
+| `crt review` | Prints the current review, one line per item in order — `R-03  high    kept     /checkout  Cart total excludes applied discount` — then `Review 2026-11-16: 11 items · 9 kept · 3 routes` and the next step (`crt handoff`). On a terminal it then opens the **review page** (below) in your browser: on the CRT already serving this project, else on one it starts, which runs until Ctrl+C. `--open` opens the page off a terminal too, `--no-open` never does; `--port <n>` is where to look for, or start, the server. With no review: `crt: no review for <root> yet — run \`crt\`, send some feedback, then \`crt review\``, exit 0. |
 | `crt review --json` | The same as JSON for tooling: `review`, `dir`, `tasksDir`, `status`, `created`, `project`, `items` (`id`, `keep`, `order`, `title`, `priority`, `status`, `route`, `branch`, `commit`, `file`), `totals`, `handovers`; `{ "review": null, "items": [] }` when there is none. |
 | `crt review list` | Every review of the project, oldest first: `2026-11-16  open    11 items, 9 kept  (current)`. |
 | `crt review new [name]` | Starts a new review, which becomes the current one; the previous stays open and listed. A name is lower-case letters, digits and hyphens; the default is today's date, with `-2`, `-3` … when taken. |
 | `crt tasks --review [name]`, `crt task R-03 --review [name]` | `crt tasks` and `crt task` over a review's items instead of `.crt/tasks/` (the current review, or the named one). |
+
+#### The review page
+
+`http://localhost:4400/__crt/review` is the current review before the project sees any of it. The items are grouped by the route they were filed on — groups in the order of their first item, items in the order filed — each with its title, the first paragraph of its summary, the annotated screenshot and the commit that was reviewed. Per item: **Drop** (it stays in the review, greyed, and **Keep** brings it back), the **Priority** select, and **Move up** / **Move down** within its group; per group, **Group up** / **Group down**. Every control is a button or a select, so the whole page works from the keyboard. The totals and the hand-over command (`crt handoff`, with a Copy button) are at the top.
+
+Every change is saved at once. What is kept and in what order lives in `review.json`; a priority change is the one thing that edits a task file before hand-over (`priority:`, `updated:` and a Log line). The page reads the review again when you come back to its tab, so items filed meanwhile appear without a reload.
+
+The page and its API (`/__crt/review/items`, `/__crt/review/groups`, and an item's screenshots by id and file name) answer the page itself and local processes only: a request from any other origin — your app's page included — is refused.
 
 ### Failures
 

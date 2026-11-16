@@ -8,7 +8,7 @@
 import { request } from "node:http";
 import { createServer } from "node:net";
 import { isMode } from "./config.js";
-import { HEALTH_PATH, INTERNAL_BROWSE_PATH, SHUTDOWN_PATH } from "./routes.js";
+import { HEALTH_PATH, INTERNAL_BROWSE_PATH, REVIEW_ITEMS_PATH, SHUTDOWN_PATH } from "./routes.js";
 import type { CrtHealth } from "./start.js";
 
 /** F-73: a cold Node server on Windows can take longer than a few hundred ms to answer its first request. */
@@ -96,6 +96,11 @@ export async function requestBrowse(port: number, url: string | null, timeoutMs 
   if (answer.status === 200 && typeof body.url === "string") return { ok: true, url: body.url };
   if (answer.status === 404) return { ok: false, reason: "that CRT is older than 0.8 — run `crt browse --replace`" };
   return { ok: false, reason: typeof body.error === "string" ? body.error : `its browse route answered ${answer.status}` };
+}
+
+/** PRD-zero F-135: whether the CRT on `port` has the review page (one from before 0.8 answers its items route with a 404). */
+export async function hasReviewPage(port: number, timeoutMs = HEALTH_TIMEOUT_MS): Promise<boolean> {
+  return (await get(port, REVIEW_ITEMS_PATH, timeoutMs)) !== null;
 }
 
 function get(port: number, path: string, timeoutMs: number): Promise<string | null> {

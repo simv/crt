@@ -39,6 +39,8 @@
  *     route) and `crt browse` (PRD-zero F-128, the browse route) only, never a page (N-8): a request carrying an `Origin` header — which
  *     every browser sends on a POST and a Node process never does — is refused with 403 before
  *     anything else happens, CORS included.
+ *   • /__crt/review and everything under it (PRD-zero F-135, review-page.ts) is the review page and its
+ *     API: answered before CORS, to the page itself and local processes only.
  *   • /__crt/health is the whole story (PRD-setup F-78): version, start time, target, project,
  *     tasks, provider and its login, open sessions, and the overlay counters (injected HTML
  *     responses vs fetches of /__crt/overlay.js).
@@ -72,6 +74,7 @@ import { isLoopbackUrl } from "./browser.js";
 import { CaptureValidationError, writeCapture } from "./captures.js";
 import type { CrtMode } from "./config.js";
 import { DoctorRoute } from "./doctor-route.js";
+import { ReviewRoute } from "./review-page.js";
 import { applyCors, json, readJson } from "./http.js";
 import { decodeBody, filterAcceptEncoding, injectOverlayTag, isHtml, relaxCsp, relaxFrameSrc } from "./inject.js";
 import { renderLanding } from "./landing.js";
@@ -124,8 +127,10 @@ export interface ProxyOptions {
   sdkVersion?: string | null;
   /** PRD-polish F-114: `process.platform` — `darwin` renders `Cmd` in the shortcut hints. */
   platform?: string;
-  /** F-113: the environment the plugin check spawns `claude` in (tests). */
+  /** F-113: the environment the plugin check spawns `claude` in; PRD-zero F-135: where the review page finds the CRT home (tests). */
   env?: NodeJS.ProcessEnv;
+  /** PRD-zero F-135: the clock behind a priority change made on the review page (tests). */
+  now?: () => Date;
   /** Absolute tasks directory; health counts its files. */
   tasksDir?: string;
   /**
@@ -237,6 +242,8 @@ export function createProxyServer(opts: ProxyOptions): CrtServer {
     warned: { missing: false, nonHtml: false, csp: false, loader: false, decode: false, large: false },
     // F-113: built here, computes nothing until the first request (N-24).
     doctor: new DoctorRoute({ projectRoot: opts.projectRoot, mode, target: opts.target, version: opts.version ?? "0.0.0", providers: opts.providers, env: opts.env }),
+    // PRD-zero F-135: the project's current review, whichever store this server writes to.
+    review: new ReviewRoute({ projectRoot: opts.projectRoot, version: opts.version ?? null, env: opts.env, now: opts.now }),
   };
   const log = opts.log ?? (() => undefined);
   const overlayTimeout = opts.overlayTimeoutMs ?? OVERLAY_TIMEOUT_MS;
@@ -554,6 +561,8 @@ interface RouteState {
   warned: { missing: boolean; nonHtml: boolean; csp: boolean; loader: boolean; decode: boolean; large: boolean };
   /** F-113: the doctor route's caches, one set per server. */
   doctor: DoctorRoute;
+  /** PRD-zero F-135: the review page and its API. */
+  review: ReviewRoute;
 }
 
 async function handleCrtRoute(
@@ -618,6 +627,11 @@ async function handleCrtRoute(
   if (path === DOCTOR_PATH) {
     // F-113: before CORS on purpose — a request with an Origin is refused, never answered with headers.
     await state.doctor.handle(req, res, query);
+    return;
+  }
+  if (state.review.handles(path)) {
+    // PRD-zero F-135: before CORS on purpose too — the page and a local process only, never another origin.
+    await state.review.handle(path, req, res);
     return;
   }
   if (path === CRT_PREFIX + "/" || path === CRT_PREFIX) {
