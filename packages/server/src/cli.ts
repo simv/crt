@@ -58,7 +58,8 @@ const USAGE = [
   "                          on a terminal it also opens the review page [--open | --no-open] [--port <n>]",
   "  crt review list         every review of this project, with its status and counts",
   "  crt review new [name]   start a new review (named after today's date by default)",
-  "  crt handoff [--to pr|branch|here|bundle] [--review <name>] [--branch <name>] [--out <dir>] [--yes] [--again]",
+  "  crt handoff [--to <destination>] [--review <name>] [--branch <name>] [--out <path>] [--no-screenshots] [--yes] [--again]",
+  "  crt handoff --list",
   "                          send the kept items of the review to the project: a pull request,",
   "                          a local branch, the working tree, or a folder to send",
   "  crt providers [--json] [--refresh]",
@@ -268,21 +269,27 @@ async function main(argv: string[]): Promise<number> {
     }
     case "handoff": {
       // PRD-zero F-136, F-137: the kept items of a review go to the project.
-      if (positionals.length) throw new CrtError(`unexpected argument "${positionals[0]}" — usage: crt handoff [--to pr|branch|here|bundle] [--review <name>] [--yes]`, 2);
-      const { HANDOFF_DESTINATIONS, runHandoff } = await import("./handoff.js");
+      if (positionals.length) throw new CrtError(`unexpected argument "${positionals[0]}" — usage: crt handoff [--to <destination>] [--review <name>] [--yes]`, 2);
+      const { listHandoff, runHandoff } = await import("./handoff.js");
+      // PRD-destinations F-146: every destination, built in or named in the config; nothing from outside is imported.
+      if (flags.list === true) {
+        await listHandoff({ root: findProjectRoot() });
+        return 0;
+      }
+      // F-140: any destination's name; the registry says whether there is one.
       const to = stringFlag(flags.to, "--to");
-      const destination = HANDOFF_DESTINATIONS.find((d) => d === to);
-      if (to !== undefined && !destination) throw new CrtError(`--to is one of ${HANDOFF_DESTINATIONS.join(", ")} (got "${to}")`, 2);
       const review = reviewFlag(flags.review);
       if (review === true) throw new CrtError("--review needs a review name — `crt review list` shows them", 2);
       const { isInteractive, createTerminalPrompter } = await import("./prompt.js");
       const interactive = isInteractive({ yes: flags.yes === true });
       await runHandoff({
         root: findProjectRoot(),
-        to: destination,
+        to,
         review: typeof review === "string" ? review : undefined,
         branch: stringFlag(flags.branch, "--branch"),
         out: stringFlag(flags.out, "--out"),
+        // Everything else belongs to the destination (`--no-screenshots`, a module's own flags).
+        flags: Object.fromEntries(Object.entries(flags).filter(([k]) => !["to", "review", "branch", "out", "yes", "again", "list"].includes(k))),
         yes: flags.yes === true,
         again: flags.again === true,
         interactive,

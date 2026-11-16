@@ -1,68 +1,59 @@
 /**
- * `crt handoff` (PRD-zero F-136, F-137, N-35; §5.5): deliver the kept items of a review to the
- * project, in review order.
+ * `crt handoff` (PRD-zero F-136, N-35, §5.5; PRD-destinations F-140, F-142, N-38): deliver the
+ * kept items of a review to a destination, in review order.
  *
- *   --to pr      a new branch `crt/review-<review>` with the items as task files, pushed, and one
- *                pull request whose body is the collated summary (`gh pr create`)
- *   --to branch  the same branch, committed locally and left for the developer to push
- *   --to here    the same files in the working tree's tasks directory, uncommitted
- *   --to bundle  a folder `crt-review-<project>-<review>/` with `REVIEW.md`, the task files and
- *                their assets, ids left as `R-NN` (F-137) — for a project the reviewer cannot push to
+ * This module is what every destination has in common: which review, which items, the plan
+ * printed first, the one question (`Go ahead? [Y/n]`; `--yes` skips it; off a terminal without
+ * `--yes` nothing is written), and the record in `review.json`. Where the items go is a
+ * destination's business — a module behind the contract in destinations/types.ts, found by name
+ * in destinations/index.ts: `pr`, `branch`, `here`, `bundle`, `markdown`, `json`, `github`, or a
+ * module the config names.
  *
- * The default is `pr` when the project is a git repository with a remote and `gh` on PATH,
- * `branch` when it is a repository without either, `here` otherwise.
- *
- * N-35 — the developer's checkout is never touched by `pr` and `branch`: the branch is made in a
- * temporary `git worktree` under the OS temp dir, from the remote's default branch (after a fetch;
- * from `HEAD` without a remote), and the worktree is removed afterwards, on success and on failure.
- * `HEAD`, the checked-out branch, the index, the stash and the working tree stay as they were, so a
- * running dev server sees nothing. Every destination prints its plan first and asks once
- * (`Go ahead? [Y/n]`; `--yes` skips it; off a terminal without `--yes` nothing is written).
- *
- * Ids are allocated at hand-over (§5.5): each kept item gets the next free `CRT-NNNN` of the
- * destination's tasks directory — the project's own allocator, so its ids are never reused — its
- * file is renamed, `id:` and `updated:` rewritten, `assets/R-NN/` copied to `assets/CRT-NNNN/`, the
- * links to it rewritten and one Log line appended. The index is regenerated. Nothing but the tasks
- * directory is written in the project; the review's own files stay as they are, as the record.
+ * N-38 — for every destination, CRT's own or not: `plan` is called first and its lines are
+ * printed as given; `publish` is called only after the yes; each item it yields is recorded
+ * before the next is asked for, so a publish that stops is continued by running the command
+ * again (F-142). A complete hand-over to a `final` destination makes the review `handed`; an
+ * export leaves it open. A review goes to a second destination freely; `--again` repeats the same.
  *
  * `git` and `gh` are resolved and run the way `claude` is for `crt setup` (providers/exec.ts:
- * PATH and PATHEXT, `shell: false`, never a `.cmd` handed to `spawn`), from this module only and
- * only inside this command. It never force-pushes, never merges and never pushes a branch it did
- * not create. A failure is one `crt:` line saying what exists and the next command; one before the
- * commit leaves no branch behind, and the review stays `open` until the destination's last step
- * succeeded.
+ * PATH and PATHEXT, `shell: false`, never a `.cmd` handed to `spawn`), through the context's
+ * `run` only, and only inside this command.
  */
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, isAbsolute, join, relative, resolve } from "node:path";
-import { readConfig } from "./config.js";
+import { basename, join, resolve } from "node:path";
+import { listDestinations, readDestinationsConfig, resolveDestination } from "./destinations/index.js";
+import { readFeedbackItem } from "./destinations/item.js";
+import { defaultDestination } from "./destinations/project.js";
+import { projectFacts } from "./destinations/shared.js";
+import type { DestinationContext, PublishedItem, PublishInput } from "./destinations/types.js";
 import { CrtError } from "./errors.js";
-import { gitDirs } from "./git-state.js";
-import { currentReview, type Handover, type HandoverDestination, listReviews, recordHandover, type Review } from "./home.js";
-import { type Executable, findOnPath, firstLine, runExecutable, type RunResult } from "./providers/exec.js";
-import { noReviewLine, type ReviewItemView, reviewView, type ReviewView, totalsLine } from "./review.js";
-import { groupByRoute } from "./review-page.js";
+import { completeHandover, currentReview, type Handover, handoversOf, listReviews, noteHandover, recordPublished, type Review } from "./home.js";
+import { type Executable, findOnPath, runExecutable, type RunResult } from "./providers/exec.js";
+import { noReviewLine, reviewView } from "./review.js";
 import { isYes, type Prompter } from "./start.js";
 import { isSetUp } from "./store.js";
-import { allocateTaskId, ASSETS_DIRNAME, localIso, logStamp, TASK_FILE_RE, taskSummaryText, validateTaskText, writeIndex } from "./tasks.js";
+import { displayPath, localIso } from "./tasks.js";
 
-export const HANDOFF_DESTINATIONS: readonly HandoverDestination[] = ["pr", "branch", "here", "bundle"];
-/** A fetch or a push may take a while on a slow link; nothing else here does. */
-const NETWORK_TIMEOUT_MS = 120_000;
+export { defaultDestination, nextTaskIds, rewriteTaskText } from "./destinations/project.js";
+
 const LOCAL_TIMEOUT_MS = 30_000;
 
 export interface HandoffOptions {
   /** The project root. */
   root: string;
-  to?: HandoverDestination | undefined;
+  /** `--to <name>`: a destination's name; default `handoff.to` in the config, else PRD-zero §5.5's rule. */
+  to?: string | undefined;
   /** `--review <name>`: that review instead of the current one. */
   review?: string | undefined;
   /** `--branch <name>`: instead of `crt/review-<review>`. */
   branch?: string | undefined;
-  /** `--out <dir>`: where a bundle's folder is made (default: the current directory). */
+  /** `--out <dir>`: where a bundle's folder or an export's file is made (default: the current directory). */
   out?: string | undefined;
+  /** Every other flag of the run, for the destination (`--no-screenshots`, a module's own). */
+  flags?: Record<string, string | boolean>;
   yes?: boolean;
-  /** `--again`: hand a `handed` review over once more. */
+  /** `--again`: hand a review over to the same destination once more. */
   again?: boolean;
   interactive?: boolean;
   prompt?: Prompter;
@@ -83,276 +74,172 @@ export interface HandoffResult {
   handover?: Handover;
 }
 
-export interface PlannedItem {
-  item: ReviewItemView;
-  /** The id it gets in the destination (its own `R-NN` in a bundle). */
-  id: string;
-  /** The file name it gets. */
-  file: string;
-}
-
-// ---------------------------------------------------------------------------------------------
-// Pure pieces
-// ---------------------------------------------------------------------------------------------
-
-/** §5.5: `pr` with a repository, a remote and `gh`; `branch` in a repository without either; `here` otherwise. */
-export function defaultDestination(facts: { repo: boolean; git: boolean; remote: boolean; gh: boolean }): HandoverDestination {
-  if (facts.repo && facts.git) return facts.remote && facts.gh ? "pr" : "branch";
-  return "here";
-}
-
-/** The ids `count` new tasks get in a directory holding `names` (files, and `assets/<ID>` folders): consecutive, above the highest `CRT-NNNN` there. */
-export function nextTaskIds(names: readonly string[], count: number): string[] {
-  let max = 0;
-  for (const name of names) {
-    const m = /^CRT-(\d{4})(?![\w])/.exec(name);
-    if (m) max = Math.max(max, Number(m[1]));
-  }
-  return Array.from({ length: count }, (_, i) => `CRT-${String(max + i + 1).padStart(4, "0")}`);
-}
-
-/**
- * A review item's text as the project gets it: `id:` and `updated:` rewritten, every
- * `assets/<old>/` link pointed at `assets/<new>/`, and the hand-over Log line appended. Everything
- * else is byte for byte what was reviewed.
- */
-export function rewriteTaskText(text: string, from: string, to: string, review: string, now: Date): string {
-  const fm = /^---\n([\s\S]*?)\n---\n/.exec(text);
-  let head = fm ? fm[1]! : "";
-  head = head.replace(/^id:.*$/m, `id: ${to}`).replace(/^updated:.*$/m, `updated: ${localIso(now)}`);
-  const body = (fm ? text.slice(fm[0].length) : text).split(`${ASSETS_DIRNAME}/${from}/`).join(`${ASSETS_DIRNAME}/${to}/`).replace(/\s+$/, "");
-  const line = `- ${logStamp(now)} — handed over from review ${review} (was ${from}) by crt handoff`;
-  return `${fm ? `---\n${head}\n---\n` : ""}${body}${/^## Log[ \t]*$/m.test(body) ? "" : "\n\n## Log"}\n${line}\n`;
-}
-
-export interface SummaryInput {
-  view: ReviewView;
-  items: PlannedItem[];
-  /** One line per distinct reviewed commit (`Reviewed at 4f2a91c on main; the base (main) is 12 commits ahead.`). */
-  reviewed: string[];
-  /** Where the task files are, as the reader will see them (`.crt/tasks`). */
-  tasksDir: string;
-  setUp: boolean;
-  now: Date;
-  /** A bundle's `REVIEW.md`: relative links to each item's file and screenshot (item id → screenshot file name, or null). */
-  links?: Map<string, string | null>;
-}
-
-/** §5.5: the collated summary — the pull request body, a bundle's `REVIEW.md`, and what `here` prints. */
-export function renderSummary(s: SummaryInput): string {
-  const n = s.items.length;
-  const project = basename(s.view.project.root || "") || "the project";
-  const lines = [
-    `# CRT review ${s.view.name}: ${n} item${n === 1 ? "" : "s"}`,
-    "",
-    `Review \`${s.view.name}\` of \`${project}\`, started ${s.view.created || "(unknown)"} and handed over ${localIso(s.now)}. ${totalsLine(s.view.totals)}; the ${n === 1 ? "one kept item is" : `${n} kept items are`} here, in review order.`,
-    "",
-    ...(s.reviewed.length ? [...s.reviewed.map((r) => `- ${r}`), ""] : []),
-  ];
-  for (const group of groupByRoute(s.items.map((p) => ({ ...p, route: p.item.route })))) {
-    lines.push(`## ${group.route ?? "(no route)"}`, "");
-    for (const p of group.items) {
-      const summary = taskSummaryText(join(s.view.tasksDir, p.item.file), 200);
-      const shot = s.links?.get(p.item.id);
-      const name = s.links ? `[${p.id}](${p.file})` : `**${p.id}**`;
-      lines.push(`- ${name} (${p.item.priority}) ${p.item.title}${summary ? ` — ${summary}` : ""}${shot ? ` ([screenshot](${ASSETS_DIRNAME}/${p.item.id}/${shot}))` : ""}`);
-    }
-    lines.push("");
-  }
-  lines.push("## Working them", "");
-  if (s.links) lines.push("Each file is a self-contained task and keeps the review's `R-NN` id; the project gives it one of its own when it takes the item on.");
-  else lines.push(`Each item is a self-contained task file in \`${s.tasksDir}/\`. Run \`/crt:next\` in Claude Code to take the first one (\`/crt:next ${s.items[0]?.id ?? "CRT-NNNN"}\` for a particular one), or read the files.`);
-  if (!s.setUp && !s.links) lines.push("", "This project is not set up for CRT yet. `crt init` adds the `.gitignore` lines and the instructions for agents; the task files work without it.");
-  return lines.join("\n") + "\n";
-}
-
-// ---------------------------------------------------------------------------------------------
-// The command
-// ---------------------------------------------------------------------------------------------
-
 export async function runHandoff(opts: HandoffOptions): Promise<HandoffResult> {
   const root = resolve(opts.root);
   const env = opts.env ?? process.env;
   const log = opts.log ?? ((line: string) => console.log(line));
   const now = opts.now ?? new Date();
 
-  // Which review.
+  // Which review, and what of it is kept.
   const review = pickReview(root, opts, env);
   if (!review) {
     log(noReviewLine(root));
     return { outcome: "nothing" };
   }
-  if (review.manifest.status === "handed" && !opts.again) {
-    const last = review.manifest.handovers.at(-1) as Partial<Handover> | undefined;
-    throw new CrtError(`review ${review.name} was already handed over${last?.to ? ` (--to ${last.to}${last.url ? `, ${last.url}` : last.branch ? `, branch ${last.branch}` : ""})` : ""} — pass --again to hand it over once more`);
-  }
   const view = reviewView(review);
   const kept = view.items.filter((i) => i.keep);
+  const handovers = handoversOf(review.manifest);
   if (!kept.length) {
     log(`crt: review ${review.name} has no kept items — nothing to hand over`);
     return { outcome: "nothing" };
   }
 
-  // What the machine has.
-  const git = findOnPath("git", process.platform, env);
-  const gh = findOnPath("gh", process.platform, env);
-  const repo = gitDirs(root) !== null;
-  const runner: ToolRunner = opts.run ?? ((_tool, exe, args, o) => runExecutable(exe, args, o));
+  // The context every destination works through.
+  const tmps: string[] = [];
+  const extras: Record<string, string> = {};
+  const exes = new Map<string, Executable | null>();
+  const exe = (tool: string): Executable | null => {
+    if (!exes.has(tool)) exes.set(tool, findOnPath(tool, process.platform, env));
+    return exes.get(tool)!;
+  };
   // A credential prompt cannot be answered through a pipe: fail with git's own line instead of hanging.
   const toolEnv = { ...env, GIT_TERMINAL_PROMPT: "0" };
-  const g: Git = (args, cwd = root, timeoutMs = LOCAL_TIMEOUT_MS) => runner("git", git!, args, { cwd, env: toolEnv, timeoutMs });
-  const remote = repo && git ? pickRemote((await g(["remote"])).stdout) : null;
-  const to = opts.to ?? defaultDestination({ repo, git: git !== null, remote: remote !== null, gh: gh !== null });
-  if (to === "pr" || to === "branch") {
-    if (!repo) throw new CrtError(`${root} is not a git repository — use \`crt handoff --to here\` or \`--to bundle\``);
-    if (!git) throw new CrtError("git not found on PATH — install git, or use `crt handoff --to here`");
-    if (to === "pr" && !remote) throw new CrtError("this repository has no remote to push to — use `crt handoff --to branch`");
-    if (to === "pr" && !gh) throw new CrtError("gh (the GitHub CLI) not found on PATH — install it (https://cli.github.com), or use `crt handoff --to branch` and open the pull request yourself");
-  }
-
-  const ask = async (): Promise<void> => {
-    if (opts.yes) return;
-    if (!opts.interactive || !opts.prompt) throw new CrtError("crt handoff asks before it writes — run it on a terminal, or pass --yes (nothing was written)");
-    if (!isYes(await opts.prompt.ask("Go ahead? [Y/n]"))) throw new CrtError("cancelled — nothing was written", 130);
+  const runner: ToolRunner = opts.run ?? ((_tool, e, args, o) => runExecutable(e, args, o));
+  let key: { to: string; at: string } | null = null;
+  const ctx: DestinationContext = {
+    options: {},
+    flags: { ...opts.flags, ...(opts.branch !== undefined ? { branch: opts.branch } : {}), ...(opts.out !== undefined ? { out: opts.out } : {}) },
+    env,
+    cwd: opts.cwd ?? process.cwd(),
+    now,
+    log,
+    has: (tool) => exe(tool) !== null,
+    run: async (tool, args, o = {}) => {
+      const found = exe(tool);
+      if (!found) return { status: null, stdout: "", stderr: "", error: `${tool} not found on PATH` };
+      return runner(tool as "git" | "gh", found, args, { cwd: o.cwd ?? root, env: toolEnv, timeoutMs: o.timeoutMs ?? LOCAL_TIMEOUT_MS });
+    },
+    tmp: () => {
+      const dir = mkdtempSync(join(tmpdir(), "crt-handoff-tmp-"));
+      tmps.push(dir);
+      return dir;
+    },
+    recorded: {},
+    record: (fields) => {
+      Object.assign(extras, fields);
+      // Kept with the unfinished entry at once, so a continued run finds it (the branch an issue's images are on).
+      if (key) noteHandover(review.dir, key, fields);
+    },
   };
-  const tasksRel = tasksDirOf(root);
-  const setUp = isSetUp(root);
-  const count = (n: number) => `${n} item${n === 1 ? "" : "s"}`;
-  const title = `CRT review ${review.name}: ${count(kept.length)}`;
-  const planLines = (items: PlannedItem[]) => {
-    const w = Math.max(...items.map((p) => p.item.id.length));
-    return items.map((p) => `  ${p.item.id.padEnd(w)}${p.id === p.item.id ? "" : ` → ${p.id}`}  ${p.item.priority.padEnd(6)}  ${p.item.route ?? "-"}  ${p.item.title}`);
-  };
-  const finish = (handover: Handover): HandoffResult => {
-    recordHandover(review.dir, handover);
-    return { outcome: "handed", handover };
-  };
-  const map = (items: PlannedItem[]) => Object.fromEntries(items.map((p) => [p.item.id, p.id]));
-  const of = `${kept.length} of ${count(view.items.length)}`;
+  let landed = 0;
 
-  // ---- bundle (F-137) ----
-  if (to === "bundle") {
-    const dir = join(resolve(opts.cwd ?? process.cwd(), opts.out ?? "."), `crt-review-${basename(root).toLowerCase().replace(/[^a-z0-9-]+/g, "-")}-${review.name}`);
-    if (existsSync(dir)) throw new CrtError(`${dir} already exists — remove it, or pass --out <dir>`);
-    const items = kept.map((item) => ({ item, id: item.id, file: item.file }));
-    log(`Hand over review ${review.name} as a bundle: ${of}, ids left as they are.`);
-    for (const line of planLines(items)) log(line);
-    log(`Writes ${dir} (REVIEW.md, the task files and their assets).`);
-    await ask();
-    mkdirSync(dir, { recursive: true });
-    const links = new Map<string, string | null>();
-    for (const p of items) {
-      writeFileSync(join(dir, p.file), readFileSync(join(view.tasksDir, p.file), "utf8"), "utf8");
-      const assets = join(view.tasksDir, ASSETS_DIRNAME, p.id);
-      if (existsSync(assets)) cpSync(assets, join(dir, ASSETS_DIRNAME, p.id), { recursive: true });
-      links.set(p.id, ["viewport-annotated.png", "viewport.png"].find((f) => existsSync(join(assets, f))) ?? null);
-    }
-    writeFileSync(join(dir, "REVIEW.md"), renderSummary({ view, items, reviewed: reviewedLines(kept), tasksDir: ".", setUp, now, links }), "utf8");
-    log(`Handed over review ${review.name}: ${count(kept.length)} in ${dir} — send that folder to the project.`);
-    return finish({ to, at: localIso(now), items: map(items), dir });
-  }
-
-  // ---- here ----
-  if (to === "here") {
-    const dest = join(root, tasksRel);
-    const items = plan(kept, nextTaskIds(highestIn(dest), kept.length));
-    log(`Hand over review ${review.name} into this working tree: ${of}.`);
-    for (const line of planLines(items)) log(line);
-    log(`Writes ${tasksRel}/ in ${root}, uncommitted. Nothing else is written.`);
-    await ask();
-    const written = writeItems(view, kept, dest, review.name, now);
-    log("");
-    for (const line of renderSummary({ view, items: written, reviewed: reviewedLines(kept), tasksDir: tasksRel, setUp, now }).trimEnd().split("\n")) log(line);
-    log("");
-    log(`Handed over review ${review.name}: ${written.length} task file${written.length === 1 ? "" : "s"} written to ${tasksRel}/ (uncommitted).`);
-    return finish({ to, at: localIso(now), items: map(written) });
-  }
-
-  // ---- pr and branch ----
-  if (remote) {
-    const fetched = await g(["fetch", remote], root, NETWORK_TIMEOUT_MS);
-    if (fetched.status !== 0) throw new CrtError(`could not fetch ${remote} (${reason(fetched)}) — nothing was created; fix that, or use \`crt handoff --to here\``);
-  }
-  const base = remote ? await defaultBranch(g, remote) : null;
-  if (to === "pr" && !base) throw new CrtError(`could not tell ${remote}'s default branch — nothing was created; push a first commit there, or use \`crt handoff --to branch\``);
-  const baseRef = base ? `${remote}/${base}` : "HEAD";
-  if ((await g(["rev-parse", "--verify", "--quiet", `${baseRef}^{commit}`])).status !== 0) {
-    throw new CrtError(`this repository has no commit to branch from (${baseRef}) — nothing was created; use \`crt handoff --to here\``);
-  }
-  const wanted = opts.branch ?? `crt/review-${review.name}`;
-  if ((await g(["check-ref-format", "--branch", wanted])).status !== 0) throw new CrtError(`"${wanted}" is not a branch name git accepts`, 2);
-  let branch = wanted;
-  for (let n = 2; await branchExists(g, branch, remote); n++) branch = `${wanted}-${n}`;
-  // The ids as the plan shows them: from the base's own tree (files, and `assets/<ID>` folders).
-  const listed = await g(["ls-tree", "-r", "--name-only", baseRef, "--", `${tasksRel}/`]);
-  const inBase = listed.stdout.split("\n").map((p) => {
-    const rest = p.slice(tasksRel.length + 1);
-    return (rest.startsWith(`${ASSETS_DIRNAME}/`) ? rest.slice(ASSETS_DIRNAME.length + 1) : rest).split("/")[0]!;
-  });
-  const items = plan(kept, nextTaskIds(inBase, kept.length));
-  const reviewed = await reviewedAgainst(g, kept, baseRef, base ?? "HEAD");
-
-  log(`Hand over review ${review.name} as a ${to === "pr" ? "pull request" : "branch"}: ${of}.`);
-  for (const line of planLines(items)) log(line);
-  log(`Writes ${tasksRel}/ on a new branch ${branch}, made from ${baseRef} in a temporary worktree — your checkout is not touched.`);
-  log(to === "pr" ? `Then pushes ${branch} to ${remote} and opens a pull request into ${base}: "${title}".` : "The branch stays local: nothing is pushed.");
-  await ask();
-
-  // The worktree: made, written, committed and removed — whatever happens in between.
-  const worktree = mkdtempSync(join(tmpdir(), "crt-handoff-"));
-  let committed = false;
-  let written: PlannedItem[] = [];
   try {
-    const added = await g(["worktree", "add", "--no-track", "-b", branch, worktree, baseRef]);
-    if (added.status !== 0) throw new CrtError(`could not create the branch ${branch} in a temporary worktree (${reason(added)}) — nothing was created; fix that, or use \`crt handoff --to here\``);
-    try {
-      written = writeItems(view, kept, join(worktree, tasksRel), review.name, now);
-      const staged = await g(["add", "--", tasksRel], worktree);
-      // Hooks are skipped: the worktree has no installed dependencies for them, and the commit is task files only.
-      const commit = staged.status === 0 ? await g(["commit", "--no-verify", "-m", `chore(crt): review ${review.name} — ${count(written.length)}`, "--", tasksRel], worktree) : staged;
-      if (commit.status !== 0) throw new CrtError(`could not commit the task files on ${branch} (${reason(commit)}) — nothing was created`);
-      committed = true;
-    } finally {
-      await g(["worktree", "remove", "--force", worktree]);
-      if (!committed) await g(["branch", "-D", branch]); // a failure before the commit leaves no branch behind
+    // Which destination (F-146): `--to`, else `handoff.to`, else the rule of PRD-zero §5.5.
+    const config = readDestinationsConfig(root, env);
+    const name = opts.to ?? config.defaultTo ?? (await defaultName(root, ctx));
+    const { destination, options } = await resolveDestination(name, config, { root, log });
+    ctx.options = options;
+
+    // What this destination already has of the review (F-142).
+    const mine = handovers.filter((h) => h.to === name);
+    const partial = opts.again ? undefined : mine.filter((h) => h.state === "partial").at(-1);
+    const complete = mine.filter((h) => h.state !== "partial").at(-1);
+    if (destination.final && complete && !partial && !opts.again) throw new CrtError(alreadyLine(review.name, complete));
+    key = { to: name, at: partial?.at ?? localIso(now) };
+    const already: PublishedItem[] = partial ? Object.entries(partial.items).map(([item, id]) => ({ item, id, ...(partial.urls?.[item] ? { url: partial.urls[item] } : {}) })) : [];
+    const todo = kept.filter((i) => !already.some((a) => a.item === i.id));
+    if (partial) for (const [k, v] of Object.entries(partial)) if (typeof v === "string" && !["to", "at", "state"].includes(k)) ctx.recorded[k] = v;
+
+    const input: PublishInput = {
+      review: { name: review.name, created: view.created, totals: view.totals },
+      project: { root, name: basename(view.project.root || "") || "the project", remote: view.project.remote, setUp: isSetUp(root) },
+      items: todo.map((i) => readFeedbackItem(view.tasksDir, i.file)),
+      already,
+    };
+    if (!todo.length) {
+      const done = completeHandover(review.dir, key, extras, destination.final);
+      log(`crt: every kept item of review ${review.name} is already at ${name} — nothing left to publish`);
+      return done ? { outcome: "handed", handover: done } : { outcome: "nothing" };
     }
+
+    // Say first (N-35, N-38): the destination's own lines, as given.
+    const plan = await planOf(name, () => destination.plan(input, ctx));
+    for (const line of plan.lines) log(line);
+    for (const line of plan.sends) log(`Sends ${line}.`);
+    if (already.length) log(`${already.length} of ${kept.length} are already there from an earlier run; ${todo.length} to go.`);
+    if (!opts.yes) {
+      if (!opts.interactive || !opts.prompt) throw new CrtError("crt handoff asks before it writes — run it on a terminal, or pass --yes (nothing was written)");
+      if (!isYes(await opts.prompt.ask("Go ahead? [Y/n]"))) throw new CrtError("cancelled — nothing was written", 130);
+    }
+
+    // Publish, recording each item as it lands.
+    const given = new Set(input.items.map((i) => i.id));
+    try {
+      for await (const item of destination.publish(input, plan, ctx)) {
+        if (!item || typeof item.item !== "string" || typeof item.id !== "string" || !given.has(item.item)) {
+          throw new CrtError(`${name} reported an item this run did not give it (${JSON.stringify(item?.item ?? null)}) — stopped; ${landed} of ${todo.length} are recorded`);
+        }
+        given.delete(item.item);
+        recordPublished(review.dir, key, { item: item.item, id: item.id, ...(typeof item.url === "string" && item.url ? { url: item.url } : {}) });
+        landed++;
+      }
+    } catch (err) {
+      if (err instanceof CrtError) throw err;
+      throw new CrtError(`${name} stopped after ${landed} of ${todo.length} item${todo.length === 1 ? "" : "s"} (${oneLine(err)})${landed ? ` — run \`crt handoff --to ${name}\` again to publish the rest` : " — nothing was recorded"}`);
+    }
+    if (given.size) {
+      throw new CrtError(`${name} finished without ${[...given].join(", ")} — ${landed} of ${todo.length} are recorded; run \`crt handoff --to ${name}\` again to publish the rest`);
+    }
+    const handover = completeHandover(review.dir, key, extras, destination.final);
+    return handover ? { outcome: "handed", handover } : { outcome: "nothing" };
   } finally {
-    rmSync(worktree, { recursive: true, force: true });
-    await g(["worktree", "prune"]);
+    for (const dir of tmps) rmSync(dir, { recursive: true, force: true });
   }
-  const body = renderSummary({ view, items: written, reviewed, tasksDir: tasksRel, setUp, now });
+}
 
-  if (to === "branch") {
-    log(`Handed over review ${review.name}: ${count(written.length)} committed on ${branch} (from ${baseRef}).`);
-    log(remote ? `Push it and open a pull request when you are ready: git push ${remote} ${branch}` : `Merge it when you are ready: git merge ${branch}`);
-    return finish({ to, at: localIso(now), items: map(written), branch, base: baseRef });
+/** F-146: `crt handoff --list` — every destination, one line each, the default marked. Imports no module from outside (N-39). */
+export async function listHandoff(opts: Pick<HandoffOptions, "root" | "env" | "log">): Promise<void> {
+  const root = resolve(opts.root);
+  const log = opts.log ?? ((line: string) => console.log(line));
+  const config = readDestinationsConfig(root, opts.env ?? process.env);
+  const rows = listDestinations(config);
+  const w = Math.max(...rows.map((r) => r.name.length), 4);
+  const rel = (file: string) => (file.startsWith(root) ? displayPath(root, file) : file);
+  for (const r of rows) {
+    const where = r.kind === "builtin" ? `built in${r.file ? `, options from ${rel(r.file)}` : ""}` : `${r.use}, from ${rel(r.file!)}`;
+    log(`${r.name === config.defaultTo ? "*" : " "} ${r.name.padEnd(w)}  ${r.kind === "builtin" ? r.title : "(a module from outside CRT)"} — ${where}`);
   }
-
-  const bodyFile = join(tmpdir(), `crt-handoff-${review.name}-${process.pid}.md`);
-  writeFileSync(bodyFile, body, "utf8");
-  const create = ["pr", "create", "--base", base!, "--head", branch, "--title", title, "--body-file", bodyFile];
-  const byHand = `gh ${create.map((a) => (/[\s"]/.test(a) ? JSON.stringify(a) : a)).join(" ")}`;
-  // Only the branch made above, by its full name, and never forced.
-  const pushed = await g(["push", remote!, `refs/heads/${branch}:refs/heads/${branch}`], root, NETWORK_TIMEOUT_MS);
-  if (pushed.status !== 0) {
-    throw new CrtError(`committed ${branch} locally but could not push it (${reason(pushed)}) — the review is still open; push it and open the pull request with: git push ${remote} ${branch} && ${byHand}`);
-  }
-  const opened = await runner("gh", gh!, create, { cwd: root, env: toolEnv, timeoutMs: NETWORK_TIMEOUT_MS });
-  const url = /https?:\/\/\S+/.exec(opened.stdout)?.[0] ?? null;
-  if (opened.status !== 0 || !url) {
-    throw new CrtError(`pushed ${branch} but could not open the pull request (${reason(opened)}) — the review is still open; open it with: ${byHand}`);
-  }
-  rmSync(bodyFile, { force: true });
-  log(`Handed over review ${review.name}: ${count(written.length)} on ${branch} — ${url}`);
-  log("Merging that pull request is when the project takes the feedback on; `/crt:next` works the items from there.");
-  return finish({ to, at: localIso(now), items: map(written), branch, base: baseRef, url });
+  log("");
+  log(config.defaultTo ? `* is what plain \`crt handoff\` uses (handoff.to in ${rel(config.defaultFile!)}).` : "Plain `crt handoff` uses pr, branch or here, whichever the project allows; set handoff.to in .crt/config.json to choose.");
 }
 
 // ---------------------------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------------------------
 
-type Git = (args: string[], cwd?: string, timeoutMs?: number) => Promise<RunResult>;
+/** PRD-zero §5.5's default: `pr` with a remote and `gh`, `branch` in a repository without either, `here` otherwise. */
+async function defaultName(root: string, ctx: DestinationContext): Promise<string> {
+  const facts = await projectFacts(root, ctx);
+  return defaultDestination({ repo: facts.repo, git: facts.git, remote: facts.remote !== null, gh: facts.gh });
+}
+
+function alreadyLine(review: string, last: Partial<Handover>): string {
+  return `review ${review} was already handed over${last.to ? ` (--to ${last.to}${last.url ? `, ${last.url}` : last.branch ? `, branch ${last.branch}` : ""})` : ""} — pass --again to hand it over once more`;
+}
+
+function oneLine(err: unknown): string {
+  return (err instanceof Error ? err.message : String(err)).split("\n")[0]!.trim() || "no message";
+}
+
+/** A destination's refusal is one `crt:` line whoever wrote the destination. */
+async function planOf<T>(name: string, plan: () => T | Promise<T>): Promise<T> {
+  try {
+    return await plan();
+  } catch (err) {
+    if (err instanceof CrtError) throw err;
+    throw new CrtError(`${name} cannot publish this review: ${oneLine(err)} (nothing was written)`);
+  }
+}
 
 /** `--review <name>`, else the current review, else the newest one (to hand it over `--again`, or to say it already was). */
 function pickReview(root: string, opts: HandoffOptions, env: NodeJS.ProcessEnv): Review | null {
@@ -363,99 +250,4 @@ function pickReview(root: string, opts: HandoffOptions, env: NodeJS.ProcessEnv):
     return named;
   }
   return currentReview(root, env) ?? all.at(-1) ?? null;
-}
-
-/** The project's tasks directory relative to its root, with `/` — `.crt/tasks` unless the config names another inside the project. */
-function tasksDirOf(root: string): string {
-  const rel = relative(root, resolve(root, readConfig(root).tasksDir));
-  return !rel || rel.startsWith("..") || isAbsolute(rel) ? ".crt/tasks" : rel.split("\\").join("/");
-}
-
-/** The highest id a directory on disk holds, as a name for `nextTaskIds` — by the project's own allocator (tasks.ts), so the two never disagree. */
-function highestIn(tasksDir: string): string[] {
-  return [`CRT-${String(Number(allocateTaskId(tasksDir).slice(4)) - 1).padStart(4, "0")}`];
-}
-
-function plan(kept: ReviewItemView[], ids: string[]): PlannedItem[] {
-  return kept.map((item, i) => ({ item, id: ids[i]!, file: item.file.replace(TASK_FILE_RE, (_m, _id: string, slug: string) => `${ids[i]}-${slug}.md`) }));
-}
-
-/**
- * Write the kept items into `dest` with the destination's own next ids (§5.5), then the index.
- * Every file is checked against the F-32 format before anything is written.
- */
-function writeItems(view: ReviewView, kept: ReviewItemView[], dest: string, review: string, now: Date): PlannedItem[] {
-  mkdirSync(dest, { recursive: true });
-  const items = plan(kept, nextTaskIds(highestIn(dest), kept.length));
-  const texts = items.map((p) => {
-    const text = rewriteTaskText(readFileSync(join(view.tasksDir, p.item.file), "utf8"), p.item.id, p.id, review, now);
-    const errors = validateTaskText(text, p.file);
-    if (errors.length) throw new CrtError(`${p.item.id} would not be a valid task file as ${p.id} (${errors[0]}) — nothing was written; fix ${join(view.tasksDir, p.item.file)}`);
-    return text;
-  });
-  items.forEach((p, i) => {
-    const assets = join(view.tasksDir, ASSETS_DIRNAME, p.item.id);
-    if (existsSync(assets)) cpSync(assets, join(dest, ASSETS_DIRNAME, p.id), { recursive: true });
-    writeFileSync(join(dest, p.file), texts[i]!, "utf8");
-  });
-  writeIndex(dest);
-  return items;
-}
-
-/** `origin`, else the first remote; null without one. */
-function pickRemote(stdout: string): string | null {
-  const names = stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
-  return names.includes("origin") ? "origin" : (names[0] ?? null);
-}
-
-/** The remote's default branch: what its `HEAD` names, else `main` or `master` when it has one; null for an empty remote. */
-async function defaultBranch(g: Git, remote: string): Promise<string | null> {
-  const asked = await g(["ls-remote", "--symref", remote, "HEAD"], undefined, NETWORK_TIMEOUT_MS);
-  const named = /^ref: refs\/heads\/(\S+)\s+HEAD$/m.exec(asked.stdout)?.[1];
-  if (named && (await g(["rev-parse", "--verify", "--quiet", `refs/remotes/${remote}/${named}`])).status === 0) return named;
-  for (const candidate of ["main", "master"]) {
-    if ((await g(["rev-parse", "--verify", "--quiet", `refs/remotes/${remote}/${candidate}`])).status === 0) return candidate;
-  }
-  return null;
-}
-
-async function branchExists(g: Git, branch: string, remote: string | null): Promise<boolean> {
-  if ((await g(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])).status === 0) return true;
-  return remote !== null && (await g(["rev-parse", "--verify", "--quiet", `refs/remotes/${remote}/${branch}`])).status === 0;
-}
-
-/** The distinct commits the kept items were reviewed at, in review order. */
-function reviewedCommits(kept: ReviewItemView[]): { commit: string | null; branch: string | null }[] {
-  const seen = new Map<string, { commit: string | null; branch: string | null }>();
-  for (const i of kept) if (i.commit || i.branch) seen.set(`${i.commit} ${i.branch}`, { commit: i.commit, branch: i.branch });
-  return [...seen.values()];
-}
-
-function reviewedLine(r: { commit: string | null; branch: string | null }): string {
-  return `Reviewed ${r.commit ? `at \`${r.commit.slice(0, 7)}\`` : "with no commit yet"}${r.branch ? ` on \`${r.branch}\`` : ""}`;
-}
-
-/** Without git: what was reviewed, and no word on the base. */
-function reviewedLines(kept: ReviewItemView[]): string[] {
-  return reviewedCommits(kept).map((r) => `${reviewedLine(r)}.`);
-}
-
-/** §5.5: `Reviewed at 4f2a91c on main; the base (main) is 12 commits ahead.` */
-async function reviewedAgainst(g: Git, kept: ReviewItemView[], baseRef: string, baseName: string): Promise<string[]> {
-  const out: string[] = [];
-  for (const r of reviewedCommits(kept)) {
-    if (!r.commit) {
-      out.push(`${reviewedLine(r)}.`);
-      continue;
-    }
-    const ahead = await g(["rev-list", "--count", `${r.commit}..${baseRef}`]);
-    const n = ahead.status === 0 ? Number(ahead.stdout.trim()) : NaN;
-    out.push(`${reviewedLine(r)}; ${Number.isNaN(n) ? `that commit is not in the base (\`${baseName}\`)` : n === 0 ? `the base (\`${baseName}\`) has not moved since` : `the base (\`${baseName}\`) is ${n} commit${n === 1 ? "" : "s"} ahead`}.`);
-  }
-  return out;
-}
-
-/** What a failed tool said, in one line. */
-function reason(r: RunResult): string {
-  return r.error ?? firstLine(r.stderr) ?? firstLine(r.stdout) ?? `exit ${r.status}`;
 }

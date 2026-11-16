@@ -2,7 +2,7 @@
 
 Annotate your local site in the browser, talk to Claude in the page, and get a self-contained task file in your repo that any Claude Code session can pick up later with `/crt:next`. CRT started as Claude-only; since v0.2 it also works with Codex, since v0.5 with Gemini CLI and any Agent Client Protocol agent (both experimental — see Providers) and with the Antigravity CLI, and Claude Code remains the default. The name is historical.
 
-> v0.8.0. [docs/PRD.md](docs/PRD.md) defines the scope, requirement IDs (F-n, N-n) and the definition of done; [docs/PRD-providers.md](docs/PRD-providers.md) (v0.2, providers), [docs/PRD-setup.md](docs/PRD-setup.md) (v0.3, setup and first run), [docs/PRD-embedded.md](docs/PRD-embedded.md) (v0.4, embedded mode), [docs/PRD-polish.md](docs/PRD-polish.md) (v0.6, polish), [docs/PRD-chat.md](docs/PRD-chat.md) (v0.7, compact chat) and [docs/PRD-zero.md](docs/PRD-zero.md) (v0.8, zero integration) amend it; v0.5 shipped PRD-providers M10 (Gemini CLI and any ACP agent, experimental); v0.6 shipped PRD-polish M20–M23 (the mark, the landing page, the screenshots, this front page) and PRD-providers M19 (the Antigravity CLI); v0.7 ships PRD-chat M25–M26 (the compact chat: your words and the agent's proposal folded, the full text behind a pill); v0.7.1 adds PRD-chat F-123 (`/crt:next` waits for the PR's CI and, when the project opts in, merges); v0.7.2 adds PRD-chat F-124 (**Always allow** on permission cards, for every agent); v0.8 ships PRD-zero M28–M32 (CRT opens a browser with the button already in it, so an app needs no integration; a project that is not set up is reviewed as a guest with nothing written to it; `crt review` collates the feedback and `crt handoff` sends it to the project as one pull request). This README is the front page; the manual is [`docs/`](#docs).
+> v0.9.0. [docs/PRD.md](docs/PRD.md) defines the scope, requirement IDs (F-n, N-n) and the definition of done; [docs/PRD-providers.md](docs/PRD-providers.md) (v0.2, providers), [docs/PRD-setup.md](docs/PRD-setup.md) (v0.3, setup and first run), [docs/PRD-embedded.md](docs/PRD-embedded.md) (v0.4, embedded mode), [docs/PRD-polish.md](docs/PRD-polish.md) (v0.6, polish), [docs/PRD-chat.md](docs/PRD-chat.md) (v0.7, compact chat) [docs/PRD-zero.md](docs/PRD-zero.md) (v0.8, zero integration) and [docs/PRD-destinations.md](docs/PRD-destinations.md) (v0.9, destinations) amend it; v0.5 shipped PRD-providers M10 (Gemini CLI and any ACP agent, experimental); v0.6 shipped PRD-polish M20–M23 (the mark, the landing page, the screenshots, this front page) and PRD-providers M19 (the Antigravity CLI); v0.7 ships PRD-chat M25–M26 (the compact chat: your words and the agent's proposal folded, the full text behind a pill); v0.7.1 adds PRD-chat F-123 (`/crt:next` waits for the PR's CI and, when the project opts in, merges); v0.7.2 adds PRD-chat F-124 (**Always allow** on permission cards, for every agent); v0.8 ships PRD-zero M28–M32 (CRT opens a browser with the button already in it, so an app needs no integration; a project that is not set up is reviewed as a guest with nothing written to it; `crt review` collates the feedback and `crt handoff` sends it to the project as one pull request); v0.9 ships PRD-destinations M33–M36 (`crt handoff --to <destination>`: the review as one Markdown or JSON file, as GitHub issues, or to a module or command of your own). This README is the front page; the manual is [`docs/`](#docs).
 
 <p align="center">
   <picture>
@@ -23,7 +23,7 @@ crt review                        # the review on one page: keep, drop, prioriti
 crt handoff                       # the kept items → the project, as one branch and one pull request
 ```
 
-That is all it takes to look an app over: CRT starts Chrome or Edge with a profile of its own and puts the CRT button on the app's own URL, keeps what you send in a *review* under `~/.crt`, and writes nothing into the project until `crt handoff` — the review, its page and the hand-over are in [docs/review.md](docs/review.md). To keep CRT in a project for good — the button in your everyday browser, tasks written straight into `.crt/tasks/`:
+That is all it takes to look an app over: CRT starts Chrome or Edge with a profile of its own and puts the CRT button on the app's own URL, keeps what you send in a *review* under `~/.crt`, and writes nothing into the project until `crt handoff` — the review, its page and the hand-over are in [docs/review.md](docs/review.md), and the other places a review can go (GitHub Issues, one Markdown or JSON file, a command of your own) in [docs/destinations.md](docs/destinations.md). To keep CRT in a project for good — the button in your everyday browser, tasks written straight into `.crt/tasks/`:
 
 ```bash
 # one-time, per machine
@@ -139,7 +139,7 @@ Verify any build with `grep -r "__crt" dist/` (or `.next/static`) — it finds n
 - `.crt/tasks/` — the task files (`CRT-NNNN-<slug>.md`), their `assets/<ID>/` screenshots and the generated `README.md` index. Committed.
 - `.crt/config.json` — per project, committed: `mode`, `target`, `port`, `provider`.
 - two `.gitignore` lines — `.crt/captures/` (transient captures) and `.crt/config.local.json` (per machine: the remembered target, the remembered provider, the Always allow rules).
-- a CRT section in `CLAUDE.md` and `AGENTS.md` (whichever exist; one is created when neither does) between `<!-- BEGIN:crt v0.8 -->` and `<!-- END:crt -->`, so the project's agents know what `.crt/tasks/*.md` are, that they appear during intake, and that they are committed with the project — never deleted or "cleaned up". Re-running `crt init` replaces the section in place; `--no-instructions` skips it.
+- a CRT section in `CLAUDE.md` and `AGENTS.md` (whichever exist; one is created when neither does) between `<!-- BEGIN:crt v0.9 -->` and `<!-- END:crt -->`, so the project's agents know what `.crt/tasks/*.md` are, that they appear during intake, and that they are committed with the project — never deleted or "cleaned up". Re-running `crt init` replaces the section in place; `--no-instructions` skips it.
 
 That is the complete list. A project that is not set up gets none of it: `crt` runs there as a guest and writes only under `~/.crt`, and `crt handoff` later adds task files to `.crt/tasks/` and nothing else. At runtime the server (`crt`, `crt serve`, `crt proxy`) writes only under `.crt/` — captures, tasks, the index, `config.local.json` — and never touches `.gitignore`, `CLAUDE.md`, `AGENTS.md` or any app file; `crt init` is the one command that writes outside `.crt/`, and it names every file on stdout as it does (the other explicit CLI writes are `crt skills install`, into `.agents/skills/`, and `crt setup`, into Claude Code's own plugin store).
 
@@ -175,7 +175,7 @@ ok    instructions CLAUDE.md carries the CRT section
 ok    port      4400 free
 ok    claude    Claude Code (Agent SDK 0.3.270) — logged in
 warn  codex     codex-cli 0.154.0 — not logged in — run `codex login`
-ok    plugin    crt@crt 0.8.0 installed (claude on PATH)
+ok    plugin    crt@crt 0.9.0 installed (claude on PATH)
 → claude — codex not logged in
 ```
 
@@ -189,12 +189,11 @@ Every failure is one `crt:` line on stderr and a non-zero exit; the catalogue �
 | [docs/integration.md](docs/integration.md) | the four forms and where each starts capturing, the loader and its options, Production in full, proxy mode |
 | [docs/cli.md](docs/cli.md) | every command and flag, what `crt` prints, what Claude gets at Send time |
 | [docs/review.md](docs/review.md) | reviewing an app with nothing added to it: the CRT browser, the guest start, the review and its page, `crt handoff` |
+| [docs/destinations.md](docs/destinations.md) | where `crt handoff` can send a review: the built-in destinations and their options, GitHub Issues, writing your own |
 | [docs/providers.md](docs/providers.md) | Claude Code, Codex, Gemini CLI, Antigravity CLI and any ACP agent — sessions, login, telemetry, skills, every problem line |
 | [docs/task-format.md](docs/task-format.md) | the task file: frontmatter, the seven sections, the bar it holds itself to |
 | [docs/how-it-works.md](docs/how-it-works.md) | the pieces, embedded and proxy mode, the overlay, the intake session, permissions, privacy |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | every `crt doctor` row and every `crt:` line, what it means and the fix |
 | [docs/develop.md](docs/develop.md) | build, test, release, the repository layout, the PRDs |
 
-`npm ci`, then `npm run check` (typecheck, unit tests, build) and `npm run e2e` (Playwright smoke; `npx playwright install chromium` once). Plugin changes must pass `claude plugin validate ./plugin`; CI runs both. The release recipe, `npm run screenshots`, the repository layout (`packages/server` is the npm package, `packages/overlay` the in-page UI, `plugin/` the Claude Code plugin, `.crt/tasks` this repo's own work items) and the PRDs: [docs/develop.md](docs/develop.md).
-
-License: MIT.
+`npm ci`, then `npm run check` (typecheck, unit tests, build) and `npm run e2e` (Playwright smoke; `npx playwright install chromium` once). Plugin changes must pass `claude plugin validate ./plugin`; CI runs both. The release recipe, `npm run screenshots`, the repository layout (`packages/server` is the npm package, `packages/overlay` the in-page UI, `plugin/` the Claude Code plugin, `.crt/tasks` this repo's own work items) and the PRDs: [docs/develop.md](docs/develop.md). License: MIT.

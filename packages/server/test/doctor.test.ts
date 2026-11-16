@@ -65,6 +65,12 @@ function facts(over: Partial<DoctorFacts> = {}): DoctorFacts {
   };
 }
 
+it("adds the handoff row only when the config chose a destination, and warns when its module is missing (PRD-destinations F-149)", () => {
+  expect(doctorRows(facts()).rows.some((r) => r.name === "handoff")).toBe(false);
+  expect(row(facts({ handoff: { name: "github", ok: true, title: "GitHub Issues", detail: "built in" } }), "handoff")).toBe("ok    handoff   github (GitHub Issues) — built in");
+  expect(row(facts({ handoff: { name: "tracker", ok: false, title: "tracker", detail: "./tools/gone.mjs not found" } }), "handoff")).toBe("warn  handoff   tracker — ./tools/gone.mjs not found");
+});
+
 it("names the CRT browser and the current review, or says there is none (F-131)", () => {
   const f = facts({ review: { name: "2026-11-16", items: 11, kept: 9 }, browser: { name: "Chrome", exe: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", version: "142" } });
   expect(row(f, "review")).toBe("ok    review    2026-11-16 — 11 items, 9 kept");

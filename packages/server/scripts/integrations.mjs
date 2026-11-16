@@ -3,6 +3,7 @@
 //   noop-loader.js, noop-react.js   the `production` condition targets — same export names, empty
 //                                   bodies, none of the F-98 strings
 //   loader.d.ts, react.d.ts         generated from packages/overlay/src with the overlay tsconfig
+//   ../destinations/{api,types}     .js and .d.ts of the destination contract (PRD-destinations F-143)
 //   vite.js, vite.d.ts              generated from src/integrations/vite.ts with the server tsconfig
 //                                   (tsc -p emits vite.js too; this emit is byte-identical, and it
 //                                   lets a test build the whole set into a temp dir without tsc -p)
@@ -34,6 +35,10 @@ export const ENTRY_FILES = [
   "integrations/noop-react.js",
   "integrations/vite.js",
   "integrations/vite.d.ts",
+  "destinations/api.js",
+  "destinations/api.d.ts",
+  "destinations/types.js",
+  "destinations/types.d.ts",
 ];
 
 /**
@@ -73,6 +78,20 @@ export function buildIntegrations({ dist = DEFAULT_DIST } = {}) {
         ["integrations/vite.js", join(out, "vite.js")],
         ["integrations/vite.js.map", join(out, "vite.js.map")],
         ["integrations/vite.d.ts", join(out, "vite.d.ts")],
+      ],
+      emitDeclarationOnly: false,
+    }),
+    // `claude-review-tool/destination` (PRD-destinations F-143): the contract a destination written
+    // outside CRT imports — api.ts and the types.ts it re-exports, with their declarations.
+    ...emit({
+      tsconfig: join(server, "tsconfig.json"),
+      rootNames: [join(server, "src", "destinations", "api.ts")],
+      outDir: join(dist, "destinations"), // the program's root is src/destinations: api.ts imports only types.ts
+      keep: [
+        ["api.js", join(dist, "destinations", "api.js")],
+        ["api.d.ts", join(dist, "destinations", "api.d.ts")],
+        ["types.js", join(dist, "destinations", "types.js")],
+        ["types.d.ts", join(dist, "destinations", "types.d.ts")],
       ],
       emitDeclarationOnly: false,
     }),

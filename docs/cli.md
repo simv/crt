@@ -12,7 +12,8 @@ crt browse [target] …                          # the same server, your app in 
 crt review [--json] [--open | --no-open]       # the current review: its items, kept or dropped, and the totals; on a terminal, its page
 crt review list                                # every review of this project, with its status and counts
 crt review new [name]                          # start a new review (named after today's date by default)
-crt handoff [--to pr|branch|here|bundle] [--review <name>] [--branch <name>] [--out <dir>] [--yes] [--again]   # send the kept items to the project
+crt handoff [--to <destination>] [--review <name>] [--branch <name>] [--out <path>] [--no-screenshots] [--yes] [--again]   # send the kept items to the project, or to another destination
+crt handoff --list                             # every destination --to accepts here, the default marked
 crt doctor                                     # checklist: node, project, .crt, mode, target, integration, instructions, port, providers, plugin
 crt init [--yes] [--no-instructions] [--snippet [--json]]   # set the project up, each write announced; then the snippet for your framework
 crt setup [--claude <path>]                    # register the bundled Claude Code plugin (idempotent)
@@ -35,7 +36,7 @@ crt --version                                  # crt <version> (agent sdk <versi
 | `crt doctor` | | Read-only checklist, one row per check; exit 1 on any `FAIL`. First step in [Troubleshooting](troubleshooting.md). |
 | `crt init [--yes] [--no-instructions] [--snippet [--json]]` | | Sets the project up explicitly: prints its plan (`.crt/README.md`, `.crt/tasks/`, `.crt/config.json`, the two `.gitignore` lines, a CRT section in `CLAUDE.md` / `AGENTS.md` — only what is not in place), asks `Go ahead? [Y/n]` on a terminal (`--yes` skips the question; off a terminal it applies without asking), announces every write, and ends with the one-line snippet for your framework. `--no-instructions` leaves `CLAUDE.md` / `AGENTS.md` alone; `--snippet` prints only the snippet and writes nothing (`--json` for tooling). Idempotent: a second run says `crt init: <root> is set up (…)`. |
 | `crt setup [--claude <path>]` | `claude` on PATH | Registers the plugin bundled in the package with Claude Code and installs (or updates) `crt@crt`; says `already installed` when it is. `--claude` names the Claude Code executable when it is not on PATH. |
-| `crt --version` | | `crt 0.8.0 (agent sdk 0.3.270)`, read from local files — CRT never checks a registry. |
+| `crt --version` | | `crt 0.9.0 (agent sdk 0.3.270)`, read from local files — CRT never checks a registry. |
 
 ## What `crt` prints
 
@@ -129,15 +130,18 @@ The page and its API (`/__crt/review/items`, `/__crt/review/groups`, and an item
 | `pr` | A new branch `crt/review-<review>` (`-2`, `-3` … when taken) made from the remote's default branch, with one commit `chore(crt): review <review> — N items`, pushed, and one pull request whose description is the collated summary (`gh pr create`). | the project is a git repository with a remote, and `gh` is on PATH |
 | `branch` | The same branch and commit, left local (made from `HEAD` when there is no remote). Push it and open the pull request yourself. | a git repository without a remote or without `gh` |
 | `here` | The same files in the working tree's `.crt/tasks/`, uncommitted, and the summary printed. | not a git repository |
+| `markdown`, `json` | The review as one file, `crt-review-<project>-<review>.md` (its screenshots in a folder beside it) or `.json` — an export: the review stays open. [destinations.md](destinations.md#markdown) | never |
+| `github` | One GitHub issue per item through `gh issue create`, the screenshots on a branch of their own so the issues can show them (`--no-screenshots` for text only). [destinations.md](destinations.md#github) | never |
+| *a name from the config* | A module of your own, or the command destination CRT ships as the example: [destinations.md › Writing your own](destinations.md#writing-your-own). | never |
 | `bundle` | A folder `crt-review-<project>-<review>/` in the current directory (`--out <dir>` for another) with `REVIEW.md`, the task files and their screenshots, ids left as `R-NN` — to send to a project you cannot push to. | never |
 
-It prints its plan first — each item with the id it will get, what it writes, the branch and where it goes — and asks `Go ahead? [Y/n]`. `--yes` skips the question; off a terminal without `--yes` it writes nothing. `--branch <name>` names the branch.
+It prints its plan first — each item with the id it will get, what it writes, the branch and where it goes — and asks `Go ahead? [Y/n]`. `--yes` skips the question; off a terminal without `--yes` it writes nothing. `--branch <name>` names the branch. `handoff.to` in the config makes another destination the default, `destinations.<name>` holds a destination's options, and `crt handoff --list` prints them all; a flag CRT does not know is passed to the destination.
 
 **Your checkout is not touched.** `pr` and `branch` build the branch in a temporary `git worktree` under the OS temp directory and remove it afterwards: `HEAD`, the checked-out branch, the index, the stash and your uncommitted changes stay as they were, so a running dev server sees nothing. CRT runs `git` and `gh` only here; it pushes only the branch it made, never with force, and never merges. The commit skips the project's commit hooks (it holds task files only, and the temporary worktree has no installed dependencies).
 
 **The summary** — the pull request description, `REVIEW.md` in a bundle — gives the review's name and dates, the totals, the commit each item was reviewed at and how far the base has moved since, the items grouped by route with id, priority, title and first sentence, and how to work them (`/crt:next`).
 
-Once the destination's last step has succeeded, `review.json` records the hand-over (where, when, each `R-NN → CRT-NNNN`, the pull request URL) and the review is `handed`: new feedback starts a new review. `crt handoff` on a handed review says so and stops; `--again` hands it over once more (a new branch, the next free ids). A review with nothing kept says `crt: review <name> has no kept items — nothing to hand over` and exits 0. A hand-over that stops half-way says what exists and the command that finishes it ([Troubleshooting](troubleshooting.md#a-hand-over-stopped-half-way)).
+Once the destination's last step has succeeded, `review.json` records the hand-over (where, when, each `R-NN → CRT-NNNN`, the pull request URL) and the review is `handed`: new feedback starts a new review. `crt handoff` on a handed review says so and stops; `--again` hands it over once more (a new branch, the next free ids). A review with nothing kept says `crt: review <name> has no kept items — nothing to hand over` and exits 0. A hand-over that stops half-way says what exists and the command that finishes it ([Troubleshooting](troubleshooting.md#a-hand-over-stopped-half-way)); a destination that publishes item by item (`github`, a module of yours) is recorded item by item, and running it again sends only the rest.
 
 ### Failures
 

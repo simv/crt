@@ -26,8 +26,8 @@ jobs:
   # arrive; with the steps skipped instead, each leg reports Success under its real name in seconds. README.md, plugin/**,
   # docs/brand/ (copy-intake.mjs ships the favicons in dist/; brand.test reads it) and docs/images/
   # (docs-images.test, docs.test), CRT-0034,
-  # and the nine reference pages docs/*.md (install, integration, cli, review, providers, task-format,
-  # how-it-works, troubleshooting, develop — M23, PRD-zero M32) are NOT docs here: test/docs.test.ts and the skill
+  # and the ten reference pages docs/*.md (install, integration, cli, review, destinations, providers, task-format,
+  # how-it-works, troubleshooting, develop — M23, PRD-zero M32, PRD-destinations M36) are NOT docs here: test/docs.test.ts and the skill
   # tests read them. Anything unknown, a first push or an API failure counts as code (fail safe).
   changes:
     name: changes
