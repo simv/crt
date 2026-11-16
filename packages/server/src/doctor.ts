@@ -16,8 +16,12 @@
  * the probe below would find that very server and call it held.
  */
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { findBrowser } from "./browser.js";
 import { type CrtMode, readConfig } from "./config.js";
+import { currentReview, projectReviewsDir } from "./home.js";
+import { reviewView } from "./review.js";
 import { isInitialised, missingIgnoreLines } from "./init.js";
 import { type InstructionFile, instructionsStatus, README_FILE } from "./instructions.js";
 import { detectIntegration, type Framework, INTEGRATION_CANDIDATES } from "./integration.js";
@@ -47,6 +51,12 @@ export interface DoctorFacts {
   project: { root: string; git: boolean };
   /** null when `.crt/tasks/` does not exist (F-99: not initialised); `readme` is `.crt/README.md` (F-100). */
   crt: { readme: boolean; tasks: number; config: boolean; localConfig: boolean; ignore: boolean } | null;
+  /** PRD-zero F-131: where a guest's reviews are kept (`<home>/reviews/<key>`); set when `crt` is null. */
+  guest?: { reviewsDir: string };
+  /** PRD-zero F-131: the project's current review; null when there is none; omitted when not looked at. */
+  review?: { name: string; items: number; kept: number } | null;
+  /** PRD-zero F-131: the browser `crt browse` would launch (`version` null when `--version` gave none within 3 s); null when none was found; omitted when not looked for. */
+  browser?: { name: string; exe: string; version: string | null } | null;
   /** F-103: the mode and which config file set it (null: the embedded default, or a flag). */
   mode: { mode: CrtMode; source: "local" | "project" | null };
   /** Omitted (undefined) when not checked; null when none is set and nothing was found. */
@@ -89,8 +99,8 @@ export function doctorRows(f: DoctorFacts): DoctorReport {
       : { status: "warn", name: "project", detail: `${f.project.root} — no .git above; .crt/ will be created here (run from the repo root, or git init)` },
   );
   if (f.crt === null) {
-    // F-99/F-103: nothing is created on its own any more.
-    rows.push({ status: "--", name: ".crt", detail: "not initialised — run crt init" });
+    // PRD-zero F-131: a project that is not set up is reviewed as a guest (F-129) — a state, not a fault.
+    rows.push({ status: "ok", name: ".crt", detail: `guest — not set up; this review is kept in ${f.guest?.reviewsDir ?? "the CRT home"} (crt init adopts CRT here)` });
   } else {
     const parts = [
       ...(f.crt.readme ? ["README.md"] : []),
@@ -101,6 +111,14 @@ export function doctorRows(f: DoctorFacts): DoctorReport {
     ];
     // F-103: a folder that predates v0.4 has no README — a warn, never a FAIL.
     rows.push(f.crt.readme ? { status: "ok", name: ".crt", detail: parts.join(", ") } : { status: "warn", name: ".crt", detail: `${parts.join(", ")} — no README.md — run crt init` });
+  }
+  if (f.review !== undefined) {
+    // PRD-zero F-131: the current review, whichever store this project writes to.
+    rows.push(
+      f.review === null
+        ? { status: "--", name: "review", detail: "none" }
+        : { status: "ok", name: "review", detail: `${f.review.name} — ${f.review.items} item${f.review.items === 1 ? "" : "s"}, ${f.review.kept} kept` },
+    );
   }
   const embedded = f.mode.mode === "embedded";
   rows.push({ status: "ok", name: "mode", detail: `${f.mode.mode}${f.mode.source ? ` (.crt/${f.mode.source === "local" ? "config.local.json" : "config.json"})` : ""}` });
@@ -118,6 +136,14 @@ export function doctorRows(f: DoctorFacts): DoctorReport {
     }
   }
   rows.push(integrationRow(f.integration));
+  if (f.browser !== undefined) {
+    // PRD-zero F-131: what `crt` / `crt browse` would launch (F-125).
+    rows.push(
+      f.browser === null
+        ? { status: "--", name: "browser", detail: "none found — the integration or `crt proxy`" }
+        : { status: "ok", name: "browser", detail: `${f.browser.name} ${f.browser.version ?? "unknown"} at ${f.browser.exe} (CRT browser)` },
+    );
+  }
   rows.push(instructionsRow(f.instructions));
   const p = f.port;
   if (p.state === "free") rows.push({ status: "ok", name: "port", detail: `${p.port} free` });
@@ -155,7 +181,7 @@ export function doctorRows(f: DoctorFacts): DoctorReport {
 function integrationRow(i: DoctorFacts["integration"]): DoctorRow {
   if (i.kind === "proxy") return { status: "--", name: "integration", detail: "proxy mode" };
   if (i.framework === "static") return { status: "--", name: "integration", detail: "static page — add the <script> tag (crt init --snippet)" };
-  if (i.found === null || i.file === null) return { status: "warn", name: "integration", detail: `not found (${i.framework}) — run crt init for the snippet, or crt proxy` };
+  if (i.found === null || i.file === null) return { status: "warn", name: "integration", detail: `not found (${i.framework}) — run crt init for the snippet, or crt proxy, or run \`crt\` — it opens the CRT browser` };
   const label = i.framework === "next" ? "next" : i.framework === "vite" ? "vite" : "loader";
   const what = i.found === "script" ? "loads /__crt/loader.js" : i.found === "vite" ? "uses claude-review-tool/vite" : `imports claude-review-tool/${i.found}`;
   return { status: "ok", name: "integration", detail: `${label} — ${i.file} ${what}` };
@@ -193,6 +219,8 @@ export interface CollectOptions {
   target: boolean;
   /** Spawn `claude plugin list --json`? Only `crt doctor` does. */
   plugin: boolean;
+  /** Look for the CRT browser and ask it for its version (PRD-zero F-131)? On unless `false` (the start path skips it). */
+  browser?: boolean;
   /** An already-refreshed registry (the start path's); otherwise one is built and refreshed here. */
   providers?: ProviderRegistry;
   /** The resolved mode (the start path's `crt proxy` / `--mode`); `crt doctor` reads the config files. */
@@ -232,6 +260,11 @@ export async function collectDoctorFacts(opts: CollectOptions): Promise<DoctorFa
     resolution: providers.resolve(null),
     version: opts.version,
   };
+  if (facts.crt === null) facts.guest = { reviewsDir: projectReviewsDir(root, env) };
+  const review = currentReview(root, env);
+  const totals = review ? reviewView(review).totals : null;
+  facts.review = review && totals ? { name: review.name, items: totals.items, kept: totals.kept } : null;
+  if (opts.browser !== false) facts.browser = await browserFact(config.browserCommand, env);
   if (opts.target) {
     if (config.target && config.targetSource) {
       // An unparseable value is probed as written, which fails, so the row says "not responding".
@@ -244,6 +277,19 @@ export async function collectDoctorFacts(opts: CollectOptions): Promise<DoctorFa
   }
   if (opts.plugin) facts.plugin = await pluginFact(env);
   return facts;
+}
+
+/** How long a browser gets to answer `--version` (F-131). */
+const BROWSER_VERSION_MS = 3_000;
+
+/** PRD-zero F-131: the browser F-125 would launch and what its `--version` says (`Google Chrome 142.0.7444.60` → `142`), 3 s at most. */
+export async function browserFact(command: string[] | null, env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): Promise<NonNullable<DoctorFacts["browser"]> | null> {
+  const found = findBrowser({ command, platform, env, home: homedir() });
+  if (!found) return null;
+  // Windows browsers print nothing for `--version` (they hand it to a running instance): the row says `unknown`.
+  const r = platform === "win32" ? null : await runExecutable({ command: found.exe, args: [], via: "path", found: found.exe }, [...found.args, "--version"], { env, timeoutMs: BROWSER_VERSION_MS });
+  const version = r && r.status === 0 ? (/(\d+)(?:\.\d+)+/.exec(r.stdout)?.[1] ?? null) : null;
+  return { name: found.name, exe: found.exe, version };
 }
 
 /** F-103: read only the F-102 candidate files of the detected framework, looking for an entry import or the loader URL. */

@@ -32,6 +32,8 @@ export const PORTS = {
   /** `npm run screenshots` (PRD-polish F-116): its own fixture and CRT, never run with the e2e. */
   screenshotsFixture: 3998,
   screenshotsCrt: 4490,
+  /** The guest server behind `review.png` (PRD-zero F-138): spawned by screenshots.spec.ts itself. */
+  screenshotsReview: 4491,
   /** The servers a spec spawns itself, one range per spec. */
   embedded: { from: 4460, to: 4469 },
   arrival: { from: 4470, to: 4479 },

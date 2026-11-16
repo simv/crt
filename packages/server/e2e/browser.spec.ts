@@ -179,6 +179,16 @@ test.describe("crt browse from the command line (F-128)", () => {
     }
   });
 
+  test("plain crt picks the CRT browser when the app carries no integration, and says so on the ready line (F-132)", async () => {
+    const port = PORTS.browser.from + 4;
+    const root = project("plain", port); // no package.json, no candidate file: no integration to find
+    const crt = startCrt(root, [FIXTURE, "--yes", "--open"], { CRT_BROWSER: join(root, "the-default-browser-must-not-be-used") });
+    expect(await crt.waitFor(/^CRT ready at /)).toContain(`CRT ready at http://localhost:${port} for ${FIXTURE} (embedded, CRT browser; `);
+    await crt.waitFor(/^crt: overlay loaded in the browser \(from http:\/\/localhost:3999\)$/);
+    expect(crt.lines.some((l) => l.includes("could not open browser") || l.includes("never loaded the CRT loader"))).toBe(false);
+    expect(existsSync(join(E2E_HOME, "browser", projectKey(root)))).toBe(true);
+  });
+
   test("crt browse --no-open never launches the browser (F-128)", async () => {
     const port = PORTS.browser.from + 2;
     const root = project("no-open", port);

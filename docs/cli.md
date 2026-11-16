@@ -27,7 +27,7 @@ crt --version                                  # crt <version> (agent sdk <versi
 | `crt browse [target]` | | The CRT browser: the embedded server, plus a Chrome or Edge window that CRT starts itself with a profile of its own per project (under `~/.crt/browser/`) and puts the CRT loader into over the DevTools protocol — so the CRT button is on your app's own URL with no integration and no policy exception in the app. The same flags as `crt` except `--mode`; it opens the window off a terminal too, and `--no-open` never launches it. CRT looks for Chrome, then Edge, then Chromium; `"browser": { "command": ["<path>", "<arg>", …] }` in `.crt/config.local.json` (or `.crt/config.json`) names another one. See [The CRT browser](#the-crt-browser). |
 | `--mode <embedded\|proxy>` | `embedded` (or `mode` in `.crt/config.local.json` / `.crt/config.json`) | Which mode `crt serve` runs in; `crt proxy` is `--mode proxy`. Put `"mode": "proxy"` in `.crt/config.json` to make proxy mode a project's default. |
 | `--port <n>` | `4400` (or `port` in `.crt/config.local.json` / `.crt/config.json`) | Port CRT listens on. Always bound to `127.0.0.1`. Never stepped around; without it a held port falls back to 4401…4409. |
-| `--open` / `--no-open` | on for a terminal, off otherwise | Open the CRT URL in your default browser once ready. |
+| `--open` / `--no-open` | on for a terminal, off otherwise | Open your app once ready: in your default browser when the app carries the CRT integration, else in the CRT browser ([What `crt` opens](#what-crt-opens)); the CRT URL in proxy mode. `--no-open` opens nothing and launches no browser. |
 | `--yes` | off | Never prompt: every question takes its default or fails with one `crt:` line (also the behaviour off a terminal or with `CI` set). |
 | `--review [name]` | off (or `"store": "review"` in `.crt/config.local.json` / `.crt/config.json`) | Keep this run's feedback in a **review** under the CRT home (`~/.crt`, or `CRT_HOME`) instead of the project's `.crt/tasks/`, and write nothing into the project — what a project that is not set up gets anyway (below). With a name, that review (started by the first Send if it does not exist); without one, the current review. |
 | `--replace` | off | Stop a CRT already holding the port (through its `POST /__crt/internal/shutdown`, which any local process may call — page scripts cannot, and it is no more than a signal could do) and take it over. |
@@ -35,7 +35,7 @@ crt --version                                  # crt <version> (agent sdk <versi
 | `crt doctor` | | Read-only checklist, one row per check; exit 1 on any `FAIL`. First step in [Troubleshooting](troubleshooting.md). |
 | `crt init [--yes] [--no-instructions] [--snippet [--json]]` | | Sets the project up explicitly: prints its plan (`.crt/README.md`, `.crt/tasks/`, `.crt/config.json`, the two `.gitignore` lines, a CRT section in `CLAUDE.md` / `AGENTS.md` — only what is not in place), asks `Go ahead? [Y/n]` on a terminal (`--yes` skips the question; off a terminal it applies without asking), announces every write, and ends with the one-line snippet for your framework. `--no-instructions` leaves `CLAUDE.md` / `AGENTS.md` alone; `--snippet` prints only the snippet and writes nothing (`--json` for tooling). Idempotent: a second run says `crt init: <root> is set up (…)`. |
 | `crt setup [--claude <path>]` | `claude` on PATH | Registers the plugin bundled in the package with Claude Code and installs (or updates) `crt@crt`; says `already installed` when it is. `--claude` names the Claude Code executable when it is not on PATH. |
-| `crt --version` | | `crt 0.7.2 (agent sdk 0.3.270)`, read from local files — CRT never checks a registry. |
+| `crt --version` | | `crt 0.8.0 (agent sdk 0.3.270)`, read from local files — CRT never checks a registry. |
 
 ## What `crt` prints
 
@@ -43,13 +43,25 @@ crt --version                                  # crt <version> (agent sdk <versi
 
 On success it prints one line — `CRT ready at http://localhost:4400 for http://localhost:3000 (embedded; project: C:\my-app, 3 tasks in .crt\tasks, provider: claude (default), login: ok)` (`for <app>` is omitted when no dev server was found; `CRT ready at http://localhost:4400 → http://localhost:3000 (proxy; project: …)` under `crt proxy`) — and, on a terminal, `Open http://localhost:3000 → CRT button bottom-right (Ctrl/Cmd+Shift+.) → Select · note · Send. Ctrl+C stops CRT; your dev server keeps running.` (`Open your dev server in the browser → …` when none is known; `Open http://localhost:4400 → …` in proxy mode), then keeps running until Ctrl+C (`Stopping CRT … 1 session ended; written task files are kept.`).
 
+### What `crt` opens
+
+In embedded mode `crt` decides once per start where your app opens, and the ready line names the choice:
+
+| The app | `crt` opens | Ready line |
+|---|---|---|
+| carries the CRT integration ([Add CRT to your app](integration.md)) | your default browser, as before | `(embedded; …)` |
+| has no integration, and Chrome, Edge or Chromium is installed | the CRT browser ([below](#the-crt-browser)) | `(embedded, CRT browser; …)` |
+| has neither | nothing | `(embedded; …)` |
+
+In the last case CRT says ``crt: no CRT integration in this app and no Chrome or Edge found — run `crt proxy`, or set browser.command in .crt/config.local.json`` and keeps serving. The integration is looked for in the project's files (the package entries in a config or layout file, or a loader tag); an app that loads the loader some other way is taken to have none, and gets the CRT browser — which works on it all the same. `crt browse` asks for the CRT browser whatever the app carries, `crt proxy` opens the CRT URL in the default browser, and `--no-open` opens nothing. Review an app without adding anything to it: [review.md](review.md).
+
 ### Finding your app
 
 Before that, finding your app in embedded mode is one line and never a question or a wait: `Found http://localhost:3000.`; with several dev servers up a terminal lists them and asks `Which one should I open? [1]` (off a terminal: `crt: found N dev servers (…); opening http://localhost:3000 — run \`crt <port>\` to pick another`); with none, `No dev server on ports 3000, 5173, 8080, 4200, 8000, 3001 — start it and open it in your browser; the CRT button appears when the page loads the CRT loader (crt <port> to have CRT open it next time).` and CRT is ready anyway; a remembered or configured app that is down gets `crt: http://localhost:3100 (remembered) is not responding — start it; CRT is ready for it`.
 
 ### The loader
 
-The CRT button appears on your app's own URL once the page loads the CRT loader ([Add CRT to your app](integration.md)); `http://localhost:4400` itself shows a landing page that says so, and when CRT opened your app but the page never asked for the loader it says `crt: opened http://localhost:3000 but the page never loaded the CRT loader — add the integration (\`crt init\` prints the snippet, /crt:init applies it), or run \`crt proxy\``; the first page that does load it gets `crt: overlay loaded in the browser (from http://localhost:3000)`.
+The CRT button appears on your app's own URL once the page loads the CRT loader ([Add CRT to your app](integration.md)); `http://localhost:4400` itself shows a landing page that says so, and when CRT opened your app but the page never asked for the loader it says `crt: opened http://localhost:3000 but the page never loaded the CRT loader — add the integration (\`crt init\` prints the snippet, /crt:init applies it), or run \`crt proxy\`, or run \`crt browse\``; the first page that does load it gets `crt: overlay loaded in the browser (from http://localhost:3000)`.
 
 ### A CRT already on the port
 
@@ -57,7 +69,7 @@ When a CRT from an earlier session already serves the same project in the same m
 
 ### The CRT browser
 
-`crt browse` prints the ready line with `(embedded, CRT browser; …)` and then, on a terminal, `In the CRT browser window → CRT button bottom-right (Ctrl/Cmd+Shift+.) → Select · note · Send. Ctrl+C stops CRT; your dev server keeps running.` The window opens on your app (on CRT's own page when no dev server answered — type your app's URL there), and the first page that loads the overlay gets `crt: overlay loaded in the browser (from http://localhost:3000)` as with the integration. In that window a page on `localhost`, `*.localhost`, `127.0.0.1` or `[::1]` is served without its `Content-Security-Policy` header, so the app's policy cannot refuse the overlay; every other site keeps its policy and never sees CRT. The window is not your everyday browser: you sign in to your app once in its profile, and your extensions are not there.
+`crt browse` — and plain `crt` in an app without the integration — prints the ready line with `(embedded, CRT browser; …)` and then, on a terminal, `In the CRT browser window → CRT button bottom-right (Ctrl/Cmd+Shift+.) → Select · note · Send. Ctrl+C stops CRT; your dev server keeps running.` The window opens on your app (on CRT's own page when no dev server answered — type your app's URL there), and the first page that loads the overlay gets `crt: overlay loaded in the browser (from http://localhost:3000)` as with the integration. In that window a page on `localhost`, `*.localhost`, `127.0.0.1` or `[::1]` is served without its `Content-Security-Policy` header, so the app's policy cannot refuse the overlay; every other site keeps its policy and never sees CRT. The window is not your everyday browser: you sign in to your app once in its profile, and your extensions are not there.
 
 One window per server: a second `crt browse` in the project asks the running CRT to open a tab and exits 0 with `CRT <version> is already serving this project at http://localhost:4400 (since 09:12) — opened the CRT browser on http://localhost:3000.` Closing the window does not stop CRT — `crt: the CRT browser was closed — \`crt browse\` opens it again` — and stopping CRT closes the window: `Stopping CRT … 1 session ended; the CRT browser was closed; written task files are kept.`
 

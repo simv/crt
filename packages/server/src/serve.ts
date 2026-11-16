@@ -27,11 +27,12 @@
  * with a command that does nothing, so the F-94 timer can be observed without a real browser).
  */
 import { spawn } from "node:child_process";
-import { BrowserController, readLoaderBundle } from "./browser.js";
+import { BrowserController, findBrowser, readLoaderBundle } from "./browser.js";
 import { readFileSync } from "node:fs";
 import type { Server } from "node:http";
+import { homedir } from "node:os";
 import { type CrtMode, resolveMode } from "./config.js";
-import { collectDoctorFacts, doctorRows, hasDevScript, renderRow } from "./doctor.js";
+import { collectDoctorFacts, doctorRows, hasDevScript, integrationFact, renderRow } from "./doctor.js";
 import { CrtError } from "./errors.js";
 import { announceOnce, browserProfileDir } from "./home.js";
 import { fetchHealth, isPortFree, requestBrowse, requestShutdown } from "./probes.js";
@@ -40,7 +41,7 @@ import { sdkVersion } from "./providers/claude.js";
 import { createProxyServer, type CrtServer } from "./proxy.js";
 import { describeResolution, loginField, ProviderRegistry } from "./session.js";
 import { SessionRegistry } from "./sessions.js";
-import { bindPort, chooseTarget, type CrtHealth, PORT_STEPS, type Prompter, sameProject, type StartDeps } from "./start.js";
+import { bindPort, chooseTarget, type CrtHealth, NO_WAY_LINE, type OpenChoice, openDecision, PORT_STEPS, type Prompter, sameProject, type StartDeps } from "./start.js";
 import { guestLine, openStore, type Store } from "./store.js";
 import { parseFrontmatter } from "./tasks.js";
 import { isReachable, PROBE_PORTS, probeAll, safeOrigin } from "./target.js";
@@ -169,7 +170,7 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
       // F-76: only FAIL/warn rows, once, before the first question (no target row — that is the question; no plugin row — never spawn `claude` here).
       if (warned) return;
       warned = true;
-      const report = doctorRows(await collectDoctorFacts({ cwd: projectRoot, version, target: false, plugin: false, providers, mode }));
+      const report = doctorRows(await collectDoctorFacts({ cwd: projectRoot, version, target: false, plugin: false, browser: false, providers, mode }));
       for (const row of report.rows) if (row.status === "FAIL" || row.status === "warn") log(renderRow(row));
     },
     ...opts.deps,
@@ -245,22 +246,38 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
     log,
   });
 
+  // PRD-zero F-132: what this start opens — the default browser when the app carries the integration (N-36: as in
+  // 0.7.2), else the CRT browser, else nothing and one line. CRT's own page (`openPath`) is the default browser's.
+  const wantsOpen = opts.open === true;
+  const choice: OpenChoice =
+    opts.openPath !== undefined
+      ? wantsOpen
+        ? "default"
+        : "none"
+      : openDecision({
+          open: wantsOpen,
+          mode,
+          forced: browse,
+          integration: wantsOpen && mode === "embedded" && !browse && integrationFact(projectRoot).found !== null,
+          browser: wantsOpen && mode === "embedded" && findBrowser({ command: config.browserCommand, platform: process.platform, env: process.env, home: homedir() }) !== null,
+        });
+  /** F-128: `crt browse` asks for the CRT browser by name; F-132: plain `crt` picked it. `--no-open` never launches it. */
+  const launch = choice === "crt-browser";
   const bound = await bindPort(
-    { port, explicit: opts.port !== undefined, replace: opts.replace === true, projectRoot, target: browse ? app : target, version, open: opts.open === true, mode, browser: browse },
+    { port, explicit: opts.port !== undefined, replace: opts.replace === true, projectRoot, target: browse ? app : target, version, open: wantsOpen, mode, browser: browse || launch },
     deps,
   );
   if (bound.kind === "reused") {
     // F-93: embedded mode opens the app (this run's, else the running server's); proxy mode opens the CRT URL.
     const toOpen = opts.openPath !== undefined ? bound.url + opts.openPath : mode === "embedded" ? (app ?? bound.health.target) : bound.url;
-    if (opts.open && toOpen && !browse) openBrowser(toOpen, log); // `crt browse`: bindPort asked that server (F-128)
+    if (choice === "no-way") log(NO_WAY_LINE);
+    else if (choice === "default" && toOpen) openBrowser(toOpen, log); // the CRT browser: bindPort asked that server (F-128)
     return { kind: "reused", url: bound.url, target, projectRoot, health: bound.health };
   }
   sessions.mcpPort = bound.port;
 
   const url = `http://localhost:${bound.port}`;
   boundUrl = url;
-  /** PRD-zero F-128: this start opens the CRT browser (`--no-open` never launches it). */
-  const launch = browse && opts.open === true;
   const tasks = store.taskCount();
   const login = loginField(resolution, providers);
   // PRD-zero F-129: `review 2026-11-16: 0 items` where a project store says `0 tasks in .crt/tasks`.
@@ -287,11 +304,15 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
   if (opts.openPath !== undefined) {
     // F-135: CRT's own page; the app is not opened and no loader request is expected (no F-94 timer).
     if (opts.open) openBrowser(url + opts.openPath, log);
+  } else if (choice === "no-way") {
+    // F-132: CRT stays up for a page that loads the loader later.
+    log(NO_WAY_LINE);
   } else if (launch) {
     // F-125/F-128: the app when one answers, else CRT's own page (the browser is then ready for the app's URL).
     // A failure is one line and CRT stays up; no F-94 timer — nothing in the app asks for the loader.
     await browser.open(app ?? url);
-  } else if (opts.open) {
+  } else if (choice === "default") {
+    // The integration was found (F-132), so a page that never asks for the loader is worth the F-94 line.
     if (mode === "proxy") openBrowser(url, log);
     else if (app) {
       // F-91: embedded mode opens the app's own URL (nothing when none is known); F-94 watches for the loader.

@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-// PRD-polish F-116 / F-117 / N-27 (M22): the images under docs/images/ — the five screenshots
+// PRD-polish F-116 / F-117 / N-27 (M22): the images under docs/images/ — the six screenshots
 // `npm run screenshots` writes and the four hand-drawn illustrations — exist, stay under budget
 // (PNG ≤ 400 KB, SVG ≤ 10 KB) and the SVGs render through <img> on GitHub in both themes (a
 // viewBox, fixed colours: no currentColor, no CSS variables, no <style>). Every image a README or a
@@ -13,8 +13,8 @@ const root = join(import.meta.dirname, "..", "..", "..");
 const images = join(root, "docs", "images");
 const PNG_BUDGET = 400 * 1024;
 const SVG_BUDGET = 10 * 1024;
-/** F-116 §5.3: the five screenshots, 800 × 600 CSS px at DPR 2 (CRT-0029; 1280 × 800 until then). */
-const SCREENSHOTS = ["arrival.png", "select.png", "chat.png", "marker-states.png", "landing.png"];
+/** F-116 §5.3: the five screenshots, 800 × 600 CSS px at DPR 2 (CRT-0029; 1280 × 800 until then); `review.png` is PRD-zero F-138's. */
+const SCREENSHOTS = ["arrival.png", "select.png", "chat.png", "marker-states.png", "landing.png", "review.png"];
 /** F-117: the two illustrations, light and dark. */
 const ILLUSTRATIONS = ["loop.svg", "loop-dark.svg", "architecture.svg", "architecture-dark.svg"];
 const bytes = (name: string) => statSync(join(images, name)).size;
@@ -57,7 +57,7 @@ describe("docs/images (PRD-polish F-116, F-117, N-27)", () => {
     }
   });
 
-  it("the five screenshots exist, are PNGs of 800 × 600 CSS px at DPR 2 and stay ≤ 400 KB each (F-116)", () => {
+  it("the six screenshots exist, are PNGs of 800 × 600 CSS px at DPR 2 and stay ≤ 400 KB each (F-116, F-138)", () => {
     for (const name of SCREENSHOTS) {
       expect(existsSync(join(images, name)), name).toBe(true);
       expect(pngSize(name), name).toEqual({ width: 1600, height: 1200 });

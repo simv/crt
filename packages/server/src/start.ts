@@ -350,3 +350,32 @@ export function since(h: Pick<CrtHealth, "startedAt">, prefix = " (since ", suff
 export function isYes(answer: string): boolean {
   return answer === "" || /^y(es)?$/i.test(answer.trim());
 }
+
+// ---- PRD-zero F-132: what plain `crt` opens ---------------------------------------------------
+
+/** `default`: the default browser (the app embedded, CRT's URL in proxy mode); `crt-browser`: the CRT browser; `no-way`: the F-132 line. */
+export type OpenChoice = "none" | "default" | "crt-browser" | "no-way";
+
+export interface OpenInput {
+  /** The F-103 `integration` row found the integration in the app. */
+  integration: boolean;
+  /** A Chromium-family browser was found (or `browser.command` names one). */
+  browser: boolean;
+  mode: "embedded" | "proxy";
+  /** The browser is to be opened at all (`--open`, or a terminal without `--no-open`). */
+  open: boolean;
+  /** `crt browse`: the CRT browser whatever the app carries (F-128). */
+  forced?: boolean;
+}
+
+/** PRD-zero §5.6: the integration when the app has one, else the CRT browser, else neither — and nothing with `--no-open`. */
+export function openDecision(input: OpenInput): OpenChoice {
+  if (!input.open) return "none";
+  if (input.mode === "proxy") return "default";
+  if (input.forced) return "crt-browser";
+  if (input.integration) return "default";
+  return input.browser ? "crt-browser" : "no-way";
+}
+
+/** F-132: neither the integration nor a browser CRT can launch; CRT stays up for a page that loads the loader later. */
+export const NO_WAY_LINE = "crt: no CRT integration in this app and no Chrome or Edge found — run `crt proxy`, or set browser.command in .crt/config.local.json";

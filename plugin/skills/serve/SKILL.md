@@ -8,7 +8,7 @@ allowed-tools: Bash(npx *) Bash(curl *) Read Edit Write Glob Grep AskUserQuestio
 
 Start the CRT server for this project (PRD F-36, PRD-embedded F-105), from the project root `${CLAUDE_PROJECT_DIR}`. Never start the user's dev server for them: CRT works alongside one that is already running. In embedded mode (the default since v0.4) the app's own page loads the CRT overlay from the CRT server, so the CRT button appears on the app's own URL; `/crt:serve --proxy [target]` is the v0.3 flow that proxies the app through the CRT URL instead.
 
-`crt` below is `npx --no crt` when the project has it installed (a devDependency, a workspace, or a global install), else `npx -y claude-review-tool@0.7`. Remember which one you used: the fallback may have to download the package (~220 MB on a first run), which changes how long you wait in step 2.
+`crt` below is `npx --no crt` when the project has it installed (a devDependency, a workspace, or a global install), else `npx -y claude-review-tool@0.8`. Remember which one you used: the fallback may have to download the package (~220 MB on a first run), which changes how long you wait in step 2.
 
 ## 0. Is a CRT already running for this project?
 
@@ -20,12 +20,7 @@ The port is `port` from `.crt/config.local.json`, else from `.crt/config.json`, 
 
 ## ½. Is the project set up?
 
-When `${CLAUDE_PROJECT_DIR}/.crt/tasks` does not exist, ask (AskUserQuestion): "CRT is not set up in this project. Set it up now? (creates .crt/, two .gitignore lines and a CRT section in CLAUDE.md, then adds one line to your app)" with the options **Yes, set it up** and **Not now**.
-
-- Yes → run the `/crt:init` steps first (`crt init --yes`, then `crt init --snippet --json` and the snippet applied to the one app file it names), then continue here.
-- No → stop with "run /crt:init when you want it".
-
-`crt serve --yes` would set the project up too (F-99), but silently accepting that is not this skill's call — the user decides.
+Do not ask, and do not set anything up (PRD-zero F-129, §9). When `${CLAUDE_PROJECT_DIR}/.crt/tasks` does not exist, CRT starts as a **guest**: it writes nothing into the project, keeps the feedback in a review under the CRT home (`~/.crt`), and — when the app carries no CRT integration — opens the app in a browser window of its own with the CRT button already there (the CRT browser, PRD-zero F-132). Remember that the project is a guest: the reply (step 5) says so and names `/crt:init` as the way to adopt CRT in the project.
 
 ## 1. Start it
 
@@ -43,7 +38,7 @@ crt proxy --open --yes                       # proxies the dev server through ht
 crt proxy --open --yes --target $ARGUMENTS
 ```
 
-`--yes` makes every prompt take its default (this is not a terminal), `--open` opens the browser once ready — the app's own URL in embedded mode, the CRT URL in proxy mode.
+`--yes` makes every prompt take its default (this is not a terminal), `--open` opens the browser once ready — the app's own URL in embedded mode (in the default browser when the app carries the CRT integration, else in the CRT browser, and the ready line then reads `(embedded, CRT browser; …)`), the CRT URL in proxy mode.
 
 ## 2. Wait for the ready line
 
@@ -67,7 +62,9 @@ Relay every `crt: …` line verbatim (PRD N-6). Some are a stop, some are not:
 - `crt: <origin> (remembered) is not responding — start it; CRT is ready for it` (embedded mode) → not a stop either: say which target is down and that starting it makes the button appear (`/crt:serve <port>` for another).
 - `crt: no dev server found on ports …` (proxy mode, exit) → ask (AskUserQuestion) **"Which URL or port is your dev server on?"** — free text (3000, localhost:3000 or a URL), with **"not running yet"** as an option. On an answer, re-run step 1 with `--target <answer>`; the server remembers it in `.crt/config.local.json` (F-72), so end the reply with "(target came from your answer; remembered in .crt/config.local.json)". On "not running yet": tell the user to start the dev server and run `/crt:serve` (or `/crt:serve <port>`) again; stop.
 - `crt: target <origin> is not responding …` (proxy mode, exit) → the remembered or given target is down: say which, and that starting it and re-running `/crt:serve`, or `/crt:serve <port>` for another, fixes it.
-- `crt: <root> is not set up for CRT — run \`crt init\` (or \`crt --yes\`)` → step ½ was skipped; go back to it.
+- `crt: <root> is not set up for CRT — keeping this review in <dir> (nothing is written to the project; \`crt init\` adopts CRT here).` → **not a stop**: the guest line of step ½. Relay it.
+- `crt: no CRT integration in this app and no Chrome or Edge found — run \`crt proxy\`, or set browser.command in .crt/config.local.json` → not a stop: CRT is up, but nothing puts the button on the page. Relay it and offer `/crt:serve --proxy`, or `/crt:init` to add the integration.
+- `crt: <exe> did not accept a DevTools connection (…) — …` → the CRT browser could not be started: relay it and offer `/crt:serve --proxy`.
 - `crt: port <n> is already in use …` → offer `--replace` (step 0) or `port` in `.crt/config.json`.
 - `crt: your app's CRT loader expects :<port> — …` → the port was stepped: relay it; the fix is `crt --replace` or `port` in `.crt/config.json` and in the snippet.
 - `crt: not logged in …` (or `login: missing` on the ready line) → CRT is up but the agent is not: relay the line; the page's welcome card says the same and the first Send will fail until `claude` has completed `/login` (no restart needed).
@@ -77,7 +74,8 @@ Relay every `crt: …` line verbatim (PRD N-6). Some are a stop, some are not:
 
 After readiness, wait about 10 s and read health again.
 
-- Embedded mode: if `overlay.loader` and `overlay.fetched` are both `0` and an app URL was opened, add to the reply: "The page never loaded the CRT loader, so no CRT button will show — the integration snippet is probably missing: run /crt:init, or /crt:serve --proxy to proxy the app instead." The server prints the same finding as a `crt: opened <app> but the page never loaded the CRT loader — …` line.
+- Embedded mode with the CRT browser (the ready line says `CRT browser`): nothing to check — CRT put the loader in the page itself.
+- Embedded mode otherwise: if `overlay.loader` and `overlay.fetched` are both `0` and an app URL was opened, add to the reply: "The page never loaded the CRT loader, so no CRT button will show — the integration snippet is probably missing: run /crt:init, or /crt:serve --proxy to proxy the app instead." The server prints the same finding as a `crt: opened <app> but the page never loaded the CRT loader — …` line.
 - Proxy mode: if `overlay.fetched` is `0`, add: "The page loaded but never asked for the overlay, so no CRT button will show. Check view-source for /__crt/overlay.js; if your app is a JS-rendered shell or sends a strict CSP, run /crt:init and browse http://localhost:3000 instead." (with the real target). The server prints the same finding as a `crt: injected the overlay into GET / but the browser never fetched /__crt/overlay.js …` line.
 
 ## 5. Reply, four lines
@@ -89,6 +87,8 @@ Agent: Claude, logged in.
 Next: click the CRT button bottom-right (or Ctrl/Cmd+Shift+.), Select the element, type a note, Send. Run /crt:tasks when a task lands.
 ```
 
-Under `--proxy` the first line reads `CRT is up at http://localhost:4400, proxying http://localhost:3000 (opened in your browser).`
+Under `--proxy` the first line reads `CRT is up at http://localhost:4400, proxying http://localhost:3000 (opened in your browser).` With the CRT browser it ends `(embedded; opened in the CRT browser window).`
+
+For a guest (step ½; the ready line says `guest` and `review <name>: N items`) line 2 reads `Project C:\my-app — not set up, so feedback is kept in review 2026-11-16 under ~/.crt and nothing is written to the project. /crt:init adopts CRT here.` and line 4 ends `Run \`crt review\` to go through it, then \`crt handoff\` to send it to the project.` instead of the `/crt:tasks` sentence.
 
 Fill in the real URL, app, project, tasks directory and count from the ready line or health. Line 3 names the provider from the ready line (`Claude` for `claude`, `Codex CLI` for `codex`, `Gemini CLI` for `gemini`, `Antigravity CLI` for `antigravity`, the configured name for `acp`) and its login: `logged in` for `login: ok`, `login not checked yet` for `unchecked`, and for `missing` the server's `crt: not logged in …` line instead. Append "(reused the CRT already running)" or "(target came from your answer; remembered in .crt/config.local.json)" when they apply, `(no dev server found — open your app; the button appears when the page loads)` when none was found, and the step 4 sentence when the loader or overlay was never fetched.

@@ -2,7 +2,7 @@
 
 Annotate your local site in the browser, talk to Claude in the page, and get a self-contained task file in your repo that any Claude Code session can pick up later with `/crt:next`. CRT started as Claude-only; since v0.2 it also works with Codex, since v0.5 with Gemini CLI and any Agent Client Protocol agent (both experimental — see Providers) and with the Antigravity CLI, and Claude Code remains the default. The name is historical.
 
-> v0.7.2. [docs/PRD.md](docs/PRD.md) defines the scope, requirement IDs (F-n, N-n) and the definition of done; [docs/PRD-providers.md](docs/PRD-providers.md) (v0.2, providers), [docs/PRD-setup.md](docs/PRD-setup.md) (v0.3, setup and first run), [docs/PRD-embedded.md](docs/PRD-embedded.md) (v0.4, embedded mode), [docs/PRD-polish.md](docs/PRD-polish.md) (v0.6, polish) and [docs/PRD-chat.md](docs/PRD-chat.md) (v0.7, compact chat) amend it; v0.5 shipped PRD-providers M10 (Gemini CLI and any ACP agent, experimental); v0.6 shipped PRD-polish M20–M23 (the mark, the landing page, the screenshots, this front page) and PRD-providers M19 (the Antigravity CLI); v0.7 ships PRD-chat M25–M26 (the compact chat: your words and the agent's proposal folded, the full text behind a pill); v0.7.1 adds PRD-chat F-123 (`/crt:next` waits for the PR's CI and, when the project opts in, merges); v0.7.2 adds PRD-chat F-124 (**Always allow** on permission cards, for every agent). This README is the front page; the manual is [`docs/`](#docs).
+> v0.8.0. [docs/PRD.md](docs/PRD.md) defines the scope, requirement IDs (F-n, N-n) and the definition of done; [docs/PRD-providers.md](docs/PRD-providers.md) (v0.2, providers), [docs/PRD-setup.md](docs/PRD-setup.md) (v0.3, setup and first run), [docs/PRD-embedded.md](docs/PRD-embedded.md) (v0.4, embedded mode), [docs/PRD-polish.md](docs/PRD-polish.md) (v0.6, polish), [docs/PRD-chat.md](docs/PRD-chat.md) (v0.7, compact chat) and [docs/PRD-zero.md](docs/PRD-zero.md) (v0.8, zero integration) amend it; v0.5 shipped PRD-providers M10 (Gemini CLI and any ACP agent, experimental); v0.6 shipped PRD-polish M20–M23 (the mark, the landing page, the screenshots, this front page) and PRD-providers M19 (the Antigravity CLI); v0.7 ships PRD-chat M25–M26 (the compact chat: your words and the agent's proposal folded, the full text behind a pill); v0.7.1 adds PRD-chat F-123 (`/crt:next` waits for the PR's CI and, when the project opts in, merges); v0.7.2 adds PRD-chat F-124 (**Always allow** on permission cards, for every agent); v0.8 ships PRD-zero M28–M32 (CRT opens a browser with the button already in it, so an app needs no integration; a project that is not set up is reviewed as a guest with nothing written to it; `crt review` collates the feedback and `crt handoff` sends it to the project as one pull request). This README is the front page; the manual is [`docs/`](#docs).
 
 <p align="center">
   <picture>
@@ -14,6 +14,16 @@ Annotate your local site in the browser, talk to Claude in the page, and get a s
 ![Your app in the browser with the CRT button bottom-right and the first-visit card saying which CRT server the page talks to](docs/images/arrival.png)
 
 ## Install
+
+```bash
+# reviewing an app, nothing added to it
+npm run dev                       # the app's dev server, its own URL
+npx claude-review-tool            # CRT server on :4400; a browser window opens on the app with the CRT button
+crt review                        # the review on one page: keep, drop, prioritise, order
+crt handoff                       # the kept items → the project, as one branch and one pull request
+```
+
+That is all it takes to look an app over: CRT starts Chrome or Edge with a profile of its own and puts the CRT button on the app's own URL, keeps what you send in a *review* under `~/.crt`, and writes nothing into the project until `crt handoff` — the review, its page and the hand-over are in [docs/review.md](docs/review.md). To keep CRT in a project for good — the button in your everyday browser, tasks written straight into `.crt/tasks/`:
 
 ```bash
 # one-time, per machine
@@ -35,7 +45,7 @@ Node ≥ 20 on Windows, macOS or Linux; Claude Code installed and logged in (`cl
 
 ## Add CRT to your app
 
-One dev-only line in the app puts the CRT button on the app's own URL: the line loads a small loader from the running CRT server, and the loader puts the overlay on the page. `crt init` prints the form for your framework (`/crt:init` in Claude Code applies it); these are the four:
+This is how to keep CRT in a project for good; to look an app over, `npx claude-review-tool` needs none of it. One dev-only line in the app puts the CRT button on the app's own URL: the line loads a small loader from the running CRT server, and the loader puts the overlay on the page. `crt init` prints the form for your framework (`/crt:init` in Claude Code applies it); these are the four:
 
 ```tsx
 // Next.js (App Router) — app/layout.tsx
@@ -75,7 +85,7 @@ crt                          # the CRT server on http://localhost:4400; opens yo
   <img alt="The CRT loop: annotate in the browser, chat in the page, a task file, /crt:next, a pull request, and back" src="docs/images/loop.svg" width="960">
 </picture>
 
-Inside Claude Code, `/crt:serve` does what `crt` does — it reuses a CRT that is already serving the project, offers `/crt:init` first when the project is not set up, and replies with four lines saying where CRT is, where tasks go, which agent answers and what to click next.
+Inside Claude Code, `/crt:serve` does what `crt` does — it reuses a CRT that is already serving the project, starts as a guest when the project is not set up (`/crt:init` adopts CRT in it), and replies with four lines saying where CRT is, where tasks go, which agent answers and what to click next.
 
 1. **Browse your app as usual** — `http://localhost:3000`, your own URL, no proxied copy. A **CRT** button sits in the bottom-right corner (drag it anywhere; `Ctrl/Cmd+Shift+.` toggles it). Its dot says how things stand — hover it: green is connected (which project, which agent, whether it is logged in), amber means the agent is not ready (the fix is in the tooltip), red means the CRT server stopped answering. On a project’s first visit a small card above the button says which CRT server the page talks to (`Talking to CRT at http://localhost:4400 for C:\my-app.`), where tasks go and which agent will answer; **Got it** dismisses it for that project, **Show me** opens the toolbar with Select armed.
 2. **Point at the problem.** Open the toolbar and pick a tool:
@@ -94,7 +104,6 @@ Inside Claude Code, `/crt:serve` does what `crt` does — it reuses a CRT that i
    - Tool use shows as collapsed lines; anything not pre-allowed (reads, searches, read-only `git`, writes under `.crt/`) asks you in the popover with **Allow / Always allow / Deny** (if you are busy in another popover, the marker pulses and the status line points at it instead). **Always allow** saves a rule in Claude Code's syntax (`Bash(npm test:*)`, `Edit(src/components/**)`) to `.crt/config.local.json` and stops asking for matching calls in this project, whichever agent makes them. **Stop** interrupts the turn; **Discard** closes the session and removes the annotation; **×** just hides the popover. The footer shows the session ID and `claude --resume <id>` to continue the same conversation in a terminal.
 
 ![The popover as the chat: your note with its Capture pill, the streamed text, a collapsed tool line, the permission card](docs/images/chat.png)
-
 ![Three markers on one page: thinking…, your turn, CRT-0007](docs/images/marker-states.png)
 
 4. **Later, in any session on that project:**
@@ -113,6 +122,8 @@ If you open `http://localhost:4400` itself instead of your app, you get CRT's st
 
 ![The CRT server's own page: the link to your app, the checkup with passes collapsed, this server's facts and the three steps](docs/images/landing.png)
 
+![The review page: the items of a review grouped by route, each with its screenshot, Keep or Drop, its priority and its place](docs/images/review.png)
+
 Every command and flag, what `crt` prints on the way to `CRT ready`, and what Claude gets at Send time: [docs/cli.md](docs/cli.md). The task file: [docs/task-format.md](docs/task-format.md). The pieces and how they talk: [docs/how-it-works.md](docs/how-it-works.md).
 
 ## Production
@@ -128,9 +139,9 @@ Verify any build with `grep -r "__crt" dist/` (or `.next/static`) — it finds n
 - `.crt/tasks/` — the task files (`CRT-NNNN-<slug>.md`), their `assets/<ID>/` screenshots and the generated `README.md` index. Committed.
 - `.crt/config.json` — per project, committed: `mode`, `target`, `port`, `provider`.
 - two `.gitignore` lines — `.crt/captures/` (transient captures) and `.crt/config.local.json` (per machine: the remembered target, the remembered provider, the Always allow rules).
-- a CRT section in `CLAUDE.md` and `AGENTS.md` (whichever exist; one is created when neither does) between `<!-- BEGIN:crt v0.7 -->` and `<!-- END:crt -->`, so the project's agents know what `.crt/tasks/*.md` are, that they appear during intake, and that they are committed with the project — never deleted or "cleaned up". Re-running `crt init` replaces the section in place; `--no-instructions` skips it.
+- a CRT section in `CLAUDE.md` and `AGENTS.md` (whichever exist; one is created when neither does) between `<!-- BEGIN:crt v0.8 -->` and `<!-- END:crt -->`, so the project's agents know what `.crt/tasks/*.md` are, that they appear during intake, and that they are committed with the project — never deleted or "cleaned up". Re-running `crt init` replaces the section in place; `--no-instructions` skips it.
 
-That is the complete list. At runtime the server (`crt`, `crt serve`, `crt proxy`) writes only under `.crt/` — captures, tasks, the index, `config.local.json` — and never touches `.gitignore`, `CLAUDE.md`, `AGENTS.md` or any app file; `crt init` is the one command that writes outside `.crt/`, and it names every file on stdout as it does (the other explicit CLI writes are `crt skills install`, into `.agents/skills/`, and `crt setup`, into Claude Code's own plugin store).
+That is the complete list. A project that is not set up gets none of it: `crt` runs there as a guest and writes only under `~/.crt`, and `crt handoff` later adds task files to `.crt/tasks/` and nothing else. At runtime the server (`crt`, `crt serve`, `crt proxy`) writes only under `.crt/` — captures, tasks, the index, `config.local.json` — and never touches `.gitignore`, `CLAUDE.md`, `AGENTS.md` or any app file; `crt init` is the one command that writes outside `.crt/`, and it names every file on stdout as it does (the other explicit CLI writes are `crt skills install`, into `.agents/skills/`, and `crt setup`, into Claude Code's own plugin store).
 
 ## Providers
 
@@ -155,14 +166,16 @@ $ crt doctor
 ok    node      v22.4.0 (needs 20 or newer)
 ok    project   C:\my-app (.git)
 ok    .crt      README.md, tasks/ (4 tasks), config.json, config.local.json, .gitignore entries
+ok    review    2026-11-16 — 11 items, 9 kept
 ok    mode      embedded
 ok    target    http://localhost:3100 (remembered) — responding
 ok    integration next — app/layout.tsx imports claude-review-tool/react
+ok    browser   Chrome 142 at C:\Program Files\Google\Chrome\Application\chrome.exe (CRT browser)
 ok    instructions CLAUDE.md carries the CRT section
 ok    port      4400 free
 ok    claude    Claude Code (Agent SDK 0.3.270) — logged in
 warn  codex     codex-cli 0.154.0 — not logged in — run `codex login`
-ok    plugin    crt@crt 0.7.0 installed (claude on PATH)
+ok    plugin    crt@crt 0.8.0 installed (claude on PATH)
 → claude — codex not logged in
 ```
 
@@ -175,24 +188,13 @@ Every failure is one `crt:` line on stderr and a non-zero exit; the catalogue �
 | [docs/install.md](docs/install.md) | what `crt setup` installs, the other ways to install, the Windows note, older task files |
 | [docs/integration.md](docs/integration.md) | the four forms and where each starts capturing, the loader and its options, Production in full, proxy mode |
 | [docs/cli.md](docs/cli.md) | every command and flag, what `crt` prints, what Claude gets at Send time |
+| [docs/review.md](docs/review.md) | reviewing an app with nothing added to it: the CRT browser, the guest start, the review and its page, `crt handoff` |
 | [docs/providers.md](docs/providers.md) | Claude Code, Codex, Gemini CLI, Antigravity CLI and any ACP agent — sessions, login, telemetry, skills, every problem line |
 | [docs/task-format.md](docs/task-format.md) | the task file: frontmatter, the seven sections, the bar it holds itself to |
 | [docs/how-it-works.md](docs/how-it-works.md) | the pieces, embedded and proxy mode, the overlay, the intake session, permissions, privacy |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | every `crt doctor` row and every `crt:` line, what it means and the fix |
 | [docs/develop.md](docs/develop.md) | build, test, release, the repository layout, the PRDs |
 
-## Repository
-
-| Path | What |
-|---|---|
-| `packages/server` | npm package `claude-review-tool` — the `crt` CLI, the CRT server (embedded and proxy modes), capture store, session manager, the `claude-review-tool/{react,vite,loader}` entries; its `dist/plugin-marketplace/` is the plugin as `crt setup` installs it |
-| `packages/overlay` | in-page UI and the loader, bundled into the server |
-| `plugin/` | the Claude Code plugin (skills + hooks); marketplace manifest at `.claude-plugin/marketplace.json` |
-| `docs/` | the reference pages above, the product requirements documents (`PRD.md`, `PRD-providers.md`, `PRD-setup.md`, `PRD-embedded.md`, `PRD-polish.md`), the design review, the spikes, the brand files and the images |
-| `.crt/tasks` | this repo's own work items, in CRT's task format |
-
-## Develop
-
-`npm ci`, then `npm run check` (typecheck, unit tests, build) and `npm run e2e` (Playwright smoke; `npx playwright install chromium` once). Plugin changes must pass `claude plugin validate ./plugin`; CI runs both. The release recipe, `npm run screenshots` and the PRDs: [docs/develop.md](docs/develop.md).
+`npm ci`, then `npm run check` (typecheck, unit tests, build) and `npm run e2e` (Playwright smoke; `npx playwright install chromium` once). Plugin changes must pass `claude plugin validate ./plugin`; CI runs both. The release recipe, `npm run screenshots`, the repository layout (`packages/server` is the npm package, `packages/overlay` the in-page UI, `plugin/` the Claude Code plugin, `.crt/tasks` this repo's own work items) and the PRDs: [docs/develop.md](docs/develop.md).
 
 License: MIT.

@@ -2,7 +2,9 @@
 
 The one dev-only line in its four forms, where each starts capturing, what the loader does, the production guarantee in full, and proxy mode for an app you cannot touch. The snippets are also on the front page: [README › Add CRT to your app](../README.md#add-crt-to-your-app).
 
-Embedded mode (the default since v0.4) needs one dev-only line in the app, so the CRT button appears on the app's own URL: the line loads a small **loader** from the running CRT server, and the loader puts the overlay on the page. `crt init` prints the form for your framework (`crt init --snippet` prints only that; `/crt:init` in Claude Code applies it); these are the four:
+**Do you need it at all?** Not to review an app: since v0.8 `crt` in a project without the integration opens the app in a browser window of its own with the CRT button already there ([Reviewing an app](review.md)). Add the line when CRT is to stay in a project: the button is then in whichever browser the team uses, with their extensions and sign-ins, the app's own security policy stays in force, and nobody needs Chrome or Edge.
+
+With the integration, embedded mode (the default since v0.4) needs one dev-only line in the app, so the CRT button appears on the app's own URL: the line loads a small **loader** from the running CRT server, and the loader puts the overlay on the page. `crt init` prints the form for your framework (`crt init --snippet` prints only that; `/crt:init` in Claude Code applies it); these are the four:
 
 ```tsx
 // Next.js (App Router) — app/layout.tsx
@@ -47,7 +49,7 @@ Nothing from CRT ships in a production build of an app that uses any of the entr
 
 ## Proxy mode
 
-For an app you cannot or should not touch — no JS entry, a layout owned by someone else, a quick look at a site you did not set up — `crt proxy` is the v0.1–v0.3 experience: CRT proxies your app and you browse the proxied copy instead of the app's own URL.
+For an app you cannot or should not touch, on a machine without Chrome or Edge — or when the app's own security policy has to stay enforced while you review, which the CRT browser does not do ([review.md](review.md#1-the-crt-browser)) — `crt proxy` is the v0.1–v0.3 experience: CRT proxies your app and you browse the proxied copy instead of the app's own URL.
 
 ```bash
 npm run dev                  # your dev server, e.g. http://localhost:3000
