@@ -35,7 +35,7 @@ import { currentReview, type Review, writeReviewItems } from "./home.js";
 import { isLocalOrigin, json, readJson } from "./http.js";
 import { LANDING_TOKENS } from "./landing.js";
 import { noReviewLine, type ReviewItemView, reviewView, totalsLine } from "./review.js";
-import { REVIEW_ASSETS_PATH, REVIEW_GROUPS_PATH, REVIEW_ITEMS_PATH, REVIEW_PATH } from "./routes.js";
+import { CRT_PREFIX, FAVICON_PATH, REVIEW_ASSETS_PATH, REVIEW_GROUPS_PATH, REVIEW_ITEMS_PATH, REVIEW_PATH } from "./routes.js";
 import { ASSETS_DIRNAME, setTaskPriority, TASK_ID_RE, TASK_PRIORITIES, type TaskPriority, taskSummaryText, writeIndex } from "./tasks.js";
 
 export { REVIEW_ASSETS_PATH, REVIEW_GROUPS_PATH, REVIEW_ITEMS_PATH, REVIEW_PATH };
@@ -386,13 +386,13 @@ export function renderReviewPage(o: ReviewPageOptions): string {
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     '<meta name="color-scheme" content="light dark">',
     "<title>CRT review</title>",
-    '<link rel="icon" href="/__crt/favicon.svg" type="image/svg+xml">',
+    `<link rel="icon" href="${FAVICON_PATH}" type="image/svg+xml">`,
     `<style>${css(T)}</style>`,
     "</head>",
     "<body>",
     '<div class="wrap">',
     "<header>",
-    `<a class="name" href="/__crt/">CRT${o.version ? ` <span class="ver">${escapeHtml(o.version)}</span>` : ""}</a>`,
+    `<a class="name" href="${CRT_PREFIX}/">CRT${o.version ? ` <span class="ver">${escapeHtml(o.version)}</span>` : ""}</a>`,
     '<span class="spacer"></span>',
     `<span class="chip" title="${escapeHtml(o.projectRoot)}"><span class="path">${escapeHtml(o.projectRoot)}</span></span>`,
     "</header>",
