@@ -18,13 +18,13 @@ import type { StorageArea } from "../storage.js";
 import {
   type BadgeState,
   type CaptureAnswer,
-  DEFAULT_SERVER,
   EVENTS_PORT,
   type Hello,
   isCrtApiPath,
   type JsonAnswer,
-  loopbackServer,
   PAGE_HEADER,
+  ROUTES_KEY,
+  routeFor,
   SERVER_KEY,
   siteOf,
   sitePatterns,
@@ -40,10 +40,18 @@ import {
   VIA_HEADER,
 } from "./wire.js";
 
-/** The CRT origin in use: the configured one when it is loopback, else the default (N-43). */
-async function server(): Promise<string> {
-  const stored = await chrome.storage.local.get(SERVER_KEY);
-  return loopbackServer(stored[SERVER_KEY]) ?? DEFAULT_SERVER;
+/** The CRT origin a site's requests go to: its route (F-164), else the default server; loopback or ignored (N-43). */
+async function server(origin: string): Promise<string> {
+  const stored = await chrome.storage.local.get([SERVER_KEY, ROUTES_KEY]);
+  return routeFor(origin, stored[ROUTES_KEY], stored[SERVER_KEY]);
+}
+
+/** F-164: a site that is turned off is forgotten, its route with it. */
+async function forgetRoute(origin: string): Promise<void> {
+  const routes = { ...((await chrome.storage.local.get(ROUTES_KEY))[ROUTES_KEY] as Record<string, string> | undefined) };
+  if (!Object.hasOwn(routes, origin)) return;
+  delete routes[origin];
+  await chrome.storage.local.set({ [ROUTES_KEY]: routes });
 }
 
 async function sitesOn(): Promise<string[]> {
@@ -132,7 +140,7 @@ export async function toggle(tab: { id?: number; url?: string }): Promise<BadgeS
     // What the overlay kept for the site goes with it — after any write still on its way.
     await writes;
     const kept = Object.keys(await chrome.storage.session.get(null)).filter((k) => k.startsWith("tab:") && k.endsWith(`:${origin}`));
-    await Promise.all([chrome.storage.local.remove(localKey(origin)), kept.length ? chrome.storage.session.remove(kept) : undefined]);
+    await Promise.all([chrome.storage.local.remove(localKey(origin)), kept.length ? chrome.storage.session.remove(kept) : undefined, forgetRoute(origin)]);
     // Keep the permission while another origin on the same host is still on (a pattern has no port); loopback is the extension's own.
     const hostStillOn = (await sitesOn()).some((o) => sitePatterns(o).permission === permission);
     if (!hostStillOn) await chrome.permissions.remove({ origins: [permission] }).catch(() => false);
@@ -198,7 +206,7 @@ const viaHeaders = (origin: string) => ({ [VIA_HEADER]: VIA_EXTENSION, [PAGE_HEA
 async function json(origin: string, path: unknown, init: { method?: string; headers?: Record<string, string>; body?: string } = {}): Promise<JsonAnswer> {
   if (!isCrtApiPath(path)) return { failed: "not a CRT route" };
   try {
-    const res = await fetch((await server()) + path, {
+    const res = await fetch((await server(origin)) + path, {
       method: init.method ?? "GET",
       headers: { ...init.headers, ...viaHeaders(origin) },
       ...(typeof init.body === "string" ? { body: init.body } : {}),
@@ -227,7 +235,7 @@ async function answer(message: ToWorker, page: { tabId: number; windowId: number
   switch (message.kind) {
     case "hello": {
       const on = (await sitesOn()).includes(page.origin) || (await tabOnly())[String(page.tabId)] === page.origin;
-      const hello: Hello = { on, server: await server(), version: chrome.runtime.getManifest().version, stored: on ? await stored(page.tabId, page.origin) : {} };
+      const hello: Hello = { on, server: await server(page.origin), version: chrome.runtime.getManifest().version, stored: on ? await stored(page.tabId, page.origin) : {} };
       return hello;
     }
     case "json":
@@ -276,7 +284,7 @@ chrome.runtime.onConnect.addListener((port) => {
     void (async () => {
       if (!isCrtApiPath(open.path)) return post({ end: "closed" });
       try {
-        const res = await fetch((await server()) + open.path, {
+        const res = await fetch((await server(page.origin)) + open.path, {
           headers: { accept: "text/event-stream", ...viaHeaders(page.origin), ...(open.lastEventId ? { "last-event-id": String(open.lastEventId) } : {}) },
           cache: "no-store",
           credentials: "omit",

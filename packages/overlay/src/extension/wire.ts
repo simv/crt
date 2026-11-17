@@ -11,6 +11,8 @@ import type { CrtAnswer, CrtRequest, StreamEvent } from "../transport.js";
 export const DEFAULT_SERVER = "http://localhost:4400";
 /** `chrome.storage.local` key: the configured CRT origin. */
 export const SERVER_KEY = "server";
+/** `chrome.storage.local` key: F-164's routes — a site's origin → the CRT origin its reviews go to. */
+export const ROUTES_KEY = "routes";
 /** The name of the port a session stream is relayed over (F-157). */
 export const EVENTS_PORT = "crt-events";
 /** F-162: how the worker names itself and the page to the CRT server on every request. */
@@ -76,6 +78,69 @@ export function loopbackServer(value: unknown): string | null {
 export function serverForPort(port: unknown): string | null {
   const n = typeof port === "number" ? port : typeof port === "string" && /^\d{1,5}$/.test(port.trim()) ? Number(port.trim()) : NaN;
   return Number.isInteger(n) && n > 0 && n <= 65535 ? `http://localhost:${n}` : null;
+}
+
+/**
+ * F-164: the CRT server a site's reviews go to — the route chosen for that site on the options
+ * page, else the default server, else `DEFAULT_SERVER`. Each is loopback or ignored (N-43).
+ */
+export function routeFor(origin: string, routes: unknown, fallback: unknown): string {
+  const route = routes && typeof routes === "object" && Object.hasOwn(routes, origin) ? (routes as Record<string, unknown>)[origin] : undefined;
+  return loopbackServer(route) ?? loopbackServer(fallback) ?? DEFAULT_SERVER;
+}
+
+/** How far past its port a CRT server may have fallen back when the port was busy (start.ts `PORT_STEPS`). */
+const PORT_STEPS = 9;
+
+/**
+ * F-164: where the options page looks for running CRT servers — port 4400 and the default
+ * server's port, each with the nine ports a busy one falls back to, and every server a site is
+ * already routed to. Loopback origins only (N-43), each once.
+ */
+export function scanTargets(fallback: unknown, routes: unknown): string[] {
+  const out = new Set<string>();
+  const from = (server: string) => {
+    const url = new URL(server);
+    const first = Number(url.port || "80");
+    if (url.hostname !== "localhost" || url.protocol !== "http:") return void out.add(server);
+    for (let p = first; p <= Math.min(first + PORT_STEPS, 65535); p++) out.add(`http://localhost:${p}`);
+  };
+  from(DEFAULT_SERVER);
+  const configured = loopbackServer(fallback);
+  if (configured) from(configured);
+  if (routes && typeof routes === "object") {
+    for (const value of Object.values(routes as Record<string, unknown>)) {
+      const server = loopbackServer(value);
+      if (server) out.add(server);
+    }
+  }
+  return [...out];
+}
+
+/** A running CRT server as the options page lists it. */
+export interface FoundServer {
+  server: string;
+  projectRoot: string | null;
+  version: string | null;
+}
+
+/** F-164: a health answer as a list entry; null when it is not a CRT server's. What it says is shown as text, never used as a path or an address. */
+export function foundServer(server: string, health: unknown): FoundServer | null {
+  if (!health || typeof health !== "object" || (health as { ok?: unknown }).ok !== true) return null;
+  const h = health as { projectRoot?: unknown; version?: unknown };
+  const text = (v: unknown) => (typeof v === "string" && v ? v.slice(0, 300) : null);
+  return { server, projectRoot: text(h.projectRoot), version: text(h.version) };
+}
+
+/** The last folder of a project root, with either slash: `C:\Projects\my-app` → `my-app`. */
+export function projectName(root: string | null): string {
+  const parts = (root ?? "").split(/[\\/]+/).filter(Boolean);
+  return parts[parts.length - 1] ?? "unknown project";
+}
+
+/** F-164: one line for a server in a list: `my-app — port 4401`. */
+export function serverLabel(found: Pick<FoundServer, "server" | "projectRoot">): string {
+  return `${projectName(found.projectRoot)} — port ${new URL(found.server).port || "80"}`;
 }
 
 /**

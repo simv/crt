@@ -4,20 +4,35 @@
     <meta charset="utf-8" />
     <title>CRT extension</title>
     <style>
-      body { font: 14px/1.5 system-ui, sans-serif; margin: 16px; max-width: 34em; color: #222; }
+      body { font: 14px/1.5 system-ui, sans-serif; margin: 16px; max-width: 40em; color: #222; }
+      h2 { font-size: 14px; margin: 18px 0 4px; }
       label { display: block; font-weight: 600; margin-bottom: 4px; }
-      input { font: inherit; width: 7em; padding: 4px 6px; }
-      p { margin: 10px 0; }
-      #note { color: #555; min-height: 1.5em; }
+      input, select, button { font: inherit; padding: 4px 6px; }
+      input { width: 7em; }
+      select { max-width: 100%; }
+      p { margin: 8px 0; }
+      ul { margin: 6px 0; padding: 0; list-style: none; }
+      li { padding: 4px 0; border-top: 1px solid #e5e5e5; }
+      li span { display: block; color: #555; font-size: 12px; overflow-wrap: anywhere; }
+      .site { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+      .muted, #note { color: #555; }
+      #note { min-height: 1.5em; }
       code { font-family: ui-monospace, Menlo, Consolas, monospace; }
     </style>
   </head>
   <body>
-    <label for="port">CRT server port</label>
+    <h2>Where each site's reviews go</h2>
+    <p class="muted">A review goes to the project whose CRT server the site talks to. Pick one of the servers running now for each site you have turned CRT on for.</p>
+    <ul id="sites"></ul>
+
+    <h2>CRT servers running on this machine <button id="refresh" type="button">Refresh</button></h2>
+    <ul id="servers"></ul>
+    <p class="muted">Run <code>crt</code> in a project's folder to start its server. The first takes port 4400, the next 4401, and so on.</p>
+
+    <h2><label for="port">Default CRT server port</label></h2>
     <input id="port" type="number" min="1" max="65535" inputmode="numeric" />
-    <p id="note"></p>
-    <p>The CRT server is the one <code>crt</code> starts in your project, on this machine. It listens on 4400 unless the project's <code>.crt/config.json</code> says otherwise.</p>
-    <p>Click the CRT button in the toolbar on a site to turn CRT on there, and again to turn it off. CRT runs on no site you have not turned it on for.</p>
+    <p class="muted">Used by every site that has no choice of its own above.</p>
+    <p id="note" role="status"></p>
     <script src="options.js"></script>
   </body>
 </html>

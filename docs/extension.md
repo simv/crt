@@ -40,7 +40,17 @@ From then on CRT is on for that site — that scheme, host and port — in every
 
 The toolbar button also tells you when something is wrong: a red `!` when no CRT server answered or when its version differs from the extension's (both below). On a page that is not `http` or `https` (a new tab, `chrome://…`, the Web Store) it says CRT cannot run there.
 
-The extension talks to the CRT server on `http://localhost:4400`. When your server is on another port (`crt --port 4410`), set the port on the extension's Options page (right-click the toolbar button → Options). Only a loopback address is accepted.
+The extension talks to the CRT server on `http://localhost:4400`. When your server is on another port (`crt --port 4410`), set the default port on the extension's Options page (right-click the toolbar button → Options). Only a loopback address is accepted.
+
+## Choosing the project a site's reviews go to
+
+A review goes to the project whose CRT server the site talks to: one server is one project, the folder you ran `crt` in. With one server running there is nothing to choose. With several — `crt` in a second project takes port 4401 while 4400 is busy, the next 4402 — the Options page decides, per site:
+
+1. Run `crt` in each project you want to send reviews to. A project needs nothing added to it: one that is not set up is reviewed as a guest, and what you send is kept in its review under `~/.crt` until `crt handoff` ([docs/review.md](review.md)).
+2. Open the extension's Options (right-click the toolbar button → Options). **CRT servers running on this machine** lists each one by its project's folder and port, for example `i-saw-a-sign — port 4401`, with the full path under it. **Refresh** looks again.
+3. Under **Where each site's reviews go**, every site you have turned CRT on for has a list: **Default**, or one of the running servers. Pick the project, and reload the site's page.
+
+The choice is kept per site, in the extension, until you turn the site off. A site with no choice uses the default port. If the chosen server is not running, the page says `CRT server not running on :<port>` and the Options page shows that choice as `not running`; start `crt` in that project or pick another. The first-visit card on the page names the server and the project it is talking to.
 
 When a page already has CRT — the app carries the integration, or you opened it through `crt proxy` or `crt browse` — the extension stands down on that page and says so in the console; you never get two buttons.
 

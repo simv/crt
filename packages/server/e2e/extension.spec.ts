@@ -1,5 +1,5 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type BrowserContext, chromium, expect, type Page, test, type Worker } from "@playwright/test";
 import type { CaptureBundle } from "../src/capture-schema.js";
@@ -37,7 +37,7 @@ const OUTSIDE = `http://${OUTSIDE_HOST}:${PORTS.fixture}`;
 const OTHER = `http://127.0.0.1:${PORTS.fixture}`;
 
 declare const chrome: {
-  storage: { local: { set(items: Record<string, unknown>): Promise<void> } };
+  storage: { local: { set(items: Record<string, unknown>): Promise<void>; get(key: string): Promise<Record<string, unknown>> } };
   tabs: { query(q: object): Promise<Array<{ id?: number; url?: string }>> };
   scripting: { getRegisteredContentScripts(): Promise<Array<{ id: string }>> };
   runtime?: { id?: string };
@@ -341,6 +341,50 @@ test.describe("the extension on an app with nothing of CRT in it (F-154…F-160)
     await mounted(page);
     await expect(page.locator("#crt-loader-pill")).toHaveCount(0);
     expect(((await health(p)) as { version: string }).version).toBe(packageVersion());
+  });
+
+  test("the options page lists the running servers by project and sends a site's reviews to the one chosen for it (F-164)", async () => {
+    const a = await serverFor("route-a"); // the default server
+    const pb = port++;
+    const rootB = scratch("extension", "route-b", pb);
+    await startCrt(rootB, ["serve", "--no-open", "--port", String(pb)]).waitFor(/^CRT ready at /);
+
+    const page = await ext.context.newPage();
+    await page.goto(`${FIXTURE_ORIGIN}/ext`);
+    await ext.toggle(page);
+    await mounted(page);
+    expect(await inOverlay(page, (crt) => crt.crtOrigin())).toBe(`http://localhost:${a.port}`);
+
+    // The options page: both servers by their project's folder, and this site with the default chosen.
+    const options = await ext.context.newPage();
+    await options.goto(new URL("options.html", ext.worker.url()).href);
+    const labelA = `${basename(a.root)} — port ${a.port}`;
+    const labelB = `${basename(rootB)} — port ${pb}`;
+    await expect(options.locator("#servers li")).toContainText([labelA, labelB]);
+    const select = options.getByLabel(`Where reviews of ${FIXTURE_ORIGIN} go`);
+    await expect(select).toHaveValue("");
+    await expect(select.locator("option")).toHaveText([`Default (${labelA})`, labelA, labelB]);
+
+    await select.selectOption({ label: labelB });
+    await expect(options.locator("#note")).toHaveText(`Saved. Reviews of ${FIXTURE_ORIGIN} go to http://localhost:${pb} from the page's next load.`);
+
+    // The site now talks to the other project's server; a site with no choice still gets the default.
+    const before = ((await health(pb))!.overlay as { extension: number }).extension;
+    await page.reload();
+    await mounted(page);
+    expect(await inOverlay(page, (crt) => crt.crtOrigin())).toBe(`http://localhost:${pb}`);
+    expect(((await health(pb))!.overlay as { extension: number }).extension).toBeGreaterThan(before);
+    const bundle = await inOverlay(page, async (crt) => {
+      crt.addSelect("#heading");
+      crt.setNote(1, "for the other project");
+      return (await crt.capture()).bundle;
+    });
+    expect((bundle as CaptureBundle).page.url).toBe(`${FIXTURE_ORIGIN}/ext`);
+
+    // Turned off, the site is forgotten, its route with it.
+    await options.close();
+    await ext.toggle(page);
+    expect((await ext.worker.evaluate(() => chrome.storage.local.get("routes"))).routes).toEqual({});
   });
 
   test("reviews a site that is not on a loopback host, the server still on loopback (F-160, N-43)", async () => {

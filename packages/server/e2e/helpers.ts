@@ -43,7 +43,7 @@ export const PORTS = {
   /** review.spec.ts (PRD-zero M30): the servers behind the review page. */
   review: { from: 4440, to: 4449 },
   /** extension.spec.ts (PRD-extension M38): the servers the extension talks to. */
-  extension: { from: 4430, to: 4439 },
+  extension: { from: 4420, to: 4439 },
 } as const;
 
 /** The app origin: what every browser spec navigates to (F-110). */

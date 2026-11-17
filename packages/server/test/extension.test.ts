@@ -7,12 +7,17 @@ import { cleaners } from "../../overlay/src/extension/clean.js";
 import {
   CONTENT_ID,
   DEFAULT_SERVER,
+  foundServer,
   isCrtApiPath,
   loopbackServer,
   mismatchLine,
   PROBE_ID,
+  projectName,
+  routeFor,
+  scanTargets,
   sameMinor,
   serverForPort,
+  serverLabel,
   siteOf,
   sitePatterns,
   siteScripts,
@@ -70,9 +75,12 @@ describe("the extension package (PRD-extension F-154)", () => {
   it("requests nothing but the configured loopback server, changes no header and keeps nothing in the site's storage (N-43, N-44)", () => {
     const files = readdirSync(SRC).filter((f) => f.endsWith(".ts") && f !== "chrome.d.ts");
     const using = (re: RegExp) => files.filter((f) => re.test(code(f))).sort();
-    expect(using(/\bfetch\(/)).toEqual(["worker.ts"]);
-    // Both requests in the worker go to `(await server()) + <a checked /__crt/ path>`.
-    expect(code("worker.ts").match(/\bfetch\(([^,]+),/g)).toEqual(["fetch((await server()) + path,", "fetch((await server()) + open.path,"]);
+    expect(using(/\bfetch\(/)).toEqual(["options.ts", "worker.ts"]);
+    // Both requests in the worker go to `(await server(<the page's origin>)) + <a checked /__crt/ path>`: the site's route or the default, loopback either way (F-164).
+    expect(code("worker.ts").match(/\bfetch\(([^,]+),/g)).toEqual(["fetch((await server(origin)) + path,", "fetch((await server(page.origin)) + open.path,"]);
+    // The options page reads health from the servers `scanTargets` names and nothing else (F-164).
+    expect(code("options.ts").match(/\bfetch\(([^,]+),/g)).toEqual(["fetch(server + HEALTH_PATH,"]);
+    expect(code("options.ts")).toContain("scanTargets(fallback, routes).map(probe)");
     expect(using(/declarativeNetRequest|webRequest|\bcookies\b|XMLHttpRequest|WebSocket|sendBeacon/)).toEqual([]);
     expect(using(/\b(localStorage|sessionStorage)\b/)).toEqual([]);
     expect(using(/https?:\/\/(?!localhost)/)).toEqual([]);
@@ -116,6 +124,38 @@ describe("the rules the content script and the worker share (PRD-extension §5.3
     // The registrations are the record of which sites are on.
     expect(sitesOf([...scripts, ...siteScripts("https://staging.example.com")])).toEqual(["http://localhost:3000", "https://staging.example.com"]);
     expect(sitesOf([])).toEqual([]);
+  });
+
+  it("sends a site's reviews to the server chosen for it, else the default, and only ever a loopback one (F-164, N-43)", () => {
+    const routes = { "http://localhost:3000": "http://localhost:4401", "https://staging.example.com": "https://evil.example.com", "http://localhost:5173": "nonsense" };
+    expect(routeFor("http://localhost:3000", routes, "http://localhost:4400")).toBe("http://localhost:4401");
+    // No choice, or a choice that is not loopback: the default; a default that is not loopback: 4400.
+    expect(routeFor("http://localhost:8080", routes, "http://localhost:4410")).toBe("http://localhost:4410");
+    expect(routeFor("https://staging.example.com", routes, "http://localhost:4410")).toBe("http://localhost:4410");
+    expect(routeFor("http://localhost:5173", routes, "https://evil.example.com")).toBe(DEFAULT_SERVER);
+    for (const none of [undefined, null, "x", 3]) expect(routeFor("http://localhost:3000", none, undefined)).toBe(DEFAULT_SERVER);
+    // A site named like an object's own machinery is not a route.
+    expect(routeFor("constructor", {}, undefined)).toBe(DEFAULT_SERVER);
+  });
+
+  it("looks for running servers on 4400 and the default with their fallbacks, and on the servers already chosen (F-164, N-43)", () => {
+    const ports = (list: string[]) => list.map((s) => Number(new URL(s).port));
+    expect(ports(scanTargets(undefined, undefined))).toEqual([4400, 4401, 4402, 4403, 4404, 4405, 4406, 4407, 4408, 4409]);
+    const custom = scanTargets("http://localhost:4405", { a: "http://localhost:5000", b: "https://evil.example.com", c: "http://127.0.0.1:4400" });
+    expect(ports(custom.filter((s) => s.startsWith("http://localhost:")))).toEqual([4400, 4401, 4402, 4403, 4404, 4405, 4406, 4407, 4408, 4409, 4410, 4411, 4412, 4413, 4414, 5000]);
+    expect(custom).toContain("http://127.0.0.1:4400");
+    expect(custom.every((s) => loopbackServer(s) === s)).toBe(true);
+    expect(new Set(custom).size).toBe(custom.length);
+  });
+
+  it("lists a server by its project's folder and port, from a health answer and nothing else (F-164)", () => {
+    const found = foundServer("http://localhost:4401", { ok: true, projectRoot: "C:\\Projects\\Claude\\i-saw-a-sign", version: "0.10.0" });
+    expect(found).toEqual({ server: "http://localhost:4401", projectRoot: "C:\\Projects\\Claude\\i-saw-a-sign", version: "0.10.0" });
+    expect(serverLabel(found!)).toBe("i-saw-a-sign — port 4401");
+    expect(projectName("/home/me/work/my-app/")).toBe("my-app");
+    expect(projectName(null)).toBe("unknown project");
+    for (const notCrt of [null, "ok", {}, { ok: false }, { projectRoot: "/x" }]) expect(foundServer("http://localhost:4400", notCrt)).toBeNull();
+    expect(foundServer("http://localhost:4400", { ok: true, projectRoot: 7, version: "x".repeat(500) })).toEqual({ server: "http://localhost:4400", projectRoot: null, version: "x".repeat(300) });
   });
 
   it("mounts only against a server of its own major.minor, and says the command that fixes it otherwise (N-45)", () => {

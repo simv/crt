@@ -9,7 +9,7 @@
 | **Amends** | `docs/PRD.md` (§3 Non-goal 3, F-6, F-16, N-4), `docs/PRD-setup.md` (§3 non-goals, F-76), `docs/PRD-embedded.md` (§3 non-goals), `docs/PRD-zero.md` (§3 non-goals, F-131, F-132), `README.md`, the reference pages under `docs/`, `CLAUDE.md`, `.claude/agents/prd-reviewer.md` — every amended statement is listed in §9 |
 | **Design inputs** | Simon's request of 2026-11-17 (§1); the spike of the same day (`docs/spikes/extension-2026-11.md`, with the extension and its runner next to it); the overlay as built (`packages/overlay/src/{loader,api,health,chat,component,screenshot,storage}.ts`); the server's origin rule as built (`packages/server/src/http.ts`) |
 
-This document extends the eight earlier PRDs. Everything in them stays in force unless §9 amends it. Requirement IDs continue the numbering (F-151…F-163, N-41…N-45, after PRD-destinations F-150 / N-40); milestones are M37–M39 (after M36), one task file each (`.crt/tasks/CRT-0058…0060`). §12 tells the builder what to do when a real browser differs from what this document assumes.
+This document extends the eight earlier PRDs. Everything in them stays in force unless §9 amends it. Requirement IDs continue the numbering (F-151…F-164, N-41…N-45, after PRD-destinations F-150 / N-40); milestones are M37–M39 (after M36), one task file each (`.crt/tasks/CRT-0058…0060`). §12 tells the builder what to do when a real browser differs from what this document assumes.
 
 ---
 
@@ -134,6 +134,7 @@ The overlay inside the extension and the server can now be different versions, w
 
 - **F-161 (Must) `crt extension`.** Copies `dist/extension/` to `<home>/extension/`, prints the folder and the three steps for Chrome and Edge, and on a later version refreshes the copy and says to reload. `--path` prints the folder only. Writes nowhere else. Tested: unit rows against a temp `CRT_HOME`.
 - **F-162 (Should) The server knows.** Health gains `overlay.extension` (a count); the first extension mount logs its line (§5.4); `crt doctor` gains an `extension` row (installed copy and its version, or how to install); when the extension has been seen for this project, plain `crt` in an app without the integration opens the default browser, not the CRT browser (`openDecision`; `crt browse` still forces the CRT browser).
+- **F-164 (Should) A site's reviews go to the project chosen for it.** *Added 2026-11-18 on Simon's request ("allow the route for reviews to be selected in the options for the extension"); answers Open question 2.* One server is one project, so the choice is of a server. The Options page lists the CRT servers running on this machine — found by a health read of port 4400 and the default port, each with the nine a busy port falls back to, and of every server already chosen — by their project's folder and port, and gives each site that is turned on a choice: the default, or one of them. The worker sends that site's requests to its chosen server, else to the default. A choice is stored as a loopback origin and anything else is ignored (N-43); turning a site off forgets it. Nothing is written into any project and the server is unchanged. Tested: unit rows on the rule and the scan list; e2e — two servers, the site moved from one to the other on the Options page, a capture taken through the second. (CRT-0061.)
 - **F-163 (Must) Docs and release 0.10.0.** A README block; `docs/extension.md` (install, turning it on, what it can and cannot see, the permission list and why each); `docs/how-it-works.md` and `docs/troubleshooting.md` rows; the comparison of the four ways in in `docs/integration.md`; versions and pins `0.10.0` / `@0.10`.
 
 ## 7. Non-functional requirements
@@ -218,7 +219,7 @@ Ticked by M39 with evidence. An unticked row is a Manual row that needs Simon's 
 **Open questions:**
 
 1. Should a site reviewed through the extension that is not the project's own app (staging, production) be marked as such in the task file, so the worker knows the code it reads may be newer than the page was?
-2. One server is one project. With two `crt` servers running, should the popup offer the choice per site, or is the port field enough?
+2. One server is one project. With two `crt` servers running, should the popup offer the choice per site, or is the port field enough? *Answered 2026-11-18: per site, on the Options page (F-164).*
 
 ## 14. As built (v0.10.0)
 
