@@ -14,3 +14,10 @@ export const REACT_ESM: BuildOptions;
 export function buildAll(dist?: string, logLevel?: BuildOptions["logLevel"]): Promise<void>;
 /** The ES-module entries only (F-97): `integrations/loader.js` and `integrations/react.js`. */
 export function buildEntries(dist?: string, logLevel?: BuildOptions["logLevel"]): Promise<void>;
+/** The extension's script names, built to `dist/extension/<name>.js` (PRD-extension F-154). */
+export const EXTENSION_SCRIPTS: string[];
+export const EXTENSION_BUILD: BuildOptions;
+/** Extension icon file → its source under docs/brand. */
+export const EXTENSION_ICONS: Record<string, string>;
+/** `dist/extension/`: the scripts, the options page, the icons and the manifest at the server package's version (PRD-extension F-154). */
+export function buildExtension(dist?: string, logLevel?: BuildOptions["logLevel"]): Promise<void>;

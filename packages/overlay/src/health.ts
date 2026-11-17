@@ -7,8 +7,8 @@
  * Should), so ui.ts only wires the triggers and paints the result.
  */
 import { HEALTH_PATH } from "../../server/src/routes.js";
-import { CRT_ORIGIN, crtUrl } from "./base.js";
 import { safeGetJson, safeSet } from "./storage.js";
+import { transport } from "./transport.js";
 
 /** Per tab: the server this tab first loaded from, to spot a `crt serve` from another session (F-81 Should). */
 const SERVER_KEY = "crt.server.v1";
@@ -77,9 +77,9 @@ export function deriveHealth(i: HealthInputs): HealthView {
 /** `GET /__crt/health`; "failed" for a network error or a non-2xx answer (F-81 `unreachable`). */
 export async function fetchHealth(): Promise<HealthPayload | "failed"> {
   try {
-    const res = await fetch(crtUrl(HEALTH_PATH), { cache: "no-store" });
+    const res = await transport().json(HEALTH_PATH, { cache: "no-store" });
     if (!res.ok) return "failed";
-    const data = (await res.json()) as HealthPayload;
+    const data = res.data as HealthPayload | null;
     return data && data.ok ? data : "failed";
   } catch {
     return "failed";
@@ -89,7 +89,7 @@ export async function fetchHealth(): Promise<HealthPayload | "failed"> {
 /** The port the overlay talks to: the page's own behind the proxy, the script's origin otherwise (F-6). */
 export function crtPort(): string {
   try {
-    const origin = CRT_ORIGIN || location.origin;
+    const origin = transport().origin() || location.origin;
     return new URL(origin).port || (origin.startsWith("https") ? "443" : "80");
   } catch {
     return "4400";

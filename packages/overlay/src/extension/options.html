@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>CRT extension</title>
+    <style>
+      body { font: 14px/1.5 system-ui, sans-serif; margin: 16px; max-width: 34em; color: #222; }
+      label { display: block; font-weight: 600; margin-bottom: 4px; }
+      input { font: inherit; width: 7em; padding: 4px 6px; }
+      p { margin: 10px 0; }
+      #note { color: #555; min-height: 1.5em; }
+      code { font-family: ui-monospace, Menlo, Consolas, monospace; }
+    </style>
+  </head>
+  <body>
+    <label for="port">CRT server port</label>
+    <input id="port" type="number" min="1" max="65535" inputmode="numeric" />
+    <p id="note"></p>
+    <p>The CRT server is the one <code>crt</code> starts in your project, on this machine. It listens on 4400 unless the project's <code>.crt/config.json</code> says otherwise.</p>
+    <p>Click the CRT button in the toolbar on a site to turn CRT on there, and again to turn it off. CRT runs on no site you have not turned it on for.</p>
+    <script src="options.js"></script>
+  </body>
+</html>

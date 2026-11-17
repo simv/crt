@@ -299,6 +299,9 @@ export const ScreenshotsSchema = obj(
     viewport: nullable(str("F-16 clean viewport screenshot file name (viewport.png), null when rasterisation failed")),
     annotated: nullable(str("F-16 viewport screenshot with annotation markers drawn on (viewport-annotated.png)")),
     error: nullable(str("F-16 why screenshots are missing, when they are")),
+    via: optional(
+      oneOf(["page", "browser"], "F-158 (PRD-extension) what made the viewport picture through the extension: the browser's own capture of the tab, or the in-page rasteriser as its fallback; absent on every other way in"),
+    ),
   },
   "F-16 screenshot file names relative to the capture dir",
 );

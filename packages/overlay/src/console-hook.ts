@@ -9,6 +9,7 @@
  * copy's hooks instead of wrapping console again (script-tag mode, F-6, loads only overlay.js and
  * installs from there).
  */
+import { crtBag } from "./bag.js";
 import type { ConsoleEntry } from "../../server/src/capture-schema.js";
 
 const MAX_ENTRIES = 50; // F-20
@@ -21,8 +22,7 @@ interface ConsoleState {
 }
 
 function state(): ConsoleState {
-  const w = window as unknown as { __crt?: { __console?: ConsoleState } };
-  const crt = (w.__crt ??= {});
+  const crt = crtBag() as { __console?: ConsoleState };
   return (crt.__console ??= { entries: [], installed: false });
 }
 

@@ -9,6 +9,7 @@
  * `/__crt/` routes are never recorded, and neither are fetch/XHR failures that settle while CRT's
  * screenshot pass runs (`pauseNetworkLog`): its font and image fetches are not the page's.
  */
+import { crtBag } from "./bag.js";
 import type { NetworkEntry } from "../../server/src/capture-schema.js";
 
 const MAX_ENTRIES = 50; // F-21
@@ -29,8 +30,7 @@ interface XhrMeta {
 }
 
 function state(): NetworkState {
-  const w = window as unknown as { __crt?: { __network?: NetworkState } };
-  const crt = (w.__crt ??= {});
+  const crt = crtBag() as { __network?: NetworkState };
   return (crt.__network ??= { entries: [], installed: false });
 }
 

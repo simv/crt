@@ -3,7 +3,7 @@
  * text, rect, curated computed styles, component chain and truncated outer HTML.
  */
 import type { ElementInfo, Rect } from "../../server/src/capture-schema.js";
-import { detectComponents } from "./component.js";
+import { probe } from "./probe.js";
 import { selectorFor, xpathFor } from "./selector.js";
 
 const MAX_TEXT = 500; // F-17
@@ -57,7 +57,7 @@ export function describeElement(el: Element, detached = false): ElementInfo {
   if (el instanceof HTMLElement || el instanceof SVGElement) {
     for (const [k, v] of Object.entries(el.dataset)) if (v !== undefined) dataset[k] = truncate(v, 200);
   }
-  const { framework, components, source } = detectComponents(el);
+  const { framework, components, source } = probe().components(el);
   const parent = el.parentElement;
   return {
     selector: selectorFor(el),

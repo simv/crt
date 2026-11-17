@@ -12,7 +12,7 @@ import {
   postCapture,
   saveProvider,
   sendSessionMessage,
-  sessionEventsUrl,
+  sessionEvents,
   startSession,
 } from "../../overlay/src/api.js";
 import { samplePost } from "./helpers/sample-capture.js";
@@ -110,7 +110,11 @@ describe("one function per route the overlay calls (CRT-0043)", () => {
       ["POST", "/__crt/sessions/s1/permission", { id: "p1", behavior: "deny" }],
       ["DELETE", "/__crt/sessions/s1", undefined],
     ]);
-    expect(sessionEventsUrl("s1", 42)).toBe("/__crt/sessions/s1/events?after=42");
+    // The stream is the default transport's EventSource on the same relative path (PRD-extension F-151).
+    const opened: string[] = [];
+    vi.stubGlobal("EventSource", class { constructor(url: string) { opened.push(url); } addEventListener() {} close() {} }); // prettier-ignore
+    sessionEvents("s1", 42, { onEvent: () => undefined, onError: () => undefined }).close();
+    expect(opened).toEqual(["/__crt/sessions/s1/events?after=42"]);
   });
 
   it("listSessions returns the list; a missing list is a failure (F-30)", async () => {

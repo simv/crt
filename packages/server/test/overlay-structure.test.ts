@@ -27,10 +27,24 @@ function rgbaOf(hex: string, alpha: number): string {
 }
 
 describe("overlay structure (CRT-0043)", () => {
-  it("talks to /__crt/ only from api.ts and health.ts (the loader adds a script tag): nothing else builds a CRT URL or calls fetch but the screenshot's stylesheet reads (F-4, F-81)", () => {
-    expect(using(/\bfetch\(/)).toEqual(["api.ts", "health.ts", "screenshot.ts"]);
-    expect(using(/\bcrtUrl\(/)).toEqual(["api.ts", "base.ts", "health.ts"]);
+  it("talks to /__crt/ only through transport.ts (the loader adds a script tag): nothing else builds a CRT URL, calls fetch or opens an EventSource but the screenshot's stylesheet reads (F-4, F-81, PRD-extension F-151)", () => {
+    expect(using(/\bfetch\(/)).toEqual(["screenshot.ts", "transport.ts"]);
+    expect(using(/\bnew EventSource\(/)).toEqual(["transport.ts"]);
+    expect(using(/\bcrtUrl\(/)).toEqual(["base.ts", "transport.ts"]);
+    expect(using(/\bCRT_ORIGIN\b/)).toEqual(["base.ts", "transport.ts"]);
     expect(source("screenshot.ts")).not.toMatch(/__crt|from "\.\/base\.js"/);
+  });
+
+  it("reads the console log, the network log and the framework lookups only through probe.ts; the entries that install the hooks aside (F-18, F-20…F-22, PRD-extension F-152)", () => {
+    const entries = ["early.ts", "index.ts", "loader.ts"]; // they install the hooks and read nothing
+    expect(using(/from "\.\.?\/(console-hook|network-hook)\.js"/).filter((f) => !entries.includes(f) && !f.startsWith("extension"))).toEqual(["probe.ts"]);
+    expect(using(/import \{[^}]*\} from "\.\/component\.js"/)).toEqual(["probe.ts"]);
+    for (const f of entries) expect(source(f), f).not.toMatch(/\b(consoleEntries|networkEntries|detectComponents|detectFramework|nearestComponentName)\b/);
+  });
+
+  it("keeps the hooks' buffers where bag.ts says, so a page-world copy can keep them off window (F-20, F-21, PRD-extension F-156)", () => {
+    expect(using(/\bcrtBag\(/)).toEqual(["bag.ts", "console-hook.ts", "network-hook.ts"]);
+    for (const f of ["console-hook.ts", "network-hook.ts"]) expect(source(f), f).not.toMatch(/window as unknown as \{ __crt/);
   });
 
   it("takes the paths it calls from the server's routes.ts, whose paths are all plain strings under /__crt/ so the unused ones never reach the bundle (F-4)", () => {

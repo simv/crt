@@ -9,9 +9,9 @@
  * and label change only when the element under the pointer does.
  */
 import type { AnnotationStore } from "./annotations.js";
-import { nearestComponentName } from "./component.js";
 import { escapeHtml } from "./dom-util.js";
 import { labelOf } from "./element.js";
+import { probe } from "./probe.js";
 import { isOverlayNode } from "./selector.js";
 
 export type Tool = "select" | "box" | "pin";
@@ -148,7 +148,7 @@ export class Tools {
     }
     const r = el.getBoundingClientRect();
     Object.assign(hover.style, { display: "block", left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
-    const comp = nearestComponentName(el);
+    const comp = probe().componentName(el);
     hoverLabel.innerHTML = comp ? `<b>${escapeHtml(comp)}</b> ${escapeHtml(labelOf(el))}` : escapeHtml(labelOf(el));
     const top = r.top > 28 ? r.top - 26 : r.bottom + 4;
     Object.assign(hoverLabel.style, {

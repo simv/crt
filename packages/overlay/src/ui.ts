@@ -29,7 +29,7 @@ import { ProviderMenu, UNKNOWN_AGENT } from "./provider-menu.js";
 import { SessionList } from "./session-list.js";
 import type { Annotation, AnnotationStore } from "./annotations.js";
 import { closeSession, onRequestFailure, postCapture, type SendResult, type StartOptions, startSession } from "./api.js";
-import { CRT_ORIGIN } from "./base.js";
+import { transport } from "./transport.js";
 import { capture } from "./capture.js";
 import type { QuietOutcome } from "./chat.js";
 import { cssEscape, messageOf, setStyle, STATE_LABEL, type StatusPart, statusNode } from "./dom-util.js";
@@ -84,12 +84,12 @@ export class OverlayUI {
   /** F-68: the docked compose box the toolbar's Chat button opens. */
   private readonly pagePop: HTMLElement;
 
-  constructor(store: AnnotationStore) {
+  constructor(store: AnnotationStore, options: { closed?: boolean } = {}) {
     this.store = store;
     this.host = document.createElement("div");
     this.host.id = "crt-host";
     this.host.setAttribute("data-crt", "");
-    this.root = this.host.attachShadow({ mode: "open" });
+    this.root = this.host.attachShadow({ mode: options.closed ? "closed" : "open" }); // PRD-extension F-156
     this.root.innerHTML = `
       <div class="layer" hidden>
         <div class="hover"></div><div class="hover-label"></div><div class="drag"></div>
@@ -458,7 +458,7 @@ export class OverlayUI {
     const h = this.launcher.health;
     if (!h || h === "failed") return;
     const row = this.providers.row(h.provider);
-    const copy = welcomeCopy(h, { name: row?.displayName ?? null, problem: row?.problem ?? null }, CRT_ORIGIN || location.origin);
+    const copy = welcomeCopy(h, { name: row?.displayName ?? null, problem: row?.problem ?? null }, transport().origin() || location.origin);
     this.welcomeEl?.remove();
     const el = buildWelcome(copy, {
       gotIt: () => this.dismissWelcome(),

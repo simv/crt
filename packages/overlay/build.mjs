@@ -1,4 +1,4 @@
-// Overlay build (PRD §5.1; PRD-embedded F-96, F-97, F-98; PRD-zero F-127): six bundles into packages/server/dist/, all
+// Overlay build (PRD §5.1; PRD-embedded F-96, F-97, F-98; PRD-zero F-127): six bundles and the extension into packages/server/dist/, all
 // from the esbuild API so the defines need no shell quoting (Windows is the primary dev platform).
 //   overlay.js               the overlay (IIFE), served at /__crt/overlay.js in both modes
 //   early.js                 the console/network hooks (IIFE), injected by proxy mode only (F-20)
@@ -12,11 +12,16 @@
 //                            app's bundler
 //   integrations/react.js    the React entry (`claude-review-tool/react`, F-97): an ES module with
 //                            `react` external and "use client" kept as its first statement
+//   extension/               the browser extension (PRD-extension F-154), ready to load unpacked:
+//                            probe.js (the page's world), content.js (the overlay in an isolated
+//                            world), worker.js (the service worker), options.js + options.html,
+//                            manifest.json with the server package's version, and the icons
 // The no-op modules and the .d.ts files next to them come from packages/server/scripts/integrations.mjs.
 // tsconfig.json sets useDefineForClassFields to false: the overlay's classes extend nothing, so
 // [[Set]] fields behave the same, and es2020 output assigns them instead of calling a defineProperty
 // helper once per field (CRT-0043 kept overlay.js from growing when ui.ts became several classes).
 import { build } from "esbuild";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -57,6 +62,32 @@ export const REACT_ESM = {
 
 const common = { bundle: true, format: "iife", target: "es2020", minify: true };
 
+/**
+ * PRD-extension F-154: the extension's four scripts. Classic scripts (IIFE), as a content script
+ * and this service worker are loaded; NODE_ENV is defined so the loader's F-98 guard, which the
+ * pill comes with, folds away and no `process` reference reaches a browser.
+ */
+export const EXTENSION_SCRIPTS = ["probe", "content", "worker", "options"];
+export const EXTENSION_BUILD = { bundle: true, format: "iife", target: "es2022", minify: true, define: { "process.env.NODE_ENV": '"development"' } };
+/** The icons: the favicon PNGs and the two larger renders of the mark (docs/brand, PRD-polish F-112). */
+export const EXTENSION_ICONS = { "icon-16.png": "favicon-16.png", "icon-32.png": "favicon-32.png", "icon-48.png": "icon-48.png", "icon-128.png": "icon-128.png" };
+
+/** F-154: `dist/extension/` — the scripts, the options page, the icons and the manifest at the server package's version. */
+export async function buildExtension(dist = DEFAULT_DIST, logLevel = "info") {
+  const out = join(dist, "extension");
+  const src = join(here, "src", "extension");
+  await mkdir(out, { recursive: true });
+  for (const name of EXTENSION_SCRIPTS) {
+    await build({ ...EXTENSION_BUILD, logLevel, entryPoints: [join(src, `${name}.ts`)], outfile: join(out, `${name}.js`) });
+  }
+  const { version } = JSON.parse(await readFile(join(here, "..", "server", "package.json"), "utf8"));
+  const manifest = JSON.parse(await readFile(join(src, "manifest.json"), "utf8"));
+  await writeFile(join(out, "manifest.json"), JSON.stringify({ ...manifest, version }, null, 2) + "\n");
+  await copyFile(join(src, "options.html"), join(out, "options.html"));
+  const brand = join(here, "..", "..", "docs", "brand");
+  for (const [to, from] of Object.entries(EXTENSION_ICONS)) await copyFile(join(brand, from), join(out, to));
+}
+
 /** Build every bundle into `dist` (packages/server/dist by default; tests pass a temp dir). */
 export async function buildAll(dist = DEFAULT_DIST, logLevel = "info") {
   await build({ ...common, logLevel, entryPoints: [join(here, "src", "index.ts")], outfile: join(dist, "overlay.js") });
@@ -64,6 +95,7 @@ export async function buildAll(dist = DEFAULT_DIST, logLevel = "info") {
   await build({ ...LOADER_IIFE, logLevel, outfile: join(dist, "loader.js") });
   await build({ ...LOADER_INJECT, logLevel, outfile: join(dist, "loader-inject.js") });
   await buildEntries(dist, logLevel);
+  await buildExtension(dist, logLevel);
 }
 
 /** The ES-module entries only (F-97): `integrations/loader.js` and `integrations/react.js`. */
