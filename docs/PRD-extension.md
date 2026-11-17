@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Proposed 2026-11-17 — planning only. Nothing is built until Simon says "build it"; the decisions of §13 are his to change first |
+| **Status** | Built — Simon said "Build it" on 2026-11-17, accepting the decisions of §13; M37–M39 (CRT-0058…0060) in the pull request that carries this document. The manual rows of §8 and §10 (Simon's own Chrome and Edge on Windows, a public `https://` site, the published package, the `v0.10.0` tag and the npm promotion) are open. §14 lists where the build differs from the text above it |
 | **Owner** | Simon (simv) |
 | **Repo** | https://github.com/simv/crt |
 | **Baseline** | `main` at 13e2ad0 = v0.9.0 (PRD-destinations M33–M36) plus #132 and #133 |
@@ -156,7 +156,7 @@ Each milestone is one task file. M38 needs M37; M39 needs M38.
 
 ## 9. Amendments to the earlier PRDs, the docs and `CLAUDE.md`
 
-Applied by the milestone named in each row, with a `*v0.10: …*` note inline in the earlier PRD.
+Applied by the milestone named in each row, with a `*v0.10: …*` note inline in the earlier PRD. All rows are applied (M39).
 
 | Statement | v0.10 |
 |---|---|
@@ -173,13 +173,13 @@ Applied by the milestone named in each row, with a `*v0.10: …*` note inline in
 
 ## 10. Definition of done (v0.10)
 
-Ticked by M39 with evidence.
+Ticked by M39 with evidence. An unticked row is a Manual row that needs Simon's machine or the published package.
 
 - [ ] With the extension on, the trial app is reviewed on `localhost:3000` in Simon's everyday Chrome, with no CRT line in the app and no CRT entry in its policy, through to a written task (goals 1, 2).
-- [ ] A page whose policy allows only `'self'` gets the overlay, the logs, the component names and a screenshot, and its policy is still enforced (goal 2, N-44).
-- [ ] A site that was never turned on is never touched; a site turned off is left clean (goal 3, N-43).
-- [ ] A page script cannot start a session or post a capture through the extension (N-42).
-- [ ] The integration, the proxy and the CRT browser pass their v0.9 e2e unchanged (goal 5, N-41).
+- [x] A page whose policy allows only `'self'` gets the overlay, the logs, the component names and a screenshot, and its policy is still enforced (goal 2, N-44). — `e2e/extension.spec.ts` "is off everywhere until turned on; then the overlay is on the app's own URL under a 'self'-only policy…" and "with the tab capture allowed the picture is the browser's own…" (the fixture's `/ext` page; the page's own `fetch` to the CRT server is still refused in the same test).
+- [x] A site that was never turned on is never touched; a site turned off is left clean (goal 3, N-43). — `extension.spec.ts` "turned off, the site is left as it was; a site never turned on is never touched…".
+- [x] A page script cannot start a session or post a capture through the extension (N-42). — `extension.spec.ts` "a page script cannot drive CRT…"; `test/extension.test.ts` and `test/overlay-seams.test.ts` for the cleaning of what the probe sends.
+- [x] The integration, the proxy and the CRT browser pass their v0.9 e2e unchanged (goal 5, N-41). — no assertion changed in any other spec; bundle sizes before and after in CRT-0058's Log.
 - [ ] 0.10.0 is on npm and `crt extension` installs from it.
 
 ## 11. Risks
@@ -219,3 +219,18 @@ Ticked by M39 with evidence.
 
 1. Should a site reviewed through the extension that is not the project's own app (staging, production) be marked as such in the task file, so the worker knows the code it reads may be newer than the page was?
 2. One server is one project. With two `crt` servers running, should the popup offer the choice per site, or is the port field enough?
+
+## 14. As built (v0.10.0)
+
+Where the build differs from the text above, the build is what `docs/extension.md` and the tests describe. Each difference, and why:
+
+1. **There is no popup** (§5.3, F-154, F-155, Open question 2). The toolbar button is the switch itself: one click turns the site on, the next turns it off, and the badge (`on`, a red `!`) and the button's tooltip carry the state and the reason. A popup would have put a second click between the developer and the page, and Chrome delivers `activeTab` and the permission prompt on the action click directly. The port lives on the extension's Options page; a page Chrome does not let extensions touch gets its one line as the tooltip.
+2. **The probe is asked, not listened to** (§5.2, F-152). The overlay asks for the logs when it captures and gets them in one synchronous round trip over DOM events (`crt:probe:ask` / `crt:probe:answer`, string details only), where the text says entries are posted as they are recorded. It is the same data with less traffic, and nothing of a page crosses until the developer captures. The wire also has `clear…`, `pause…`/`resume…`, `present` and `probe` questions, so the tools behave as they do in one world. Every answer is cleaned against the capture's own limits before use (N-42).
+3. **A declined permission still gives the tab** (F-155). If the developer says no to Chrome's question, the click's `activeTab` grant lets CRT run on that page until it is reloaded or closed; nothing is registered and nothing is remembered.
+4. **The registrations are the record** (§5.3). Which sites are on is what `chrome.scripting.getRegisteredContentScripts` returns — a match pattern with the port, `${origin}/*` — not a list of its own in `chrome.storage`. The permission pattern has no port (Chrome's rule), so turning one port of a host off keeps the grant while another port of that host is on.
+5. **Storage is the extension's, keyed by site** (F-153). What the overlay keeps per origin goes to `chrome.storage.local` under the site, what it keeps per tab to `chrome.storage.session` under the tab and the site, both through the worker. Turning a site off removes both.
+6. **The real tab capture is tested** (F-158 says Manual). `captureVisibleTab` cannot be given `activeTab` from a test, so the e2e loads a second copy of the built extension whose manifest alone is changed to hold `<all_urls>`, and asserts real pixels under a policy the in-page rasteriser cannot work in. The shipped manifest never has that permission (`test/extension.test.ts` pins its permission list). The real click stays a Manual row.
+7. **The server needed no change for a page on another host** (§5.4, §12 rule 5): the capture schema never checked the page URL's host. The one schema change is the optional `screenshots.via`.
+8. **The version check has unit rows only** (N-45): `sameMinor` and the line; the e2e always runs one version.
+9. **"Seen for this project"** (F-162) is a file beside the project's reviews, `<home>/reviews/<key>/extension.json`, written on the extension's first health call and announced like every first creation under the home (PRD-zero N-34). Health's `overlay.extension` counts those health calls, one per mount.
+10. **`crt extension` copies every time** (F-161), also when the version is the same: a checkout's build changes under one version, and the copy is the command's only write.

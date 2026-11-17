@@ -75,6 +75,8 @@ import { CaptureValidationError, writeCapture } from "./captures.js";
 import type { CrtMode } from "./config.js";
 import { DoctorRoute } from "./doctor-route.js";
 import { ReviewRoute } from "./review-page.js";
+import { PAGE_HEADER, rememberExtension, VIA_EXTENSION, VIA_HEADER } from "./extension.js";
+import { announceOnce, type OnCreate } from "./home.js";
 import { applyCors, json, readJson } from "./http.js";
 import { decodeBody, filterAcceptEncoding, injectOverlayTag, isHtml, relaxCsp, relaxFrameSrc } from "./inject.js";
 import { renderLanding } from "./landing.js";
@@ -162,6 +164,8 @@ export interface OverlayStats {
   lastContentType: string | null;
   /** The unrelaxable CSP the last injected page sent (F-80 Should), null when none was seen. */
   cspWarning: string | null;
+  /** PRD-extension F-162: health calls made by the extension's worker (each mount of the overlay makes one). */
+  extension: number;
 }
 
 /** F-80: the wait between an injected page and the "never fetched" line. */
@@ -206,7 +210,7 @@ function landingPage(req: IncomingMessage, opts: ProxyOptions, state: RouteState
     markDark: MARK_DARK,
     markSmall: MARK_SMALL,
     // F-94: the timer fired with neither the loader nor the overlay requested — the third hero state.
-    loaderMissing: state.warned.loader && state.overlay.loader === 0 && state.overlay.fetched === 0,
+    loaderMissing: state.warned.loader && state.overlay.loader === 0 && state.overlay.fetched === 0 && state.overlay.extension === 0,
     sessions: opts.sessions?.openCount() ?? 0,
     providers: opts.providers && resolution ? { active: resolution.provider, rows: opts.providers.status() } : null,
     doctor: state.doctor.cached(),
@@ -235,7 +239,7 @@ export function createProxyServer(opts: ProxyOptions): CrtServer {
   if (mode === "proxy" && opts.target === null) throw new Error("proxy mode needs a target");
   const state: RouteState = {
     mode,
-    overlay: { injected: 0, fetched: 0, loader: 0, lastContentType: null, cspWarning: null },
+    overlay: { injected: 0, fetched: 0, loader: 0, lastContentType: null, cspWarning: null, extension: 0 },
     lastInjected: "/",
     timer: null,
     loaderTimer: null,
@@ -244,6 +248,7 @@ export function createProxyServer(opts: ProxyOptions): CrtServer {
     doctor: new DoctorRoute({ projectRoot: opts.projectRoot, mode, target: opts.target, version: opts.version ?? "0.0.0", providers: opts.providers, env: opts.env }),
     // PRD-zero F-135: the project's current review, whichever store this server writes to.
     review: new ReviewRoute({ projectRoot: opts.projectRoot, version: opts.version ?? null, env: opts.env, now: opts.now }),
+    onCreate: announceOnce(opts.log),
   };
   const log = opts.log ?? (() => undefined);
   const overlayTimeout = opts.overlayTimeoutMs ?? OVERLAY_TIMEOUT_MS;
@@ -267,7 +272,7 @@ export function createProxyServer(opts: ProxyOptions): CrtServer {
     if (state.loaderTimer) clearTimeout(state.loaderTimer);
     state.loaderTimer = setTimeout(() => {
       state.loaderTimer = null;
-      if (state.overlay.loader > 0 || state.overlay.fetched > 0 || state.warned.loader) return;
+      if (state.overlay.loader > 0 || state.overlay.fetched > 0 || state.overlay.extension > 0 || state.warned.loader) return;
       state.warned.loader = true;
       log(`crt: opened ${url} but the page never loaded the CRT loader — add the integration (\`crt init\` prints the snippet, /crt:init applies it), or run \`crt proxy\`, or run \`crt browse\``);
     }, loaderTimeout);
@@ -563,6 +568,8 @@ interface RouteState {
   doctor: DoctorRoute;
   /** PRD-zero F-135: the review page and its API. */
   review: ReviewRoute;
+  /** N-34: announces the first thing this server creates under the CRT home on its own account (F-162's mark). */
+  onCreate: OnCreate;
 }
 
 async function handleCrtRoute(
@@ -715,6 +722,16 @@ async function handleCrtRoute(
     return;
   }
   if (path === HEALTH_PATH) {
+    if (req.headers[VIA_HEADER] === VIA_EXTENSION && req.method !== "HEAD") {
+      // PRD-extension F-162: the worker names itself; the first call is the F-75 line of this way in and is remembered
+      // for the project, so plain `crt` opens the developer's own browser from now on.
+      if (state.overlay.extension === 0) {
+        opts.log?.(`crt: overlay loaded in the browser (the extension, on ${pageOrigin(req)})`);
+        rememberExtension(opts.projectRoot, opts.env ?? process.env, state.onCreate);
+      }
+      state.overlay.extension++;
+      if (state.loaderTimer) clearTimeout(state.loaderTimer); // F-94: the page has CRT, by another way in
+    }
     json(res, 200, healthPayload(opts, state.overlay));
     return;
   }
@@ -761,7 +778,7 @@ async function handleCrtRoute(
 
 /**
  * F-78/F-93: `{ ok, version, startedAt, mode, app, target, projectRoot, tasksDir, tasks, store, review, guest, provider, login, sessions, overlay }`
- * with `overlay` the F-80 object `{ injected, fetched, loader, lastContentType, cspWarning }`.
+ * with `overlay` the F-80 object `{ injected, fetched, loader, lastContentType, cspWarning, extension }` (`extension`: PRD-extension F-162).
  * `app` is the app URL (null when embedded mode found none) and `target` equals it for the
  * skills and the e2e assertions. `provider` is what a new session would run on right now (F-43
  * with no request value) and `login` its F-74 state; both are null / "unchecked" without a registry.
@@ -800,6 +817,20 @@ function tasksDirOf(opts: ProxyOptions): string | null {
 /** early.js and loader.js sit next to overlay.js in dist/. */
 function siblingOf(overlayPath: string, name: string): string {
   return join(dirname(overlayPath), name);
+}
+
+/** PRD-extension F-162: the page the extension's worker asks for, as an origin; whatever else the header holds is not printed. */
+export function pageOrigin(req: Pick<IncomingMessage, "headers">): string {
+  const page = req.headers[PAGE_HEADER];
+  if (typeof page === "string") {
+    try {
+      const url = new URL(page);
+      if (url.protocol === "http:" || url.protocol === "https:") return url.origin;
+    } catch {
+      // fall through
+    }
+  }
+  return "an unknown page";
 }
 
 /** F-94: the origin of the page that requested a bundle — `Origin`, else `Referer`'s origin, else "an unknown origin". */

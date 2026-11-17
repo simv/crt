@@ -4,6 +4,15 @@ The one dev-only line in its four forms, where each starts capturing, what the l
 
 **Do you need it at all?** Not to review an app: since v0.8 `crt` in a project without the integration opens the app in a browser window of its own with the CRT button already there ([Reviewing an app](review.md)). Add the line when CRT is to stay in a project: the button is then in whichever browser the team uses, with their extensions and sign-ins, the app's own security policy stays in force, and nobody needs Chrome or Edge.
 
+Since v0.10 there are four ways to get the CRT button onto a page, and one server behind all of them:
+
+| Way in | What you do | The page's URL | Your own browser profile | The app's policy | Needs |
+|---|---|---|---|---|---|
+| The integration (this page) | one dev-only line in the app | its own | yes, any browser | you allow the CRT origin in it when it is strict | an edit to the app |
+| The [extension](extension.md) | `crt extension` once, then the toolbar button per site | its own, on any host | yes | untouched and enforced | Chrome or Edge |
+| The CRT browser ([review.md](review.md)) | nothing: `crt` opens it | its own, loopback only | no, a profile of CRT's own | lifted in that window | Chrome or Edge |
+| Proxy mode ([below](#proxy-mode)) | `crt proxy` | `http://localhost:4400` | yes, any browser | relaxed in the copy | nothing |
+
 With the integration, embedded mode (the default since v0.4) needs one dev-only line in the app, so the CRT button appears on the app's own URL: the line loads a small **loader** from the running CRT server, and the loader puts the overlay on the page. `crt init` prints the form for your framework (`crt init --snippet` prints only that; `/crt:init` in Claude Code applies it); these are the four:
 
 ```tsx

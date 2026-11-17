@@ -29,8 +29,8 @@ const root = join(import.meta.dirname, "..", "..", "..");
 const read = (file: string): string => readFileSync(join(root, ...file.split("/")), "utf8");
 const readme = read("README.md");
 const packageReadme = read("packages/server/README.md");
-/** The eight reference pages F-115 names, and `review` — the ninth, PRD-zero F-138. */
-const PAGES = ["install", "integration", "cli", "review", "destinations", "providers", "task-format", "how-it-works", "troubleshooting", "develop"].map((n) => `docs/${n}.md`);
+/** The eight reference pages F-115 names, `review` (PRD-zero F-138), `destinations` (PRD-destinations F-150) and `extension` — the eleventh, PRD-extension F-163. */
+const PAGES = ["install", "integration", "cli", "review", "destinations", "extension", "providers", "task-format", "how-it-works", "troubleshooting", "develop"].map((n) => `docs/${n}.md`);
 /**
  * The text under `heading` in `file` (repo-relative) up to the next heading of the same or a higher
  * level; the page's `# ` title gives the whole page. Fenced code, where `# comments` live, is skipped.
@@ -90,9 +90,9 @@ describe("README › Install, docs/install.md, the loop and docs/cli.md (F-88)",
     expect(install).toMatch(/\n# one-time, per project\ncrt init {2,}# \.crt\/ \(README, tasks, config\), 2 \.gitignore lines, a CRT section in CLAUDE\.md/);
     expect(install).toMatch(/\n# per session\nnpm run dev {2,}# your dev server, your URL\ncrt {2,}# CRT server on :4400; opens your app; the CRT button is on your page\n/);
     expect(install).not.toContain("http://localhost:4400 opens");
-    // F-86 / F-87: seven skills, the @0.9 fallback pin — what `crt setup` installs, on the install page.
+    // F-86 / F-87: seven skills, the @0.10 fallback pin — what `crt setup` installs, on the install page.
     expect(installPage).toContain("`/crt:init`, `/crt:serve`, `/crt:next`, `/crt:tasks`, `/crt:task`, `/crt:done` and `/crt:intake`");
-    expect(installPage).toContain("`npx -y claude-review-tool@0.9`");
+    expect(installPage).toContain("`npx -y claude-review-tool@0.10`");
   });
 
   it("offers -D for teams and npx zero-install with the ~220 MB note, and the Windows shim note (F-88, N-16)", () => {
@@ -128,7 +128,7 @@ describe("README › Troubleshooting and docs/troubleshooting.md (F-88, N-17)", 
     expect(readmeTrouble).toContain("$ crt doctor\nok    node      v22.4.0 (needs 20 or newer)");
     // PRD-zero F-131: the `review` row follows `.crt`, the `browser` row follows `integration`.
     expect(readmeTrouble).toContain("ok    .crt      README.md, tasks/ (4 tasks), config.json, config.local.json, .gitignore entries\nok    review    2026-11-16 — 11 items, 9 kept\nok    mode      embedded\n");
-    expect(readmeTrouble).toContain("ok    integration next — app/layout.tsx imports claude-review-tool/react\nok    browser   Chrome 142 at C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe (CRT browser)\nok    instructions CLAUDE.md carries the CRT section\n");
+    expect(readmeTrouble).toContain("ok    integration next — app/layout.tsx imports claude-review-tool/react\nok    browser   Chrome 142 at C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe (CRT browser)\nok    extension 0.10.0 in C:\\Users\\you\\.crt\\extension\nok    instructions CLAUDE.md carries the CRT section\n");
     expect(readmeTrouble).toContain("→ claude — codex not logged in");
     // The docs page repeats the sample so its row catalogue reads on its own (PRD-polish §12 rule 6).
     expect(trouble).toContain("$ crt doctor\nok    node      v22.4.0 (needs 20 or newer)");
@@ -195,7 +195,7 @@ describe("README › Troubleshooting and docs/troubleshooting.md (F-88, N-17)", 
     "Add CRT to your app (development only):",
     "Production builds contain nothing from CRT (docs/integration.md › Production). /crt:init in Claude Code applies this for you.",
     // F-101
-    "<!-- BEGIN:crt v0.9 -->",
+    "<!-- BEGIN:crt v0.10 -->",
     "<!-- END:crt -->",
     // F-103
     "warn  .crt      tasks/ (4 tasks), config.json, .gitignore entries — no README.md — run crt init",
@@ -309,7 +309,7 @@ describe("F-107 (PRD-embedded, M18) across the front page and the docs: the four
 
   it("What lands in your repo lists the five items, the markers, and the N-19 runtime rule (F-100, F-101, N-19)", () => {
     expect(lands).toContain("crt init will, in <root>:");
-    for (const item of ["- `.crt/README.md`", "- `.crt/tasks/`", "- `.crt/config.json`", "- two `.gitignore` lines — `.crt/captures/`", "`.crt/config.local.json`", "- a CRT section in `CLAUDE.md` and `AGENTS.md`", "`<!-- BEGIN:crt v0.9 -->`", "`<!-- END:crt -->`"]) {
+    for (const item of ["- `.crt/README.md`", "- `.crt/tasks/`", "- `.crt/config.json`", "- two `.gitignore` lines — `.crt/captures/`", "`.crt/config.local.json`", "- a CRT section in `CLAUDE.md` and `AGENTS.md`", "`<!-- BEGIN:crt v0.10 -->`", "`<!-- END:crt -->`"]) {
       expect(lands).toContain(item);
     }
     expect(lands).toContain("At runtime the server (`crt`, `crt serve`, `crt proxy`) writes only under `.crt/`");
@@ -403,7 +403,7 @@ describe("F-107 (PRD-embedded, M18) across the front page and the docs: the four
       expect(read(page), page).not.toContain("Browse as usual** on `localhost:4400`");
       expect(read(page), page).not.toContain("reverse proxy + HTML injection");
     }
-    expect(readme.split("\n")[4]).toContain("v0.9.0.");
+    expect(readme.split("\n")[4]).toContain("v0.10.0.");
     expect(readme.split("\n")[4]).toContain("[docs/PRD-zero.md](docs/PRD-zero.md) (v0.8, zero integration)");
     expect(readme.split("\n")[4]).toContain("[docs/PRD-embedded.md](docs/PRD-embedded.md) (v0.4, embedded mode)");
   });
@@ -503,7 +503,7 @@ describe("the front page and the docs pages (PRD-polish F-115, N-26, M23)", () =
       expect(read(page).endsWith("\n") && !read(page).endsWith("\n\n"), `${page} ends with one newline`).toBe(true);
       expect(read(page), page).not.toContain("\r");
     }
-    // The README's index names all ten.
+    // The README's index names all eleven.
     const index = section("README.md", "## Docs");
     for (const page of PAGES) expect(index).toContain(`[${page}](${page})`);
   });

@@ -8,6 +8,7 @@
  *   crt serve [target] [--target <url>] [--mode <embedded|proxy>] …      the same under its explicit name (F-1, F-5, F-43, F-91)
  *   crt proxy [target] …                                                 ≡ crt serve --mode proxy (F-92: the v0.3 reverse proxy)
  *   crt browse [target] …                                                PRD-zero F-128 (embedded, in a browser CRT launches: no integration in the app)
+ *   crt extension [--path]                                               PRD-extension F-161 (the browser extension, copied to the CRT home to load unpacked)
  *   crt doctor                                                           F-76
  *   crt setup [--claude <path>]                                          F-86 (registers the bundled plugin with Claude Code)
  *   crt init [--yes] [--no-instructions] [--snippet [--json]]              F-100 (explicit, itemised, idempotent; the F-101 section, the F-102 snippet)
@@ -48,7 +49,9 @@ const USAGE = [
   "  crt proxy [target]      proxy the dev server through http://localhost:4400 instead (the same flags; = crt serve --mode proxy)",
   "  crt browse [target]     the same server, with your app in a Chrome or Edge window CRT starts itself: nothing to add to the app",
   "      [--port <n>] [--no-open] [--yes] [--replace] [--provider <id>]",
-  "  crt doctor              check node, project, .crt, mode, target, integration, instructions, port, providers, plugin",
+  "  crt extension           copy the Chrome / Edge extension to ~/.crt/extension and print how to load it: any site, on its",
+  "                          real URL, in your own browser, with nothing in the app [--path prints the folder only]",
+  "  crt doctor              check node, project, .crt, mode, target, integration, browser, extension, instructions, port, providers, plugin",
   "  crt setup               register the bundled Claude Code plugin (/crt:serve, /crt:next, …) [--claude <path>]",
   "  crt init                set the project up: .crt/ (README, tasks, config), 2 .gitignore lines, a CRT section in CLAUDE.md — each announced — then the snippet for your framework",
   "      [--yes] [--no-instructions] [--snippet [--json]]",
@@ -74,7 +77,7 @@ const USAGE = [
   "`--review` keeps a set-up project's feedback in a review too.",
 ].join("\n");
 
-const COMMANDS = new Set(["serve", "proxy", "browse", "review", "handoff", "doctor", "setup", "init", "tasks", "task", "providers", "mcp", "skills", "help"]);
+const COMMANDS = new Set(["serve", "proxy", "browse", "extension", "review", "handoff", "doctor", "setup", "init", "tasks", "task", "providers", "mcp", "skills", "help"]);
 
 /** F-77: a second Ctrl+C within this window exits at once. */
 const FORCE_EXIT_MS = 2_000;
@@ -147,6 +150,13 @@ async function main(argv: string[]): Promise<number> {
         intakePromptPath: fileURLToPath(new URL("./intake.md", import.meta.url)),
       });
       return keepRunning(result);
+    }
+    case "extension": {
+      // PRD-extension F-161: the built extension sits next to cli.js in the published package.
+      const { runExtension } = await import("./extension.js");
+      const r = runExtension({ sourceDir: resolve(fileURLToPath(new URL("./extension/", import.meta.url))), pathOnly: flags.path === true });
+      for (const line of r.lines) console.log(line);
+      return 0;
     }
     case "doctor": {
       const { runDoctor } = await import("./doctor.js");

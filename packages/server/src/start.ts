@@ -366,6 +366,8 @@ export interface OpenInput {
   open: boolean;
   /** `crt browse`: the CRT browser whatever the app carries (F-128). */
   forced?: boolean;
+  /** PRD-extension F-162: the extension has mounted for this project before, so the developer's own browser has CRT. */
+  extension?: boolean;
 }
 
 /** PRD-zero §5.6: the integration when the app has one, else the CRT browser, else neither — and nothing with `--no-open`. */
@@ -373,7 +375,7 @@ export function openDecision(input: OpenInput): OpenChoice {
   if (!input.open) return "none";
   if (input.mode === "proxy") return "default";
   if (input.forced) return "crt-browser";
-  if (input.integration) return "default";
+  if (input.integration || input.extension) return "default";
   return input.browser ? "crt-browser" : "no-way";
 }
 

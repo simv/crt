@@ -202,6 +202,9 @@ test.describe("the extension on an app with nothing of CRT in it (F-154…F-160)
     await mounted(page);
     expect(await inOverlay(page, (crt) => crt.annotations().map((a) => a.note))).toEqual(["the heading is wrong"]);
 
+    // F-162: the server knows this way in — each mount's health call named itself.
+    expect(((await health(crtPort))!.overlay as { extension: number }).extension).toBeGreaterThanOrEqual(3);
+
     // The policy is still the app's: an inline script is refused, as it was before CRT (N-44).
     expect(await page.evaluate(() => { const s = document.createElement("script"); s.textContent = "window.__inline = 1"; document.head.append(s); return (window as unknown as { __inline?: number }).__inline ?? null; })).toBeNull(); // prettier-ignore
   });

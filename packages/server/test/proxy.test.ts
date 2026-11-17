@@ -196,8 +196,8 @@ describe("CRT routes (F-4)", () => {
 
   it("health's overlay object has the F-80 shape (F-78, F-80)", async () => {
     const health = JSON.parse((await raw("/__crt/health")).body.toString()) as { overlay: Record<string, unknown> };
-    // `loader` counts /__crt/loader.js requests (PRD-embedded F-93).
-    expect(Object.keys(health.overlay).sort()).toEqual(["cspWarning", "fetched", "injected", "lastContentType", "loader"]);
+    // `loader` counts /__crt/loader.js requests (PRD-embedded F-93); `extension` the extension's health calls (PRD-extension F-162).
+    expect(Object.keys(health.overlay).sort()).toEqual(["cspWarning", "extension", "fetched", "injected", "lastContentType", "loader"]);
   });
 
   it("serves /__crt/overlay.js with no-cache headers", async () => {

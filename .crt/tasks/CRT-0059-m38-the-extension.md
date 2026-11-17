@@ -1,10 +1,10 @@
 ---
 id: CRT-0059
 title: M38 — The extension: the overlay on any site the developer turns it on for, through a Manifest V3 extension for Chrome and Edge
-status: backlog
+status: review
 priority: high
 created: 2026-11-17T13:40:00+08:00
-updated: 2026-11-17T13:40:00+08:00
+updated: 2026-11-17T16:00:00+08:00
 url: null
 route: null
 session: null
@@ -37,14 +37,14 @@ No page capture: created from `docs/PRD-extension.md` milestone M38.
 9. **Docs and guards** — `CLAUDE.md` and the reviewer agent's rows per §9.
 
 ## Definition of Done
-- [ ] The built manifest has exactly the permissions of F-154 and the package's version (a unit row).
-- [ ] On a page with `default-src 'self'` and no CRT in the app: the launcher is visible, the app's first `console.error` and a React component name are in the capture, and `window.__crt` is undefined in the page (F-156; e2e).
-- [ ] A full stub intake through the extension writes a task file, and an event stream held past 30 s keeps delivering (F-157; e2e).
-- [ ] Turned off, the site has no CRT element, no registered script and no `crt.*` storage key; a site never turned on was never injected (F-155, N-43, N-44; e2e).
-- [ ] A page script cannot post a capture or start a session through the extension (N-42; e2e).
-- [ ] The same on a mapped non-loopback host name (F-160; e2e).
-- [ ] When the capture is refused the screenshot comes from the in-page rasteriser and `capture.json` says so (F-158; e2e).
-- [ ] No request header rule, no `declarativeNetRequest`, no request to a non-loopback host anywhere under `extension/` (N-43, N-44; a grep row).
+- [x] The built manifest has exactly the permissions of F-154 and the package's version (a unit row).
+- [x] On a page with `default-src 'self'` and no CRT in the app: the launcher is visible, the app's first `console.error` and a React component name are in the capture, and `window.__crt` is undefined in the page (F-156; e2e).
+- [x] A full stub intake through the extension writes a task file, and an event stream held past 30 s keeps delivering (F-157; e2e).
+- [x] Turned off, the site has no CRT element, no registered script and no `crt.*` storage key; a site never turned on was never injected (F-155, N-43, N-44; e2e).
+- [x] A page script cannot post a capture or start a session through the extension (N-42; e2e).
+- [x] The same on a mapped non-loopback host name (F-160; e2e).
+- [x] When the capture is refused the screenshot comes from the in-page rasteriser and `capture.json` says so (F-158; e2e).
+- [x] No request header rule, no `declarativeNetRequest`, no request to a non-loopback host anywhere under `extension/` (N-43, N-44; a grep row).
 - [ ] `npm run check` green; `npm run e2e` green.
 - [ ] **Manual** — Windows, Simon's own Chrome profile and his own Edge profile: the trial app on `localhost:3000` with its policy as committed and no CRT entry in it, signed in, a real Claude session to a written task whose screenshot is the real tab; the versions in the Log.
 - [ ] **Manual** — one public `https://` site turned on: a capture sent, no local-network prompt shown; how long the click's screenshot grant lasts across a reload and a same-site navigation recorded in the Log.
@@ -54,3 +54,8 @@ Read `docs/PRD-extension.md` §5, §6.2, §7, §9 and §12, and the spike. Decis
 
 ## Log
 - 2026-11-17T13:40+08:00 — created from docs/PRD-extension.md by the planning session that wrote it (Claude Code cloud session 01KVgoZguPBAwZVMCJYTTptL), after Simon's request of 2026-11-17 to review any site on its real URL without a proxy or an edit to the app. Not to be started until Simon says "build it".
+- 2026-11-17T16:00+08:00 — claimed (in_progress) and built in the same pull request as CRT-0058 (https://github.com/simv/crt/pull/134): `packages/overlay/src/extension/` (`probe.ts`, `content.ts`, `worker.ts`, `wire.ts`, `clean.ts`, `options.ts`, `options.html`, `manifest.json`, `chrome.d.ts`), `buildExtension` in `packages/overlay/build.mjs` → `packages/server/dist/extension/`, the 48 and 128 px icons in `docs/brand/`, `e2e/extension.spec.ts` with the fixture's `/ext` pages.
+- 2026-11-17T16:00+08:00 — verified: DoD 1, 8 — `test/extension.test.ts` (the manifest's permission list and version, the loopback rule, the route allow-list, the grep rows). DoD 2–7 — `e2e/extension.spec.ts`, eight tests green in Playwright's Chromium with the built extension loaded: the `'self'`-only page, the stub intake to a written task with a stream held past 30 s, off and never-on, the page that tries to drive CRT, `outside.test` mapped to loopback, the refused capture, and the real tab capture.
+- 2026-11-17T16:00+08:00 — differences from the PRD text, recorded in PRD-extension §14: no popup (the toolbar click is the switch, the port is on the Options page); the probe is asked on capture, not listened to; a declined permission still gives the one tab; the registrations are the record of which sites are on; storage is the extension's, keyed by site; the real capture is tested through a second, test-only copy of the extension that holds `<all_urls>` (the shipped manifest never does).
+- 2026-11-17T16:00+08:00 — DoD 9 (`npm run check`, `npm run e2e`) left unticked until CI says so (the known container-only failures of CRT-0058's Log apply).
+- 2026-11-17T16:00+08:00 — DoD 10, 11 (Manual) open: Simon's own Chrome and Edge on Windows with the trial app and a real Claude session; one public `https://` site; how long the click's screenshot grant lasts.

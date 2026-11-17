@@ -17,11 +17,12 @@ ok    mode      embedded
 ok    target    http://localhost:3100 (remembered) — responding
 ok    integration next — app/layout.tsx imports claude-review-tool/react
 ok    browser   Chrome 142 at C:\Program Files\Google\Chrome\Application\chrome.exe (CRT browser)
+ok    extension 0.10.0 in C:\Users\you\.crt\extension
 ok    instructions CLAUDE.md carries the CRT section
 ok    port      4400 free
 ok    claude    Claude Code (Agent SDK 0.3.270) — logged in
 warn  codex     codex-cli 0.154.0 — not logged in — run `codex login`
-ok    plugin    crt@crt 0.9.0 installed (claude on PATH)
+ok    plugin    crt@crt 0.10.0 installed (claude on PATH)
 → claude — codex not logged in
 ```
 
@@ -58,7 +59,7 @@ crt init will, in C:\my-app:
   add a CRT section to CLAUDE.md
 ```
 
-then asks `Go ahead? [Y/n]` on a terminal (`--yes` skips it; off a terminal the command is explicit enough to apply without asking; `n` prints `crt: cancelled` and exits 130) and announces each write as it happens — `crt init: created .crt/README.md`, `crt init: created .crt/tasks/`, `crt init: created .crt/config.json`, `crt init: added .crt/captures/ and .crt/config.local.json to .gitignore`, `crt init: added the CRT section to CLAUDE.md` (or `crt init: created CLAUDE.md with the CRT section` when neither `CLAUDE.md` nor `AGENTS.md` existed, `crt init: updated the CRT section in CLAUDE.md` when the section's version stamp was older). When there is nothing to do it says `crt init: C:\my-app is set up (.crt/README.md, tasks/, config.json, .gitignore entries, CRT section in CLAUDE.md)`. It ends with the snippet for your framework (`Add CRT to your app (development only):`, the file, the lines, and `Production builds contain nothing from CRT (docs/integration.md › Production). /crt:init in Claude Code applies this for you.`); `crt init --snippet` prints only that and writes nothing. `crt tasks` on a project that is not set up prints `no tasks (CRT is not set up here — run crt init)` and exits 0 (`--json` answers `{ "tasksDir": null, "tasks": [] }`). The CRT section sits between `<!-- BEGIN:crt v0.9 -->` and `<!-- END:crt -->` in `CLAUDE.md` and `AGENTS.md` (an `@AGENTS.md`-only `CLAUDE.md` is skipped in favour of `AGENTS.md`), is replaced in place when the stamp's major.minor changes and never touched at runtime; `--no-instructions` leaves both files alone. In Claude Code, the SessionStart hook says `CRT: .crt/ is set up but CLAUDE.md has no CRT section — run crt init to add it` when the section is missing.
+then asks `Go ahead? [Y/n]` on a terminal (`--yes` skips it; off a terminal the command is explicit enough to apply without asking; `n` prints `crt: cancelled` and exits 130) and announces each write as it happens — `crt init: created .crt/README.md`, `crt init: created .crt/tasks/`, `crt init: created .crt/config.json`, `crt init: added .crt/captures/ and .crt/config.local.json to .gitignore`, `crt init: added the CRT section to CLAUDE.md` (or `crt init: created CLAUDE.md with the CRT section` when neither `CLAUDE.md` nor `AGENTS.md` existed, `crt init: updated the CRT section in CLAUDE.md` when the section's version stamp was older). When there is nothing to do it says `crt init: C:\my-app is set up (.crt/README.md, tasks/, config.json, .gitignore entries, CRT section in CLAUDE.md)`. It ends with the snippet for your framework (`Add CRT to your app (development only):`, the file, the lines, and `Production builds contain nothing from CRT (docs/integration.md › Production). /crt:init in Claude Code applies this for you.`); `crt init --snippet` prints only that and writes nothing. `crt tasks` on a project that is not set up prints `no tasks (CRT is not set up here — run crt init)` and exits 0 (`--json` answers `{ "tasksDir": null, "tasks": [] }`). The CRT section sits between `<!-- BEGIN:crt v0.10 -->` and `<!-- END:crt -->` in `CLAUDE.md` and `AGENTS.md` (an `@AGENTS.md`-only `CLAUDE.md` is skipped in favour of `AGENTS.md`), is replaced in place when the stamp's major.minor changes and never touched at runtime; `--no-instructions` leaves both files alone. In Claude Code, the SessionStart hook says `CRT: .crt/ is set up but CLAUDE.md has no CRT section — run crt init to add it` when the section is missing.
 
 ### No dev server found
 
@@ -189,6 +190,20 @@ The first is plain `crt` in an app without the integration on a machine where CR
 - **Neither is possible?** `crt proxy` needs no browser of CRT's own, and the [integration](integration.md) puts the button in whichever browser you use.
 
 The button is missing on one site inside the CRT browser window: the loader acts only on loopback pages (`localhost`, `*.localhost`, `127.0.0.1`, `[::1]`), there as everywhere.
+
+### The extension does not start, or says the versions differ
+
+```
+CRT server not running on :4400 — run `crt` in the project, then click here
+CRT extension 0.10.0 and CRT server 0.11.2 do not match — run `crt extension`, then Reload it in chrome://extensions
+crt: the extension is missing from this package (<folder>) — reinstall claude-review-tool, or run `npm run build` in a checkout
+```
+
+The first two appear on the page, in place of the CRT button, on a site where the [extension](extension.md) is on; the toolbar button shows a red `!` with the same reason. For the first, start `crt` in the project, or — when it runs on another port — set that port on the extension's Options page. The second means the copy the browser loaded and the server come from different versions of the package: the overlay ships inside the extension, so both must be the same major.minor. Run `crt extension` (it replaces the copy in `~/.crt/extension`), click **Reload** on the CRT card in `chrome://extensions`, and reload the page; `crt doctor`'s `extension` row says which copy is installed (`warn  extension 0.9.0 in <folder>, this is 0.10.0 — run crt extension, then Reload it in chrome://extensions`, or `--    extension not installed — crt extension (any site in your own Chrome or Edge)`). The third is `crt extension` in a broken install.
+
+- **Clicking the toolbar button does nothing?** The page is not `http` or `https` (a new tab, `chrome://…`, the Web Store), and the button's tooltip says so.
+- **No button after allowing the site?** The page already has CRT some other way (the integration, `crt proxy`, the CRT browser) and the extension stands down there; or the server is not the one you think — its terminal prints `crt: overlay loaded in the browser (the extension, on <origin>)` when the extension mounts.
+- **The screenshot is drawn, not real?** The browser lets the extension photograph a tab only while your toolbar click is in force for it. Click the toolbar button off and on in that tab.
 
 ### Overlay does not appear (proxy mode)
 

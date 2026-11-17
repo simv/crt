@@ -34,7 +34,7 @@ CRT v0.1–v0.3 put the overlay on the page by **proxying** the app: browse `htt
 
 ## 3. Non-goals (v0.4)
 
-- **A browser extension** (unchanged since v1.0).
+- **A browser extension** (unchanged since v1.0). *v0.10: built as the fourth way in (PRD-extension).*
 - **Starting the CRT server from the app's dev server** (a Vite plugin that spawns `crt`). PRD-setup §3 dropped `crt --run` over orphaned process trees and guessed commands; the same applies in reverse. Open question 1.
 - **Serving the CRT API same-origin from inside the dev server** (Vite middleware, Next `rewrites`). Cross-origin with loopback-only CORS (F-6) works for every framework and is already proven; revisit only if a framework's CSP defaults block it (Open question 4).
 - **Frameworks with no JS entry and no dev-only hook** (server-rendered PHP/Rails/Django templates): they use the script-tag form (F-96) in their development layout, or proxy mode.

@@ -86,6 +86,16 @@ it("names the CRT browser and the current review, or says there is none (F-131)"
   expect(doctorRows(none).rows.map((r) => r.name).slice(0, 8)).toEqual(["node", "project", ".crt", "review", "mode", "target", "integration", "browser"]);
 });
 
+it("names the installed extension, a stale copy, or how to install it (PRD-extension F-162)", () => {
+  const at = (version: string | null) => row(facts({ extension: { dir: "/h/extension", version } }), "extension");
+  expect(at("0.3.0")).toBe("ok    extension 0.3.0 in /h/extension");
+  expect(at("0.2.0")).toBe("warn  extension 0.2.0 in /h/extension, this is 0.3.0 — run crt extension, then Reload it in chrome://extensions");
+  expect(at(null)).toBe("--    extension not installed — crt extension (any site in your own Chrome or Edge)");
+  // Not looked at (the start path): no row; never a FAIL.
+  expect(doctorRows(facts()).rows.some((r) => r.name === "extension")).toBe(false);
+  expect(doctorRows(facts({ extension: { dir: "/h/extension", version: "0.2.0" } })).exitCode).toBe(0);
+});
+
 const lines = (f: DoctorFacts) => renderDoctor(doctorRows(f)).split("\n");
 /** Proxy mode facts: `mode` from config.json, no integration to check. */
 const PROXY: Partial<DoctorFacts> = { mode: { mode: "proxy", source: "project" }, integration: { kind: "proxy" } };

@@ -34,7 +34,7 @@ export interface HealthPayload {
   provider: string | null;
   login: "ok" | "missing" | "unchecked";
   sessions: number;
-  overlay: { injected: number; fetched: number; loader?: number; lastContentType: string | null; cspWarning: string | null };
+  overlay: { injected: number; fetched: number; loader?: number; lastContentType: string | null; cspWarning: string | null; extension?: number };
 }
 
 export type HealthState = "checking" | "connected" | "agent not ready" | "unreachable" | "different project";

@@ -1,10 +1,10 @@
 ---
 id: CRT-0058
 title: M37 — The overlay seams: transport, probe, storage and rasteriser behind one module each, with no change in behaviour
-status: backlog
+status: review
 priority: high
 created: 2026-11-17T13:40:00+08:00
-updated: 2026-11-17T13:40:00+08:00
+updated: 2026-11-17T16:00:00+08:00
 url: null
 route: null
 session: null
@@ -34,12 +34,12 @@ No page capture: created from `docs/PRD-extension.md` milestone M37. The spike i
 6. **Docs and guards** — `CLAUDE.md` Conventions gains the seam rule per PRD-extension §9.
 
 ## Definition of Done
-- [ ] No overlay module but the transport calls `fetch`, `EventSource` or `crtUrl` for a `/__crt/` route (F-151; a grep row).
-- [ ] The console log, the network log and the framework lookups are read through the probe module only (F-152; a grep row).
-- [ ] The storage rows pass against Web Storage and against a second, in-memory backing (F-153).
-- [ ] `takeScreenshots` draws markers and crops on whatever canvas the rasteriser returns (F-158; a unit row with a fake rasteriser).
-- [ ] `npm run e2e` green with no assertion changed in any existing spec (N-41; `git diff main -- packages/server/e2e` shows no changed assertion).
-- [ ] The gzipped sizes of `overlay.js`, `loader.js` and `loader-inject.js` before and after are in the Log, within budget (N-20, N-41).
+- [x] No overlay module but the transport calls `fetch`, `EventSource` or `crtUrl` for a `/__crt/` route (F-151; a grep row).
+- [x] The console log, the network log and the framework lookups are read through the probe module only (F-152; a grep row).
+- [x] The storage rows pass against Web Storage and against a second, in-memory backing (F-153).
+- [x] `takeScreenshots` draws markers and crops on whatever canvas the rasteriser returns (F-158; a unit row with a fake rasteriser).
+- [x] `npm run e2e` green with no assertion changed in any existing spec (N-41; `git diff main -- packages/server/e2e` shows no changed assertion).
+- [x] The gzipped sizes of `overlay.js`, `loader.js` and `loader-inject.js` before and after are in the Log, within budget (N-20, N-41).
 - [ ] `npm run check` green.
 
 ## Notes
@@ -47,3 +47,8 @@ Read `docs/PRD-extension.md` §5.1, §5.2, §6.1, §7 and §12 rule 1, and the s
 
 ## Log
 - 2026-11-17T13:40+08:00 — created from docs/PRD-extension.md by the planning session that wrote it (Claude Code cloud session 01KVgoZguPBAwZVMCJYTTptL), after Simon's request of 2026-11-17 to review any site on its real URL without a proxy or an edit to the app. Not to be started until Simon says "build it".
+- 2026-11-17T16:00+08:00 — claimed (in_progress) on Simon's "Build it" of 2026-11-17 and built in the pull request that carries the PRD (https://github.com/simv/crt/pull/134): `transport.ts`, `probe.ts` + `probe-wire.ts`, `bag.ts`, the backing in `storage.ts`, the rasteriser in `screenshot.ts`, `mount.ts`; `api.ts`, `health.ts`, `chat.ts`, `ui.ts`, `capture.ts`, `element.ts`, `tools.ts` moved onto them.
+- 2026-11-17T16:00+08:00 — verified: DoD 1, 2 — `test/overlay-structure.test.ts` (the grep rows) and `test/overlay-seams.test.ts` (16 rows: a fake transport, the two-realm probe round trip, both storage backings, a fake rasteriser). DoD 3, 4 — the same file. DoD 5 — the full e2e run with no assertion changed in any existing spec; the two failures it shows (`embedded.spec.ts` "health says embedded…", and on some runs `chat.spec.ts` "Stop interrupts the turn…") fail the same way on `main` in this container.
+- 2026-11-17T16:00+08:00 — DoD 6 — bytes / gzip, before → after: `overlay.js` 128631 / 40127 → 129837 / 40621; `loader.js` 6941 / 2996 → 6995 / 3046; `loader-inject.js` 6904 / 3008 → 6958 / 3057; `early.js` 3484 / 1462 → 3538 / 1510. The loader stays within its N-20 budget (`test/loader.test.ts`).
+- 2026-11-17T16:00+08:00 — DoD 7 (`npm run check`) left unticked until CI says so: locally everything is green but `test/providers/exec.test.ts` "kills a process and its children", which fails the same way on `main` in this container.
+- 2026-11-17T16:00+08:00 — beyond the Ask: `capture-schema.ts` takes the optional `screenshots.via` (`page` | `browser`), which the rasteriser seam reports (F-158); `loader.ts` exports `mountPill` for the extension's own "server not running" line.
