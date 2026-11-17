@@ -26,6 +26,12 @@
 //                       strict policy of PRD-zero §5.1, gzip on the wire, a first script from 'self'
 //                       (/untouched.js) that logs an error, and an inline script the policy refuses
 //   GET  /untouched.js  that first script
+//   GET  /ext           an app the extension is turned on for (PRD-extension F-156): the /untouched
+//                       policy, no loader tag, a first script (/ext.js) that logs an error and
+//                       puts a React-style fiber on the heading once the document is parsed —
+//                       a property only the page's own script world can see
+//   GET  /ext.js        that first script
+//   GET  /ext-plain     the same app with no policy (the in-page screenshot fallback, F-158)
 //   GET  /redirect      302 → http://localhost:<port>/ (absolute, points at the fixture itself)
 //   GET  /app           annotation playground: ids, classes, data-*, ARIA, a fixed header, long
 //                       scroll, a console.error + uncaught error, a failing fetch/XHR and a missing
@@ -81,6 +87,31 @@ export const STRICT_STYLES_CSP = "default-src 'self'; script-src 'self' 'nonce-a
 
 /** PRD-zero §5.1: the policy of an app CRT was never added to — nothing but 'self', no frames. */
 export const UNTOUCHED_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; frame-src 'none'";
+
+/** PRD-extension F-156: an app with no CRT in it, whose first script logs an error and renders a "component". */
+const EXT_PAGE = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>CRT fixture: an app for the extension</title>
+  <script src="/ext.js"></script>
+</head>
+<body>
+  <h1 id="heading">An app reviewed through the extension</h1>
+  <p id="note">Served by packages/server/e2e/fixture/server.mjs</p>
+</body>
+</html>
+`;
+
+/** What a React dev build leaves on a host node: a fiber owned by a named component, on a property of the page's world. */
+const EXT_SCRIPT = `window.__fixture = "ext";
+console.error("fixture: the first script of an app reviewed through the extension");
+document.addEventListener("DOMContentLoaded", () => {
+  function Cart() {}
+  const owner = { tag: 0, type: Cart, elementType: Cart, return: null, _debugOwner: null };
+  document.getElementById("heading")["__reactFiber$fixture"] = { tag: 5, type: "h1", return: owner, _debugOwner: owner };
+});
+`;
 
 /** PRD-zero F-126: no loader tag, ever; the inline script runs only where the policy is not enforced. */
 const UNTOUCHED_PAGE = `<!doctype html>
@@ -532,6 +563,13 @@ export function startFixture(opts = {}) {
       case "/untouched.js":
         res.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
         return res.end('window.__fixture = "untouched"; console.error("fixture: the first script of an untouched app");\n');
+      case "/ext":
+        return html(EXT_PAGE, { "content-security-policy": UNTOUCHED_CSP });
+      case "/ext-plain":
+        return html(EXT_PAGE);
+      case "/ext.js":
+        res.writeHead(200, { "content-type": "text/javascript; charset=utf-8" });
+        return res.end(EXT_SCRIPT);
       case "/redirect":
         res.writeHead(302, { location: `http://localhost:${server.address().port}/?from=redirect` });
         return res.end();

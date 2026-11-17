@@ -550,6 +550,10 @@ describe("what plain `crt` opens (PRD-zero F-132)", () => {
     expect(openDecision({ ...on, integration: true, browser: false })).toBe("default");
     expect(openDecision({ ...on, integration: false, browser: true })).toBe("crt-browser");
     expect(openDecision({ ...on, integration: false, browser: false })).toBe("no-way");
+    // PRD-extension F-162: once the extension has mounted for this project, the developer's own browser has CRT.
+    expect(openDecision({ ...on, integration: false, browser: true, extension: true })).toBe("default");
+    expect(openDecision({ ...on, integration: false, browser: false, extension: true })).toBe("default");
+    expect(openDecision({ ...on, integration: false, browser: true, extension: true, forced: true })).toBe("crt-browser");
     for (const integration of [true, false]) for (const browser of [true, false]) expect(openDecision({ open: false, mode: "embedded", integration, browser })).toBe("none");
   });
 

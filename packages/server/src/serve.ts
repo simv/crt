@@ -41,6 +41,7 @@ import { sdkVersion } from "./providers/claude.js";
 import { createProxyServer, type CrtServer } from "./proxy.js";
 import { describeResolution, loginField, ProviderRegistry } from "./session.js";
 import { SessionRegistry } from "./sessions.js";
+import { extensionSeen } from "./extension.js";
 import { bindPort, chooseTarget, type CrtHealth, NO_WAY_LINE, type OpenChoice, openDecision, PORT_STEPS, type Prompter, sameProject, type StartDeps } from "./start.js";
 import { guestLine, openStore, type Store } from "./store.js";
 import { parseFrontmatter } from "./tasks.js";
@@ -259,6 +260,7 @@ export async function serve(opts: ServeOptions): Promise<ServeResult> {
           mode,
           forced: browse,
           integration: wantsOpen && mode === "embedded" && !browse && integrationFact(projectRoot).found !== null,
+          extension: wantsOpen && mode === "embedded" && !browse && extensionSeen(projectRoot),
           browser: wantsOpen && mode === "embedded" && findBrowser({ command: config.browserCommand, platform: process.platform, env: process.env, home: homedir() }) !== null,
         });
   /** F-128: `crt browse` asks for the CRT browser by name; F-132: plain `crt` picked it. `--no-open` never launches it. */

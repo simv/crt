@@ -18,7 +18,8 @@
  * Framework-free; renders inside the overlay's Shadow DOM.
  */
 import type { IntakeSummary, PermissionBehavior, SessionEvent, SessionState } from "../../server/src/session-events.js";
-import { answerPermission, attachSessionCapture, closeSession, interruptSession, sendSessionMessage, sessionEventsUrl } from "./api.js";
+import { answerPermission, attachSessionCapture, closeSession, interruptSession, sendSessionMessage, sessionEvents } from "./api.js";
+import type { EventStream } from "./transport.js";
 import { cssEscape, escapeHtml, STATE_LABEL } from "./dom-util.js";
 import { ACCEPT_LINE, ACCEPT_REPLY, endsWithAcceptLine, summarizeProposal } from "./proposal.js";
 import { ACCENT, ERROR, EXPERIMENTAL, FAIL, INK, OK, PILL } from "./tokens.js";
@@ -166,7 +167,7 @@ export class ChatPanel {
   private readonly sendBtn: HTMLButtonElement;
   private readonly stopBtn: HTMLButtonElement;
   private readonly foot: HTMLElement;
-  private source: EventSource | null = null;
+  private source: EventStream | null = null;
   private sessionId: string | null = null;
   private state: SessionState | null = null;
   private taskId: string | null = null;
@@ -367,28 +368,31 @@ export class ChatPanel {
 
   private connect(): void {
     if (!this.sessionId) return;
-    const source = new EventSource(sessionEventsUrl(this.sessionId, this.lastSeq));
-    this.source = source;
     this.live = false;
-    source.addEventListener("live", () => (this.live = true));
-    source.onmessage = (e: MessageEvent<string>) => {
-      const seq = Number(e.lastEventId);
-      if (seq && seq <= this.lastSeq) return; // replay overlap after a reconnect
-      if (seq) this.lastSeq = seq;
-      let event: SessionEvent;
-      try {
-        event = JSON.parse(e.data) as SessionEvent;
-      } catch {
-        return;
-      }
-      this.handle(event);
-    };
-    source.onerror = () => {
-      // EventSource reconnects by itself (with Last-Event-ID); only report a dead session.
-      if (source.readyState === EventSource.CLOSED && this.state !== "ended" && this.state !== "error") {
-        this.system("Lost the connection to the CRT server", true);
-      }
-    };
+    this.source = sessionEvents(this.sessionId, this.lastSeq, {
+      onEvent: (e) => {
+        if (e.type === "live") {
+          this.live = true;
+          return;
+        }
+        const seq = Number(e.id);
+        if (seq && seq <= this.lastSeq) return; // replay overlap after a reconnect
+        if (seq) this.lastSeq = seq;
+        let event: SessionEvent;
+        try {
+          event = JSON.parse(e.data) as SessionEvent;
+        } catch {
+          return;
+        }
+        this.handle(event);
+      },
+      onError: (closed) => {
+        // The stream reconnects by itself (with Last-Event-ID); only report a dead session.
+        if (closed && this.state !== "ended" && this.state !== "error") {
+          this.system("Lost the connection to the CRT server", true);
+        }
+      },
+    });
   }
 
   private detach(): void {

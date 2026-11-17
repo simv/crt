@@ -19,6 +19,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { findBrowser } from "./browser.js";
+import { extensionDir, manifestVersion } from "./extension.js";
 import { type CrtMode, readConfig } from "./config.js";
 import { currentReview, projectReviewsDir } from "./home.js";
 import { destinationFact, readDestinationsConfig } from "./destinations/index.js";
@@ -60,6 +61,8 @@ export interface DoctorFacts {
   handoff?: { name: string; ok: boolean; title: string; detail: string };
   /** PRD-zero F-131: the browser `crt browse` would launch (`version` null when `--version` gave none within 3 s); null when none was found; omitted when not looked for. */
   browser?: { name: string; exe: string; version: string | null } | null;
+  /** PRD-extension F-162: the copy `crt extension` made (`<home>/extension`) and its manifest version, null when there is none; omitted when not looked at. */
+  extension?: { dir: string; version: string | null };
   /** F-103: the mode and which config file set it (null: the embedded default, or a flag). */
   mode: { mode: CrtMode; source: "local" | "project" | null };
   /** Omitted (undefined) when not checked; null when none is set and nothing was found. */
@@ -150,6 +153,17 @@ export function doctorRows(f: DoctorFacts): DoctorReport {
       f.browser === null
         ? { status: "--", name: "browser", detail: "none found — the integration or `crt proxy`" }
         : { status: "ok", name: "browser", detail: `${f.browser.name} ${f.browser.version ?? "unknown"} at ${f.browser.exe} (CRT browser)` },
+    );
+  }
+  if (f.extension !== undefined) {
+    // PRD-extension F-162: the installed copy against this package (N-45: the two must share a major.minor).
+    const e = f.extension;
+    rows.push(
+      e.version === null
+        ? { status: "--", name: "extension", detail: "not installed — crt extension (any site in your own Chrome or Edge)" }
+        : e.version === f.version
+          ? { status: "ok", name: "extension", detail: `${e.version} in ${e.dir}` }
+          : { status: "warn", name: "extension", detail: `${e.version} in ${e.dir}, this is ${f.version} — run crt extension, then Reload it in chrome://extensions` },
     );
   }
   rows.push(instructionsRow(f.instructions));
@@ -274,7 +288,11 @@ export async function collectDoctorFacts(opts: CollectOptions): Promise<DoctorFa
   facts.review = review && totals ? { name: review.name, items: totals.items, kept: totals.kept } : null;
   const destinations = readDestinationsConfig(root, env);
   if (destinations.defaultTo) facts.handoff = { name: destinations.defaultTo, ...destinationFact(destinations.defaultTo, destinations, root) };
-  if (opts.browser !== false) facts.browser = await browserFact(config.browserCommand, env);
+  if (opts.browser !== false) {
+    facts.browser = await browserFact(config.browserCommand, env);
+    const dir = extensionDir(env);
+    facts.extension = { dir, version: manifestVersion(dir) };
+  }
   if (opts.target) {
     if (config.target && config.targetSource) {
       // An unparseable value is probed as written, which fails, so the row says "not responding".

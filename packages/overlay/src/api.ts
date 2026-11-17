@@ -7,17 +7,17 @@
  * overlay uses to re-read health (PRD-setup F-81: "after any failed CRT request").
  *
  * The paths are the server's own constants (routes.ts imports nothing, and only the ones used here
- * reach the bundle). `health.ts` keeps its fetch — it is what the listener runs — and `loader.ts`
- * stays self-contained (N-20).
+ * reach the bundle). Every call leaves through transport.ts (PRD-extension F-151); `health.ts` keeps
+ * its own read — it is what the listener runs — and `loader.ts` stays self-contained (N-20).
  */
 import type { CapturePost } from "../../server/src/capture-schema.js";
 import { CAPTURES_PATH, CONFIG_PATH, PROVIDERS_PATH, RASTER_PATH, SESSIONS_PATH } from "../../server/src/routes.js";
 import type { PermissionBehavior, ProvidersPayload, SessionInfo } from "../../server/src/session-events.js";
-import { crtUrl } from "./base.js";
+import { type CrtRequest, type EventStream, type StreamHandlers, transport } from "./transport.js";
 
 /** F-16 (CRT-0047): the rasteriser frame screenshot.ts draws in under a strict `img-src` — a page, not a JSON call. */
 export function rasterFrameUrl(): string {
-  return crtUrl(RASTER_PATH);
+  return transport().url(RASTER_PATH);
 }
 
 /** F-13: where the server wrote a capture. */
@@ -41,7 +41,7 @@ export function onRequestFailure(fn: (() => void) | null): void {
 }
 
 /** A JSON body for `method`. */
-function withJson(method: string, body: unknown): RequestInit {
+function withJson(method: string, body: unknown): CrtRequest {
   return { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) };
 }
 
@@ -49,10 +49,10 @@ function withJson(method: string, body: unknown): RequestInit {
  * One `/__crt/*` request: the answer's JSON when it is 2xx, says `ok: true` and has every
  * `required` field; otherwise the failure listener runs and the server's error line is thrown.
  */
-export async function crtJson<T extends object>(path: string, init?: RequestInit, required: readonly (keyof T & string)[] = []): Promise<T> {
+export async function crtJson<T extends object>(path: string, init?: CrtRequest, required: readonly (keyof T & string)[] = []): Promise<T> {
   try {
-    const res = await fetch(crtUrl(path), init);
-    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const res = await transport().json(path, init);
+    const data = (res.data && typeof res.data === "object" ? res.data : {}) as Record<string, unknown>;
     if (!res.ok || data.ok !== true || !required.every((k) => data[k])) {
       throw new Error(typeof data.error === "string" && data.error ? data.error : `CRT server answered ${res.status}`);
     }
@@ -88,10 +88,12 @@ export async function closeSession(sessionId: string): Promise<void> {
 
 /** F-66: whether the server still has a session (a reload re-attaches only live ones). A gone one is not a failure. */
 export function isSessionAlive(sessionId: string): Promise<boolean> {
-  return fetch(crtUrl(`${SESSIONS_PATH}/${sessionId}`)).then(
-    (r) => r.ok,
-    () => false,
-  );
+  return transport()
+    .json(`${SESSIONS_PATH}/${sessionId}`)
+    .then(
+      (r) => r.ok,
+      () => false,
+    );
 }
 
 /** F-30: the server's recent intake sessions, newest first. */
@@ -99,9 +101,9 @@ export async function listSessions(): Promise<SessionInfo[]> {
   return (await crtJson<{ sessions: SessionInfo[] }>(SESSIONS_PATH, undefined, ["sessions"])).sessions;
 }
 
-/** F-25: the session's event stream, replayed after `after` (an EventSource URL, not a fetch). */
-export function sessionEventsUrl(sessionId: string, after: number): string {
-  return crtUrl(`${SESSIONS_PATH}/${sessionId}/events?after=${after}`);
+/** F-25: the session's event stream, replayed after `after`; `live` marks the end of the replay. */
+export function sessionEvents(sessionId: string, after: number, handlers: StreamHandlers): EventStream {
+  return transport().events(`${SESSIONS_PATH}/${sessionId}/events?after=${after}`, handlers, ["live"]);
 }
 
 /** F-25: the developer's reply. */

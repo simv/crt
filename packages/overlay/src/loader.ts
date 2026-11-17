@@ -157,7 +157,7 @@ function mount(options?: MountOptions): CrtLoader | null {
       script?.remove();
       script = null;
       if (loaded || dismissed()) return;
-      pill ??= mountPill(origin, retry);
+      pill ??= mountPill(pillText(origin), retry, rememberDismissed);
       pill.show();
     });
     parent.appendChild(script);
@@ -178,6 +178,14 @@ function mount(options?: MountOptions): CrtLoader | null {
   return loader;
 }
 
+function rememberDismissed(): void {
+  try {
+    sessionStorage.setItem(PILL_DISMISSED_KEY, "1");
+  } catch {
+    // no sessionStorage: hides until the next error
+  }
+}
+
 function dismissed(): boolean {
   try {
     return sessionStorage.getItem(PILL_DISMISSED_KEY) !== null;
@@ -186,7 +194,7 @@ function dismissed(): boolean {
   }
 }
 
-interface PillHandle {
+export interface PillHandle {
   show(): void;
   remove(): void;
 }
@@ -201,8 +209,12 @@ const PILL_CSS = `
   .pill button:hover { opacity: 1; }
 `;
 
-/** F-96 step 6: the pill in its own shadow root, bottom-right; a click retries, × hides it for the tab. */
-function mountPill(origin: string, retry: () => void): PillHandle {
+/**
+ * F-96 step 6: the pill in its own shadow root, bottom-right; a click retries, × hides it and tells
+ * the caller, which decides where "closed in this tab" is kept (the extension keeps nothing in the
+ * site's storage, PRD-extension N-44).
+ */
+export function mountPill(message: string, retry: () => void, onClose: () => void): PillHandle {
   const host = document.createElement("div");
   host.id = PILL_HOST_ID;
   const root = host.attachShadow({ mode: "open" });
@@ -211,18 +223,14 @@ function mountPill(origin: string, retry: () => void): PillHandle {
   pill.setAttribute("role", "status");
   const text = document.createElement("span");
   text.className = "text";
-  text.textContent = pillText(origin);
+  text.textContent = message;
   const close = document.createElement("button");
   close.type = "button";
   close.setAttribute("aria-label", "Close");
   close.textContent = "×";
   close.addEventListener("click", (e) => {
     e.stopPropagation();
-    try {
-      sessionStorage.setItem(PILL_DISMISSED_KEY, "1");
-    } catch {
-      // no sessionStorage: hides until the next error
-    }
+    onClose();
     host.remove();
   });
   pill.addEventListener("click", retry);

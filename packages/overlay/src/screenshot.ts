@@ -19,7 +19,7 @@
 import { domToCanvas, domToForeignObjectSvg, type Options } from "modern-screenshot";
 import type { Rect } from "../../server/src/capture-schema.js";
 import { rasterFrameUrl } from "./api.js";
-import { pauseNetworkLog, resumeNetworkLog } from "./network-hook.js";
+import { probe } from "./probe.js";
 import { isOverlayNode } from "./selector.js";
 import { ACCENT } from "./tokens.js";
 
@@ -39,18 +39,29 @@ export interface ScreenshotResult {
   /** annotation n → file name */
   crops: Map<number, string>;
   error: string | null;
+  /** Set when the rasteriser said which way it took (PRD-extension F-158). */
+  via?: ScreenshotVia;
 }
 
 const CROP_PAD = 24;
 const PIN_CROP = 160;
 const FIXED_ATTR = "data-crt-fixed";
 
-export async function takeScreenshots(markers: MarkerSpec[]): Promise<ScreenshotResult> {
-  const result: ScreenshotResult = { images: {}, viewport: null, annotated: null, crops: new Map(), error: null };
-  let clean: HTMLCanvasElement;
+/** What made the viewport picture: the in-page rasteriser, or the browser's own capture of the tab (PRD-extension F-158). */
+export type ScreenshotVia = "page" | "browser";
+
+/**
+ * The viewport as a canvas, innerWidth × innerHeight at some scale, without CRT's own UI on it
+ * (PRD-extension F-158). Rejects with the line `screenshots.error` should carry. `via` is set by
+ * a rasteriser that has more than one way to the picture.
+ */
+export type Rasteriser = () => Promise<{ canvas: HTMLCanvasElement; via?: ScreenshotVia }>;
+
+/** F-16: today's behaviour — modern-screenshot in the page, the rasteriser frame under a strict `img-src`. */
+export const pageRasteriser: Rasteriser = async () => {
   // The rasteriser's own fetches (fonts, images) go through the page's hooked fetch; their
   // failures are CRT's, not the page's, and must not reach the next capture (F-21).
-  pauseNetworkLog();
+  probe().pauseNetwork();
   // Probed before the listener below: the probes' own refusals are expected, not the reason a pass failed.
   const policy = await pagePolicy();
   // A strict app policy (`style-src` / `img-src` without 'unsafe-inline' / data:) stops the
@@ -59,18 +70,39 @@ export async function takeScreenshots(markers: MarkerSpec[]): Promise<Screenshot
   const onViolation = (e: SecurityPolicyViolationEvent) => blocked.add(e.effectiveDirective);
   document.addEventListener("securitypolicyviolation", onViolation);
   try {
-    clean = await rasteriseViewport(policy);
+    return { canvas: await rasteriseViewport(policy) };
   } catch (err) {
     const why = err instanceof Error ? err.message : String(err);
     // Violation events are queued as tasks: let the ones the failure raised arrive.
     await new Promise((r) => setTimeout(r, 0));
-    result.error = blocked.size
-      ? `rasterisation failed: the page's Content-Security-Policy blocked the screenshot (${Array.from(blocked).sort().join(", ")}): ${why}`
-      : `rasterisation failed: ${why}`;
-    return result;
+    throw new Error(
+      blocked.size
+        ? `rasterisation failed: the page's Content-Security-Policy blocked the screenshot (${Array.from(blocked).sort().join(", ")}): ${why}`
+        : `rasterisation failed: ${why}`,
+    );
   } finally {
     document.removeEventListener("securitypolicyviolation", onViolation);
-    resumeNetworkLog();
+    probe().resumeNetwork();
+  }
+};
+
+let rasterise: Rasteriser = pageRasteriser;
+
+/** F-158: replace the rasteriser (the extension's content script, before the overlay mounts; tests). */
+export function setRasteriser(next: Rasteriser): void {
+  rasterise = next;
+}
+
+export async function takeScreenshots(markers: MarkerSpec[]): Promise<ScreenshotResult> {
+  const result: ScreenshotResult = { images: {}, viewport: null, annotated: null, crops: new Map(), error: null };
+  let clean: HTMLCanvasElement;
+  try {
+    const made = await rasterise();
+    clean = made.canvas;
+    if (made.via) result.via = made.via;
+  } catch (err) {
+    result.error = err instanceof Error ? err.message : String(err);
+    return result;
   }
   const dpr = clean.width / window.innerWidth || 1;
   result.images["viewport.png"] = toBase64(clean);

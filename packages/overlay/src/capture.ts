@@ -6,10 +6,8 @@
  */
 import type { AnnotationInfo, CaptureBundle, ElementInfo, PageInfo } from "../../server/src/capture-schema.js";
 import { type Annotation, type AnnotationStore, toViewportRect } from "./annotations.js";
-import { detectFramework } from "./component.js";
-import { consoleEntries } from "./console-hook.js";
 import { describeElement } from "./element.js";
-import { networkEntries } from "./network-hook.js";
+import { probe } from "./probe.js";
 import { type MarkerSpec, takeScreenshots } from "./screenshot.js";
 
 export interface CaptureResult {
@@ -67,8 +65,8 @@ export async function capture(store: AnnotationStore, opts: CaptureOptions = {})
   const started = new Date();
   // Snapshot the buffers before rasterising: the screenshot pass fetches stylesheets and images
   // itself, and those must not show up as the page's own failures (F-21).
-  const consoleLog = consoleEntries();
-  const network = networkEntries();
+  const consoleLog = probe().console();
+  const network = probe().network();
   const all = store.resolve();
   const annotations = opts.ids ? all.filter((a) => opts.ids!.includes(a.id)) : all;
   const markers = annotations.map(markerFor);
@@ -92,12 +90,12 @@ export async function capture(store: AnnotationStore, opts: CaptureOptions = {})
     version: 1,
     id: "",
     page: pageInfo(started),
-    framework: detectFramework(),
+    framework: probe().framework(),
     ...(opts.note?.trim() ? { note: opts.note.trim() } : {}),
     annotations: captured,
     console: consoleLog,
     network,
-    screenshots: { viewport: shots.viewport, annotated: shots.annotated, error: shots.error },
+    screenshots: { viewport: shots.viewport, annotated: shots.annotated, error: shots.error, ...(shots.via ? { via: shots.via } : {}) },
   };
   return { bundle, images: shots.images };
 }

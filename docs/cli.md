@@ -14,7 +14,8 @@ crt review list                                # every review of this project, w
 crt review new [name]                          # start a new review (named after today's date by default)
 crt handoff [--to <destination>] [--review <name>] [--branch <name>] [--out <path>] [--no-screenshots] [--yes] [--again]   # send the kept items to the project, or to another destination
 crt handoff --list                             # every destination --to accepts here, the default marked
-crt doctor                                     # checklist: node, project, .crt, mode, target, integration, instructions, port, providers, plugin
+crt extension [--path]                         # copy the Chrome / Edge extension to ~/.crt/extension and print how to load it
+crt doctor                                     # checklist: node, project, .crt, mode, target, integration, browser, extension, instructions, port, providers, plugin
 crt init [--yes] [--no-instructions] [--snippet [--json]]   # set the project up, each write announced; then the snippet for your framework
 crt setup [--claude <path>]                    # register the bundled Claude Code plugin (idempotent)
 crt --version                                  # crt <version> (agent sdk <version>)
@@ -33,10 +34,11 @@ crt --version                                  # crt <version> (agent sdk <versi
 | `--review [name]` | off (or `"store": "review"` in `.crt/config.local.json` / `.crt/config.json`) | Keep this run's feedback in a **review** under the CRT home (`~/.crt`, or `CRT_HOME`) instead of the project's `.crt/tasks/`, and write nothing into the project — what a project that is not set up gets anyway (below). With a name, that review (started by the first Send if it does not exist); without one, the current review. |
 | `--replace` | off | Stop a CRT already holding the port (through its `POST /__crt/internal/shutdown`, which any local process may call — page scripts cannot, and it is no more than a signal could do) and take it over. |
 | `--provider <id>` | auto | The agent behind the chat: `claude` (default) or `codex`. See [Providers](providers.md). |
+| `crt extension [--path]` | | The [browser extension](extension.md): copies the extension that ships in the package to `~/.crt/extension` (the only thing it writes), prints that folder and the three steps to load it in Chrome or Edge, and after an update of the package replaces the copy and says to Reload it. `--path` prints the folder and writes nothing. |
 | `crt doctor` | | Read-only checklist, one row per check; exit 1 on any `FAIL`. First step in [Troubleshooting](troubleshooting.md). |
 | `crt init [--yes] [--no-instructions] [--snippet [--json]]` | | Sets the project up explicitly: prints its plan (`.crt/README.md`, `.crt/tasks/`, `.crt/config.json`, the two `.gitignore` lines, a CRT section in `CLAUDE.md` / `AGENTS.md` — only what is not in place), asks `Go ahead? [Y/n]` on a terminal (`--yes` skips the question; off a terminal it applies without asking), announces every write, and ends with the one-line snippet for your framework. `--no-instructions` leaves `CLAUDE.md` / `AGENTS.md` alone; `--snippet` prints only the snippet and writes nothing (`--json` for tooling). Idempotent: a second run says `crt init: <root> is set up (…)`. |
 | `crt setup [--claude <path>]` | `claude` on PATH | Registers the plugin bundled in the package with Claude Code and installs (or updates) `crt@crt`; says `already installed` when it is. `--claude` names the Claude Code executable when it is not on PATH. |
-| `crt --version` | | `crt 0.9.0 (agent sdk 0.3.270)`, read from local files — CRT never checks a registry. |
+| `crt --version` | | `crt 0.10.0 (agent sdk 0.3.270)`, read from local files — CRT never checks a registry. |
 
 ## What `crt` prints
 
@@ -51,6 +53,7 @@ In embedded mode `crt` decides once per start where your app opens, and the read
 | The app | `crt` opens | Ready line |
 |---|---|---|
 | carries the CRT integration ([Add CRT to your app](integration.md)) | your default browser, as before | `(embedded; …)` |
+| has no integration, but the [extension](extension.md) has mounted for this project before | your default browser — the extension puts CRT on the page | `(embedded; …)` |
 | has no integration, and Chrome, Edge or Chromium is installed | the CRT browser ([below](#the-crt-browser)) | `(embedded, CRT browser; …)` |
 | has neither | nothing | `(embedded; …)` |
 
