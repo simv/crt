@@ -104,9 +104,11 @@ async function inOverlay<T, A = undefined>(page: Page, fn: (crt: CrtHooks, arg: 
     for (const c of contexts.filter((x) => x.auxData?.type === "isolated")) {
       const probe = await cdp.send("Runtime.evaluate", { contextId: c.id, expression: "globalThis.__crtContent === true && typeof globalThis.__crt?.send === 'function'", returnByValue: true }).catch(() => null);
       if (probe?.result.value !== true) continue;
-      const out = await cdp.send("Runtime.evaluate", {
-        contextId: c.id,
-        expression: `(async () => JSON.stringify((await (${fn.toString()})(globalThis.__crt, ${JSON.stringify(arg ?? null)})) ?? null))()`,
+      // The argument travels as a protocol value, never as source text.
+      const out = await cdp.send("Runtime.callFunctionOn", {
+        executionContextId: c.id,
+        functionDeclaration: `async function (arg) { return JSON.stringify((await (${fn.toString()})(globalThis.__crt, arg)) ?? null); }`,
+        arguments: [{ value: arg ?? null }],
         awaitPromise: true,
         returnByValue: true,
       });
