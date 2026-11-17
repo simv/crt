@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "CRT extension spike",
+  "version": "0.0.1",
+  "permissions": ["scripting", "activeTab"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*", "http://app.example.test/*"],
+  "background": { "service_worker": "sw.js" },
+  "content_scripts": [
+    { "matches": ["http://127.0.0.1/*", "http://app.example.test/*"], "js": ["main.js"], "run_at": "document_start", "world": "MAIN" },
+    { "matches": ["http://127.0.0.1/*", "http://app.example.test/*"], "js": ["isolated.js"], "run_at": "document_start" }
+  ]
+}
