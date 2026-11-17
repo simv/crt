@@ -4,7 +4,7 @@ title: M38 — The extension: the overlay on any site the developer turns it on 
 status: review
 priority: high
 created: 2026-11-17T13:40:00+08:00
-updated: 2026-11-17T16:00:00+08:00
+updated: 2026-11-17T16:06:00+08:00
 url: null
 route: null
 session: null
@@ -45,7 +45,7 @@ No page capture: created from `docs/PRD-extension.md` milestone M38.
 - [x] The same on a mapped non-loopback host name (F-160; e2e).
 - [x] When the capture is refused the screenshot comes from the in-page rasteriser and `capture.json` says so (F-158; e2e).
 - [x] No request header rule, no `declarativeNetRequest`, no request to a non-loopback host anywhere under `extension/` (N-43, N-44; a grep row).
-- [ ] `npm run check` green; `npm run e2e` green.
+- [x] `npm run check` green; `npm run e2e` green.
 - [ ] **Manual** — Windows, Simon's own Chrome profile and his own Edge profile: the trial app on `localhost:3000` with its policy as committed and no CRT entry in it, signed in, a real Claude session to a written task whose screenshot is the real tab; the versions in the Log.
 - [ ] **Manual** — one public `https://` site turned on: a capture sent, no local-network prompt shown; how long the click's screenshot grant lasts across a reload and a same-site navigation recorded in the Log.
 
@@ -59,3 +59,4 @@ Read `docs/PRD-extension.md` §5, §6.2, §7, §9 and §12, and the spike. Decis
 - 2026-11-17T16:00+08:00 — differences from the PRD text, recorded in PRD-extension §14: no popup (the toolbar click is the switch, the port is on the Options page); the probe is asked on capture, not listened to; a declined permission still gives the one tab; the registrations are the record of which sites are on; storage is the extension's, keyed by site; the real capture is tested through a second, test-only copy of the extension that holds `<all_urls>` (the shipped manifest never does).
 - 2026-11-17T16:00+08:00 — DoD 9 (`npm run check`, `npm run e2e`) left unticked until CI says so (the known container-only failures of CRT-0058's Log apply).
 - 2026-11-17T16:00+08:00 — DoD 10, 11 (Manual) open: Simon's own Chrome and Edge on Windows with the trial app and a real Claude session; one public `https://` site; how long the click's screenshot grant lasts.
+- 2026-11-17T16:06+08:00 — verified: CI green on 04f4bd8 — `check (ubuntu-latest)`, `check (windows-latest)` and `e2e (ubuntu)` (https://github.com/simv/crt/actions/runs/44043269973); the `npm run check` / `npm run e2e` row ticked. The Manual rows stay open.

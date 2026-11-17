@@ -4,7 +4,7 @@ title: M39 — crt extension, the version check, the doctor row, docs, release 0
 status: review
 priority: normal
 created: 2026-11-17T13:40:00+08:00
-updated: 2026-11-17T16:00:00+08:00
+updated: 2026-11-17T16:06:00+08:00
 url: null
 route: null
 session: null
@@ -38,7 +38,7 @@ No page capture: created from `docs/PRD-extension.md` milestone M39.
 - [x] Health counts the extension, `crt doctor` has the row, and plain `crt` opens the default browser once the extension has been seen for the project (F-162).
 - [x] `docs/extension.md` exists and is listed wherever the reference pages are counted; `test/docs.test.ts` green (F-163).
 - [x] Every row of PRD-extension §9 is applied and §10 is ticked with evidence.
-- [ ] `npm run check` green; `npm run e2e` green; `claude plugin validate` green.
+- [x] `npm run check` green; `npm run e2e` green; `claude plugin validate` green.
 - [ ] **Manual** — from the published package on a machine that has never had it: `npx claude-review-tool extension`, Load unpacked, turn it on, a first Send.
 - [ ] **Manual (Simon)** — `v0.10.0` tagged and pushed; the staged version promoted on npmjs.com.
 
@@ -51,3 +51,4 @@ Read `docs/PRD-extension.md` §5.4, §5.5, §6.3, §8, §9 and §10. The Chrome 
 - 2026-11-17T16:00+08:00 — verified: DoD 1 — `test/extension-install.test.ts` (installed, refreshed with a dropped file gone, the same version again, `--path` writing nothing, a package without the extension). DoD 2 — `test/extension.test.ts` rows on `sameMinor` and the line (unit only; the e2e runs one version). DoD 3 — `extension-install.test.ts` "counts the extension's health calls, logs the first with the page's origin and remembers it for the project", `doctor.test.ts` "names the installed extension…", `start.test.ts` (the three `extension` rows), and the health assertion in `extension.spec.ts`. DoD 4 — `test/docs.test.ts` with eleven pages; the CI filter comment, `CLAUDE.md` and `docs/develop.md` say eleven. DoD 5 — every §9 row applied with its `*v0.10: …*` note; §10 has four rows ticked with evidence, the other two are Manual.
 - 2026-11-17T16:00+08:00 — no `npm run screenshots`: the overlay's UI is unchanged and the landing page changes only in that its checkup can show one more row, `extension`.
 - 2026-11-17T16:00+08:00 — DoD 6 (`npm run check`, `npm run e2e`, `claude plugin validate`) left unticked until CI says so. DoD 7, 8 (Manual) open: the published package on a clean machine; the `v0.10.0` tag and the npm promotion are Simon's, after the merge.
+- 2026-11-17T16:06+08:00 — verified: CI green on 04f4bd8 — `check (ubuntu-latest)`, `check (windows-latest)` and `e2e (ubuntu)` (https://github.com/simv/crt/actions/runs/44043269973); the `npm run check` / `npm run e2e` row ticked. The Manual rows stay open.

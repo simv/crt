@@ -4,7 +4,7 @@ title: M37 — The overlay seams: transport, probe, storage and rasteriser behin
 status: review
 priority: high
 created: 2026-11-17T13:40:00+08:00
-updated: 2026-11-17T16:00:00+08:00
+updated: 2026-11-17T16:06:00+08:00
 url: null
 route: null
 session: null
@@ -40,7 +40,7 @@ No page capture: created from `docs/PRD-extension.md` milestone M37. The spike i
 - [x] `takeScreenshots` draws markers and crops on whatever canvas the rasteriser returns (F-158; a unit row with a fake rasteriser).
 - [x] `npm run e2e` green with no assertion changed in any existing spec (N-41; `git diff main -- packages/server/e2e` shows no changed assertion).
 - [x] The gzipped sizes of `overlay.js`, `loader.js` and `loader-inject.js` before and after are in the Log, within budget (N-20, N-41).
-- [ ] `npm run check` green.
+- [x] `npm run check` green.
 
 ## Notes
 Read `docs/PRD-extension.md` §5.1, §5.2, §6.1, §7 and §12 rule 1, and the spike. A refactor: if a behaviour has to change to make a seam fit, stop and say so in the Log before changing it. M38 needs this task.
@@ -52,3 +52,4 @@ Read `docs/PRD-extension.md` §5.1, §5.2, §6.1, §7 and §12 rule 1, and the s
 - 2026-11-17T16:00+08:00 — DoD 6 — bytes / gzip, before → after: `overlay.js` 128631 / 40127 → 129837 / 40621; `loader.js` 6941 / 2996 → 6995 / 3046; `loader-inject.js` 6904 / 3008 → 6958 / 3057; `early.js` 3484 / 1462 → 3538 / 1510. The loader stays within its N-20 budget (`test/loader.test.ts`).
 - 2026-11-17T16:00+08:00 — DoD 7 (`npm run check`) left unticked until CI says so: locally everything is green but `test/providers/exec.test.ts` "kills a process and its children", which fails the same way on `main` in this container.
 - 2026-11-17T16:00+08:00 — beyond the Ask: `capture-schema.ts` takes the optional `screenshots.via` (`page` | `browser`), which the rasteriser seam reports (F-158); `loader.ts` exports `mountPill` for the extension's own "server not running" line.
+- 2026-11-17T16:06+08:00 — verified: CI green on 04f4bd8 — `check (ubuntu-latest)`, `check (windows-latest)` and `e2e (ubuntu)` (https://github.com/simv/crt/actions/runs/44043269973); the `npm run check` / `npm run e2e` row ticked. The Manual rows stay open.
