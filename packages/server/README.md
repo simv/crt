@@ -2,7 +2,7 @@
 
 <img alt="CRT — Claude Review Tool" src="https://raw.githubusercontent.com/simv/crt/main/docs/brand/crt-lockup.svg" width="320">
 
-The `crt` CLI for the **Claude Review Tool**: annotate your local site in the browser, talk to Claude (or Codex, Gemini CLI, Antigravity CLI, any ACP agent) in the page, and get a self-contained task file in `.crt/tasks/` that any later Claude Code session can complete with `/crt:next`.
+The `crt` CLI for the **Claude Review Tool**: annotate your local site in the browser, talk to Claude (or Codex, Gemini CLI, Antigravity CLI, any ACP agent) in the page, and get a self-contained task file in `.crt/tasks/` that any later Claude Code session can complete with `/crt:next`. To look an app over with nothing added to it, `npx claude-review-tool` in its folder is enough: CRT opens a Chrome or Edge window with the CRT button on the app, keeps your feedback in a review under `~/.crt`, and `crt handoff` sends it to the project when you say so. To keep CRT in a project:
 
 ```bash
 # one-time, per machine
@@ -48,10 +48,11 @@ What you get:
 
 - A **CRT** button on your app's own URL: Select, Box or Pin what is wrong, write a note, Send — the same popover becomes the chat with a real Claude Code session in your project.
 - A task file in `.crt/tasks/` with the screenshots, the element, the console and the failed requests, and a definition of done — committed with the project, workable cold.
+- Without the integration, a review outside the project: `crt review` to keep, drop and order the items, then `crt handoff` — one pull request of task files, GitHub issues (`--to github`), one Markdown or JSON file, or a command of your own.
 - `/crt:next` in any later session takes a task to an open pull request without asking you anything; `/crt:tasks`, `/crt:task`, `/crt:done` keep the list.
 
 Node ≥ 20 on Windows, macOS or Linux; Claude Code installed and logged in (no API key — CRT reuses that login). The plugin ships inside this package, so `crt setup` needs no GitHub access. `npx claude-review-tool` works with no install at all (the first run downloads ~220 MB). `crt doctor` names the fix when something is off.
 
 <img alt="Select armed: the hover outline and label on a price, one pinned marker with its popover and a typed note" src="https://raw.githubusercontent.com/simv/crt/main/docs/images/select.png" width="960">
 
-Documentation — the loop, the four snippets and where each starts capturing, the production guarantee, what lands in your repo, providers, the task format, proxy mode, troubleshooting: https://github.com/simv/crt#readme. MIT.
+Documentation — the loop, the four snippets and where each starts capturing, the production guarantee, what lands in your repo, reviews and hand-over destinations, providers, the task format, proxy mode, troubleshooting: https://github.com/simv/crt#readme. MIT.
