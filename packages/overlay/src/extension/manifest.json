@@ -2,15 +2,18 @@
   "manifest_version": 3,
   "name": "CRT — Claude Review Tool",
   "short_name": "CRT",
-  "description": "Review any site on its real URL: annotate the page and talk to your coding agent, through the CRT server running in your project.",
+  "description": "Review any site on its real URL: annotate the page and send the feedback to your coding agent, with or without a CRT server.",
   "version": "0.0.0",
   "minimum_chrome_version": "120",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": ["activeTab", "contextMenus", "scripting", "storage"],
   "host_permissions": ["http://localhost/*", "http://127.0.0.1/*"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": { "service_worker": "worker.js" },
   "action": { "default_title": "CRT — click to review this site", "default_icon": { "16": "icon-16.png", "32": "icon-32.png" } },
   "icons": { "16": "icon-16.png", "32": "icon-32.png", "48": "icon-48.png", "128": "icon-128.png" },
   "options_ui": { "page": "options.html", "open_in_tab": false },
-  "commands": { "_execute_action": { "suggested_key": { "default": "Alt+Shift+C" }, "description": "Turn CRT on or off for this site" } }
+  "commands": {
+    "_execute_action": { "suggested_key": { "default": "Alt+Shift+C" }, "description": "Turn CRT on or off for this site" },
+    "open-review": { "suggested_key": { "default": "Alt+Shift+R" }, "description": "Open the review kept in this browser" }
+  }
 }

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CRT review</title>
+    <style>
+      :root { color-scheme: light dark; --fg: #222; --muted: #5a5a5a; --line: #e2e2e2; --bg: #fff; --card: #fafafa; --accent: #b4532a; }
+      @media (prefers-color-scheme: dark) { :root { --fg: #eee; --muted: #a8a8a8; --line: #3a3a3a; --bg: #1c1c1c; --card: #242424; --accent: #e08a5f; } }
+      body { font: 14px/1.5 system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--fg); }
+      main { max-width: 56em; margin: 0 auto; padding: 20px 16px 48px; }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      h2 { font-size: 15px; margin: 24px 0 6px; overflow-wrap: anywhere; }
+      p { margin: 6px 0; }
+      .muted { color: var(--muted); }
+      button, select { font: inherit; padding: 4px 10px; }
+      button.primary { background: var(--accent); color: #fff; border: 0; border-radius: 4px; padding: 6px 12px; }
+      .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 10px 0; }
+      #status { min-height: 1.5em; }
+      ul { list-style: none; margin: 0; padding: 0; }
+      li.item { border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 10px 12px; margin: 8px 0; display: grid; grid-template-columns: auto 1fr auto; gap: 4px 12px; align-items: start; }
+      li.item.dropped .title { text-decoration: line-through; color: var(--muted); }
+      .title { font-weight: 600; overflow-wrap: anywhere; }
+      .meta { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+      .thumb { max-width: 160px; max-height: 100px; border: 1px solid var(--line); border-radius: 4px; display: block; }
+      details { grid-column: 1 / -1; }
+      pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; margin: 6px 0 0; }
+      a { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Review in this browser</h1>
+      <p class="muted" id="totals"></p>
+      <div class="bar">
+        <button id="copy" type="button">Copy as Markdown</button>
+        <button id="download" type="button">Download Markdown</button>
+        <a id="options" href="options.html" target="_blank" rel="noopener">Where feedback goes</a>
+      </div>
+      <p id="status" role="status"></p>
+      <div id="groups"></div>
+    </main>
+    <script src="review.js"></script>
+  </body>
+</html>

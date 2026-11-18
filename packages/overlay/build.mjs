@@ -14,7 +14,7 @@
 //                            `react` external and "use client" kept as its first statement
 //   extension/               the browser extension (PRD-extension F-154), ready to load unpacked:
 //                            probe.js (the page's world), content.js (the overlay in an isolated
-//                            world), worker.js (the service worker), options.js + options.html,
+//                            world), worker.js (the service worker), options.js + options.html, review.js + review.html,
 //                            manifest.json with the server package's version, and the icons
 // The no-op modules and the .d.ts files next to them come from packages/server/scripts/integrations.mjs.
 // tsconfig.json sets useDefineForClassFields to false: the overlay's classes extend nothing, so
@@ -67,7 +67,9 @@ const common = { bundle: true, format: "iife", target: "es2020", minify: true };
  * and this service worker are loaded; NODE_ENV is defined so the loader's F-98 guard, which the
  * pill comes with, folds away and no `process` reference reaches a browser.
  */
-export const EXTENSION_SCRIPTS = ["probe", "content", "worker", "options"];
+export const EXTENSION_SCRIPTS = ["probe", "content", "worker", "options", "review"];
+/** The extension's own pages: Options, and the review kept in the browser (PRD-connect F-167). */
+export const EXTENSION_PAGES = ["options.html", "review.html"];
 export const EXTENSION_BUILD = { bundle: true, format: "iife", target: "es2022", minify: true, define: { "process.env.NODE_ENV": '"development"' } };
 /** The icons: the favicon PNGs and the two larger renders of the mark (docs/brand, PRD-polish F-112). */
 export const EXTENSION_ICONS = { "icon-16.png": "favicon-16.png", "icon-32.png": "favicon-32.png", "icon-48.png": "icon-48.png", "icon-128.png": "icon-128.png" };
@@ -83,7 +85,7 @@ export async function buildExtension(dist = DEFAULT_DIST, logLevel = "info") {
   const { version } = JSON.parse(await readFile(join(here, "..", "server", "package.json"), "utf8"));
   const manifest = JSON.parse(await readFile(join(src, "manifest.json"), "utf8"));
   await writeFile(join(out, "manifest.json"), JSON.stringify({ ...manifest, version }, null, 2) + "\n");
-  await copyFile(join(src, "options.html"), join(out, "options.html"));
+  for (const page of EXTENSION_PAGES) await copyFile(join(src, page), join(out, page));
   const brand = join(here, "..", "..", "docs", "brand");
   for (const [to, from] of Object.entries(EXTENSION_ICONS)) await copyFile(join(brand, from), join(out, to));
 }

@@ -9,6 +9,10 @@
       label { display: block; font-weight: 600; margin-bottom: 4px; }
       input, select, button { font: inherit; padding: 4px 6px; }
       input { width: 7em; }
+      form input, form textarea { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
+      form label { font-weight: 400; margin: 0; }
+      ol { margin: 6px 0; padding-left: 1.4em; }
+      ol li { border: 0; padding: 2px 0; }
       select { max-width: 100%; }
       p { margin: 8px 0; }
       ul { margin: 6px 0; padding: 0; list-style: none; }
@@ -22,16 +26,36 @@
   </head>
   <body>
     <h2>Where each site's reviews go</h2>
-    <p class="muted">A review goes to the project whose CRT server the site talks to. Pick one of the servers running now for each site you have turned CRT on for.</p>
+    <p class="muted">A review goes to the project whose CRT server the site talks to, or stays in this browser until you send it. Pick one for each site you have turned CRT on for. <a id="open-review" target="_blank" rel="noopener">Open the review in this browser</a></p>
     <ul id="sites"></ul>
 
     <h2>CRT servers running on this machine <button id="refresh" type="button">Refresh</button></h2>
     <ul id="servers"></ul>
     <p class="muted">Run <code>crt</code> in a project's folder to start its server. The first takes port 4400, the next 4401, and so on.</p>
 
+    <h2>Send to Claude</h2>
+    <p class="muted">With no CRT server, a review can start a Claude Code session in a repository. Claude gives each scheduled task its own address and token; this is the one place they are kept, and they are used only when you press Send on the review page.</p>
+    <ul id="destinations"></ul>
+    <ol>
+      <li>Open <a id="tasks-page" target="_blank" rel="noopener">Claude's scheduled tasks</a> and create a task for the repository.</li>
+      <li>Give it a prompt: <button type="button" data-prompt="file">Copy "file the tasks"</button> <button type="button" data-prompt="fix">Copy "fix them"</button></li>
+      <li>Edit the task, add an API trigger and generate its token.</li>
+      <li>Paste the address and the token here. Pasting the whole example command into either field works too.</li>
+    </ol>
+    <form id="add-destination">
+      <label>Name <input name="name" placeholder="my-app" autocomplete="off" /></label>
+      <label>Address <input name="address" placeholder="https://api.anthropic.com/v1/claude_code/routines/trig_…/fire" autocomplete="off" /></label>
+      <label>Token <input name="token" type="password" placeholder="sk-ant-oat01-…" autocomplete="off" /></label>
+      <button type="submit">Save destination</button>
+    </form>
+    <p id="dest-note" class="muted" role="status"></p>
+
+    <h2><label for="fallback">Sites with no choice of their own</label></h2>
+    <select id="fallback"></select>
+
     <h2><label for="port">Default CRT server port</label></h2>
     <input id="port" type="number" min="1" max="65535" inputmode="numeric" />
-    <p class="muted">Used by every site that has no choice of its own above.</p>
+    <p class="muted">Used when sites with no choice of their own go to a CRT server.</p>
     <p id="note" role="status"></p>
     <script src="options.js"></script>
   </body>

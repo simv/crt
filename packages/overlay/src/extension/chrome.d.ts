@@ -45,6 +45,7 @@ declare namespace chrome {
     function captureVisibleTab(windowId: number, options: { format: "png" | "jpeg" }): Promise<string>;
     function sendMessage(tabId: number, message: unknown): Promise<unknown>;
     function query(info: { url?: string | string[] }): Promise<Tab[]>;
+    function create(info: { url: string }): Promise<Tab>;
     const onRemoved: runtime.Event<(tabId: number) => void>;
   }
   namespace action {
@@ -52,6 +53,14 @@ declare namespace chrome {
     function setBadgeText(details: { text: string; tabId?: number }): Promise<void>;
     function setBadgeBackgroundColor(details: { color: string; tabId?: number }): Promise<void>;
     function setTitle(details: { title: string; tabId?: number }): Promise<void>;
+  }
+  namespace contextMenus {
+    function create(properties: { id: string; title: string; contexts: Array<"action"> }): void;
+    function removeAll(done: () => void): void;
+    const onClicked: runtime.Event<(info: { menuItemId: string | number }) => void>;
+  }
+  namespace commands {
+    const onCommand: runtime.Event<(command: string) => void>;
   }
   namespace permissions {
     function contains(p: { origins: string[] }): Promise<boolean>;

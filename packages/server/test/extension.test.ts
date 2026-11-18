@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { buildExtension, EXTENSION_ICONS, EXTENSION_SCRIPTS } from "../../overlay/build.mjs";
+import { buildExtension, EXTENSION_ICONS, EXTENSION_PAGES, EXTENSION_SCRIPTS } from "../../overlay/build.mjs";
 import { cleaners } from "../../overlay/src/extension/clean.js";
 import {
   CONTENT_ID,
@@ -45,11 +45,13 @@ describe("the extension package (PRD-extension F-154)", () => {
   });
   afterAll(() => rmSync(dist, { recursive: true, force: true }));
 
-  it("is a Manifest V3 extension at the package's version, with exactly the permissions of F-154 and never all sites (F-154, N-43)", () => {
+  it("is a Manifest V3 extension at the package's version, with exactly the permissions of F-154 and PRD-connect F-167, and never all sites (F-154, N-43)", () => {
     const manifest = JSON.parse(readFileSync(join(dist, "extension", "manifest.json"), "utf8")) as Record<string, unknown>;
     expect(manifest.manifest_version).toBe(3);
     expect(manifest.version).toBe(packageVersion());
-    expect(manifest.permissions).toEqual(["activeTab", "scripting", "storage"]);
+    // `contextMenus` is the "Open review" entry on the toolbar button (PRD-connect F-167); it reads nothing of any page.
+    expect(manifest.permissions).toEqual(["activeTab", "contextMenus", "scripting", "storage"]);
+    expect(String(manifest.description).length).toBeLessThanOrEqual(132); // the Chrome Web Store's limit
     expect(manifest.host_permissions).toEqual(["http://localhost/*", "http://127.0.0.1/*"]);
     expect(manifest.optional_host_permissions).toEqual(["http://*/*", "https://*/*"]);
     // Nothing runs anywhere until a site is turned on (F-155): no static content script, no page it can be messaged from.
@@ -58,32 +60,45 @@ describe("the extension package (PRD-extension F-154)", () => {
     expect(manifest.background).toEqual({ service_worker: "worker.js" });
   });
 
-  it("ships its four scripts, the options page and the icons, and nothing fetched at run time (F-154, N-43)", () => {
+  it("ships its scripts, its two pages and the icons, and nothing fetched at run time (F-154, N-43)", () => {
     const files = readdirSync(join(dist, "extension")).sort();
-    expect(files).toEqual([...EXTENSION_SCRIPTS.map((s) => `${s}.js`), ...Object.keys(EXTENSION_ICONS), "manifest.json", "options.html"].sort());
+    expect(files).toEqual([...EXTENSION_SCRIPTS.map((s) => `${s}.js`), ...Object.keys(EXTENSION_ICONS), "manifest.json", ...EXTENSION_PAGES].sort());
     for (const s of EXTENSION_SCRIPTS) {
       const js = readFileSync(join(dist, "extension", `${s}.js`), "utf8");
       expect(js, `${s}.js: no \`process\` reaches a browser`).not.toMatch(/\bprocess\.env\b/);
       expect(js, `${s}.js: no remote code`).not.toMatch(/\bimportScripts\(|\beval\(|new Function\(/);
     }
-    expect(readFileSync(join(dist, "extension", "options.html"), "utf8")).toMatch(/<script src="options\.js"><\/script>/);
+    for (const page of EXTENSION_PAGES) {
+      const html = readFileSync(join(dist, "extension", page), "utf8");
+      const name = page.replace(/\.html$/, "");
+      // One script each, the page's own; no inline script, nothing loaded from anywhere else.
+      expect(html.match(/<script\b[^>]*>/g), page).toEqual([`<script src="${name}.js">`]);
+      expect(html, page).not.toMatch(/<(link|img|iframe)\b|\bon[a-z]+=/);
+    }
     // The page-world half carries no extension API and no way to the server.
     const probe = readFileSync(join(dist, "extension", "probe.js"), "utf8");
     expect(probe).not.toMatch(/chrome\.(runtime|storage|tabs|scripting)/);
   });
 
-  it("requests nothing but the configured loopback server, changes no header and keeps nothing in the site's storage (N-43, N-44)", () => {
+  it("requests nothing but the configured loopback server and, on the review page's Send, the one Claude address; changes no header and keeps nothing in the site's storage (N-43, N-44)", () => {
     const files = readdirSync(SRC).filter((f) => f.endsWith(".ts") && f !== "chrome.d.ts");
     const using = (re: RegExp) => files.filter((f) => re.test(code(f))).sort();
-    expect(using(/\bfetch\(/)).toEqual(["options.ts", "worker.ts"]);
-    // Both requests in the worker go to `(await server(<the page's origin>)) + <a checked /__crt/ path>`: the site's route or the default, loopback either way (F-164).
-    expect(code("worker.ts").match(/\bfetch\(([^,]+),/g)).toEqual(["fetch((await server(origin)) + path,", "fetch((await server(page.origin)) + open.path,"]);
+    expect(using(/\bfetch\(/)).toEqual(["options.ts", "review.ts", "worker.ts"]);
+    // The worker: the health read of the default port that decides between a server and this browser (PRD-connect F-165), then
+    // `<the tab's server> + <a checked /__crt/ path>` — the site's route or the default, loopback either way (F-164). In standalone mode it makes none (N-48).
+    expect(code("worker.ts").match(/\bfetch\(([^,]+),/g)).toEqual(["fetch(DEFAULT_SERVER + HEALTH,", "fetch(mode.server + path,", "fetch(mode.server + open.path,"]);
+    expect(code("worker.ts")).toContain("if (mode.standalone) return await review.json(origin, path, init);");
+    // The review page: the send, to the address `fireRequest` built and nothing else (PRD-connect N-46).
+    expect(code("review.ts").match(/\bfetch\(([^)]+)\)/g)).toEqual(["fetch(request.url, request.init)"]);
+    expect(using(/\bfireRequest\(/)).toEqual(["destinations.ts", "review.ts"]);
     // The options page reads health from the servers `scanTargets` names and nothing else (F-164).
     expect(code("options.ts").match(/\bfetch\(([^,]+),/g)).toEqual(["fetch(server + HEALTH_PATH,"]);
     expect(code("options.ts")).toContain("scanTargets(fallback, routes).map(probe)");
     expect(using(/declarativeNetRequest|webRequest|\bcookies\b|XMLHttpRequest|WebSocket|sendBeacon/)).toEqual([]);
     expect(using(/\b(localStorage|sessionStorage)\b/)).toEqual([]);
-    expect(using(/https?:\/\/(?!localhost)/)).toEqual([]);
+    // Addresses off this machine are named in one module: Claude's API and Claude's own page for the task (PRD-connect N-46).
+    expect(using(/https?:\/\/(?!localhost)/)).toEqual(["destinations.ts"]);
+    expect([...new Set(code("destinations.ts").match(/https?:\/\/[a-z0-9.-]+/g))].sort()).toEqual(["https://api.anthropic.com", "https://claude.ai"]);
   });
 });
 
