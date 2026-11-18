@@ -5,7 +5,9 @@
  * and 5), and the worker's can, under the extension's host permission for loopback (row 6).
  *
  * N-43: its one network peer is the configured CRT origin, which is loopback or refused
- * (`loopbackServer`). It changes no header (there is no `declarativeNetRequest` here), runs no
+ * (`loopbackServer`). PRD-connect F-165: where no server is chosen and none answers on the default
+ * port, or where the site's feedback is set to stay in this browser, the worker answers the
+ * overlay's routes itself (standalone.ts) and makes no request at all (N-48). It changes no header (there is no `declarativeNetRequest` here), runs no
  * remote code, and reads nothing of a site that was not turned on. N-42: it answers only its own
  * content scripts — a message must come from this extension, from a tab's top frame — and for
  * them it requests only `/__crt/` routes that are not `/__crt/internal/` (`isCrtApiPath`).
@@ -15,9 +17,13 @@
  * session lives in the CRT server.
  */
 import type { StorageArea } from "../storage.js";
+import { DESTINATIONS_KEY, readDestinations, targetFor, targetLine } from "./destinations.js";
+import { idbKv } from "./idb.js";
+import { standalone } from "./standalone.js";
 import {
   type BadgeState,
   type CaptureAnswer,
+  DEFAULT_SERVER,
   EVENTS_PORT,
   type Hello,
   isCrtApiPath,
@@ -40,11 +46,60 @@ import {
   VIA_HEADER,
 } from "./wire.js";
 
-/** The CRT origin a site's requests go to: its route (F-164), else the default server; loopback or ignored (N-43). */
-async function server(origin: string): Promise<string> {
-  const stored = await chrome.storage.local.get([SERVER_KEY, ROUTES_KEY]);
-  return routeFor(origin, stored[ROUTES_KEY], stored[SERVER_KEY]);
+/** Who answers a page's CRT requests: a CRT server on this machine, or the worker itself (PRD-connect F-165). */
+type Mode = { standalone: false; server: string } | { standalone: true };
+
+const HEALTH = "/__crt/health";
+/** F-165: how long the default port gets to answer before the review stays in this browser. */
+const AUTO_TIMEOUT_MS = 800;
+
+/** Whether the default CRT server is running: one loopback health read (N-43). */
+async function defaultAnswers(): Promise<boolean> {
+  try {
+    const res = await fetch(DEFAULT_SERVER + HEALTH, { cache: "no-store", credentials: "omit", signal: AbortSignal.timeout(AUTO_TIMEOUT_MS) });
+    return res.ok && ((await res.json()) as { ok?: unknown }).ok === true;
+  } catch {
+    return false;
+  }
 }
+
+/**
+ * F-164, F-165: a site's own choice, else the default — a loopback server (N-43), or this browser.
+ * With nothing chosen anywhere: the default server when it answers, else this browser, so a
+ * browser with only the extension in it works from the first click.
+ */
+async function resolveMode(origin: string): Promise<Mode> {
+  const stored = await chrome.storage.local.get([SERVER_KEY, ROUTES_KEY]);
+  const target = targetFor(origin, stored[ROUTES_KEY], stored[SERVER_KEY]);
+  if (target.kind === "server") return { standalone: false, server: routeFor(origin, stored[ROUTES_KEY], stored[SERVER_KEY]) };
+  if (target.kind === "browser") return { standalone: true };
+  return (await defaultAnswers()) ? { standalone: false, server: DEFAULT_SERVER } : { standalone: true };
+}
+
+/** A tab keeps the mode its page loaded with (decided at `hello`), so one page never talks to two places. */
+const modeKey = (tabId: number) => `tab:${tabId}:~mode`;
+async function pinMode(tabId: number, origin: string): Promise<Mode> {
+  const mode = await resolveMode(origin);
+  await chrome.storage.session.set({ [modeKey(tabId)]: { origin, mode } });
+  return mode;
+}
+async function modeOf(tabId: number, origin: string): Promise<Mode> {
+  const pinned = (await chrome.storage.session.get(modeKey(tabId)))[modeKey(tabId)] as { origin: string; mode: Mode } | undefined;
+  return pinned?.origin === origin ? pinned.mode : pinMode(tabId, origin);
+}
+
+/** F-166: the review in this browser, answering the overlay where no server does. */
+const review = standalone({
+  kv: idbKv(),
+  version: chrome.runtime.getManifest().version,
+  now: () => new Date(),
+  uuid: () => crypto.randomUUID(),
+  async targetLine(origin) {
+    const stored = await chrome.storage.local.get([SERVER_KEY, ROUTES_KEY, DESTINATIONS_KEY]);
+    const target = targetFor(origin, stored[ROUTES_KEY], stored[SERVER_KEY]);
+    return targetLine(target.kind === "browser" ? target : { kind: "browser", destination: null }, readDestinations(stored[DESTINATIONS_KEY]));
+  },
+});
 
 /** F-164: a site that is turned off is forgotten, its route with it. */
 async function forgetRoute(origin: string): Promise<void> {
@@ -203,10 +258,12 @@ function pageOf(sender: chrome.runtime.MessageSender): { tabId: number; windowId
 
 const viaHeaders = (origin: string) => ({ [VIA_HEADER]: VIA_EXTENSION, [PAGE_HEADER]: origin });
 
-async function json(origin: string, path: unknown, init: { method?: string; headers?: Record<string, string>; body?: string } = {}): Promise<JsonAnswer> {
+async function json(tabId: number, origin: string, path: unknown, init: { method?: string; headers?: Record<string, string>; body?: string } = {}): Promise<JsonAnswer> {
   if (!isCrtApiPath(path)) return { failed: "not a CRT route" };
   try {
-    const res = await fetch((await server(origin)) + path, {
+    const mode = await modeOf(tabId, origin);
+    if (mode.standalone) return await review.json(origin, path, init);
+    const res = await fetch(mode.server + path, {
       method: init.method ?? "GET",
       headers: { ...init.headers, ...viaHeaders(origin) },
       ...(typeof init.body === "string" ? { body: init.body } : {}),
@@ -235,11 +292,13 @@ async function answer(message: ToWorker, page: { tabId: number; windowId: number
   switch (message.kind) {
     case "hello": {
       const on = (await sitesOn()).includes(page.origin) || (await tabOnly())[String(page.tabId)] === page.origin;
-      const hello: Hello = { on, server: await server(page.origin), version: chrome.runtime.getManifest().version, stored: on ? await stored(page.tabId, page.origin) : {} };
+      if (!on) return { on, server: DEFAULT_SERVER, standalone: false, version: chrome.runtime.getManifest().version, stored: {} } satisfies Hello;
+      const mode = await pinMode(page.tabId, page.origin);
+      const hello: Hello = { on, server: mode.standalone ? DEFAULT_SERVER : mode.server, standalone: mode.standalone, version: chrome.runtime.getManifest().version, stored: await stored(page.tabId, page.origin) };
       return hello;
     }
     case "json":
-      return json(page.origin, message.path, message.init);
+      return json(page.tabId, page.origin, message.path, message.init);
     case "capture":
       return capture(page.windowId);
     case "store":
@@ -284,7 +343,23 @@ chrome.runtime.onConnect.addListener((port) => {
     void (async () => {
       if (!isCrtApiPath(open.path)) return post({ end: "closed" });
       try {
-        const res = await fetch((await server(page.origin)) + open.path, {
+        const mode = await modeOf(page.tabId, page.origin);
+        if (mode.standalone) {
+          // F-166: the session is the worker's own. What is recorded while the replay is read is held, then sent in order.
+          const id = review.sessionOf(open.path);
+          const held: StreamMessage[] = [];
+          let direct = false;
+          const stop = id ? review.subscribe(id, (event) => (direct ? post({ event }) : held.push({ event }))) : () => undefined;
+          abort.signal.addEventListener("abort", stop);
+          const past = await review.replay(page.origin, open.path, String(open.lastEventId ?? ""));
+          if (!past) return post({ end: "closed" });
+          post({ open: true });
+          for (const event of past) post({ event });
+          for (const m of held) post(m); // the overlay drops what it has already seen, by event id
+          direct = true;
+          return;
+        }
+        const res = await fetch(mode.server + open.path, {
           headers: { accept: "text/event-stream", ...viaHeaders(page.origin), ...(open.lastEventId ? { "last-event-id": String(open.lastEventId) } : {}) },
           cache: "no-store",
           credentials: "omit",
@@ -307,6 +382,21 @@ chrome.runtime.onConnect.addListener((port) => {
       }
     })();
   });
+});
+
+// ---- the review page (PRD-connect F-167) --------------------------------------------------------
+
+const REVIEW_MENU = "crt-open-review";
+const openReview = () => void chrome.tabs.create({ url: chrome.runtime.getURL("review.html") }).catch(() => undefined);
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.removeAll(() => chrome.contextMenus.create({ id: REVIEW_MENU, title: "Open review", contexts: ["action"] }));
+});
+chrome.contextMenus.onClicked.addListener((info) => {
+  if (info.menuItemId === REVIEW_MENU) openReview();
+});
+chrome.commands.onCommand.addListener((command) => {
+  if (command === "open-review") openReview();
 });
 
 // The e2e drives the same function the click calls (F-155): Playwright cannot press a toolbar button.

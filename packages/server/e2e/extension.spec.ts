@@ -363,7 +363,7 @@ test.describe("the extension on an app with nothing of CRT in it (F-154…F-160)
     await expect(options.locator("#servers li")).toContainText([labelA, labelB]);
     const select = options.getByLabel(`Where reviews of ${FIXTURE_ORIGIN} go`);
     await expect(select).toHaveValue("");
-    await expect(select.locator("option")).toHaveText([`Default (${labelA})`, labelA, labelB]);
+    await expect(select.locator("option")).toHaveText([`Default (${labelA})`, labelA, labelB, "This browser (no server)"]); // the last: PRD-connect F-168
 
     await select.selectOption({ label: labelB });
     await expect(options.locator("#note")).toHaveText(`Saved. Reviews of ${FIXTURE_ORIGIN} go to http://localhost:${pb} from the page's next load.`);
@@ -385,6 +385,67 @@ test.describe("the extension on an app with nothing of CRT in it (F-154…F-160)
     await options.close();
     await ext.toggle(page);
     expect((await ext.worker.evaluate(() => chrome.storage.local.get("routes"))).routes).toEqual({});
+  });
+
+  test("with no CRT server: Send keeps the item in this browser, the panel says where it is, the review page lists it, and a saved Claude destination offers the send (PRD-connect F-165…F-169)", async () => {
+    // This site's feedback stays in the browser (what the options page stores for "This browser"). No server is started at all.
+    await ext.worker.evaluate((site) => chrome.storage.local.set({ routes: { [site]: "browser" } }), FIXTURE_ORIGIN);
+    const page = await ext.context.newPage();
+    await page.goto(`${FIXTURE_ORIGIN}/ext-plain`);
+    await ext.toggle(page);
+    await mounted(page);
+    await expect(page.locator("#crt-loader-pill")).toHaveCount(0);
+
+    const sent = await inOverlay(page, async (crt) => {
+      crt.addSelect("#heading");
+      crt.setNote(1, "the heading is wrong");
+      return crt.send();
+    });
+    expect(sent.id).toMatch(/^R-\d{2}$/);
+    await expect.poll(() => inOverlay(page, (crt) => crt.chat.snapshot().taskId)).toBe(sent.id);
+    await expect.poll(() => inOverlay(page, (crt) => crt.chat.snapshot().state)).toBe("idle");
+    const events = (await inOverlay(page, (crt) => crt.chat.snapshot().events)) as SessionEvent[];
+    const said = events.filter((e): e is Extract<SessionEvent, { type: "text" }> => e.type === "text").map((e) => e.text).join("");
+    expect(said).toContain(`Saved as ${sent.id}. It is kept in this browser`);
+    // What is typed afterwards is added to the item; the stream is the worker's own.
+    await inOverlay(page, (crt) => crt.chat.send("also on mobile"));
+    await expect.poll(async () => ((await inOverlay(page, (crt) => crt.chat.snapshot().events)) as SessionEvent[]).some((e) => e.type === "text" && e.text === `Added to ${sent.id}.`)).toBe(true);
+    // A reload re-attaches the thread from the worker's store.
+    await page.reload();
+    await mounted(page);
+
+    // The review page: the item, its words, what would be sent; no destination yet.
+    const review = await ext.context.newPage();
+    await review.goto(new URL("review.html", ext.worker.url()).href);
+    const row = review.locator(`li.item[data-id="${sent.id}"]`);
+    await expect(row.locator(".title")).toHaveText(`${sent.id} — the heading is wrong`);
+    await expect(row.locator(".meta").first()).toContainText(`${FIXTURE_ORIGIN}/ext-plain`);
+    await expect(row.locator("pre")).toContainText("### Added afterwards");
+    await expect(review.locator("#groups")).toContainText("No destination is chosen for this site.");
+    await row.getByLabel(`Keep ${sent.id}`).uncheck();
+    await expect(row).toHaveClass(/dropped/);
+    await row.getByLabel(`Keep ${sent.id}`).check();
+    await expect(review.locator("#totals")).toContainText("1 kept, 0 sent.");
+
+    // The options page: a destination is saved from the pasted example command, and chosen for the site.
+    const options = await ext.context.newPage();
+    await options.goto(new URL("options.html", ext.worker.url()).href);
+    await options.locator('#add-destination input[name="name"]').fill("shop");
+    await options.locator('#add-destination input[name="token"]').fill('curl -X POST https://api.anthropic.com/v1/claude_code/routines/trig_01AbCdEfGhIjKlMn/fire -H "Authorization: Bearer sk-ant-oat01-e2e_not-a-real-token"');
+    await options.locator("#add-destination button").click();
+    await expect(options.locator("#destinations li")).toContainText(["Claude · shop"]);
+    await expect(options.locator("#destinations")).not.toContainText("sk-ant-oat01");
+    const select = options.getByLabel(`Where reviews of ${FIXTURE_ORIGIN} go`);
+    await expect(select).toHaveValue("browser");
+    await select.selectOption({ label: "This browser, then Claude · shop" });
+    await expect(options.locator("#note")).toHaveText(`Saved. Reviews of ${FIXTURE_ORIGIN} go to this browser, then Claude · shop from the page's next load.`);
+
+    // The review page now offers the one send (not pressed here: it would leave the machine).
+    await review.reload();
+    await expect(review.getByRole("button", { name: "Send 1 to Claude · shop" })).toBeEnabled();
+    await review.close();
+    await options.close();
+    await ext.worker.evaluate(() => chrome.storage.local.set({ destinations: {} }));
   });
 
   test("reviews a site that is not on a loopback host, the server still on loopback (F-160, N-43)", async () => {

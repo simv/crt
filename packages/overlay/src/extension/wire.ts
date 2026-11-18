@@ -35,6 +35,8 @@ export interface Hello {
   on: boolean;
   /** The CRT origin the worker talks to (for the overlay's own lines: the pill, the health tooltip). */
   server: string;
+  /** PRD-connect F-165: no CRT server answers for this page — the worker does, and the review is kept in this browser. */
+  standalone: boolean;
   /** The extension's version (N-45). */
   version: string;
   /** F-153: what the overlay stored for this site (local) and this tab (session). */
