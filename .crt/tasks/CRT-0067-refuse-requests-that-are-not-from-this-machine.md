@@ -4,7 +4,7 @@ title: Refuse /__crt/ requests that are not from this machine (a foreign Origin,
 status: review
 priority: high
 created: 2026-11-23T10:55:00+08:00
-updated: 2026-11-23T11:05:00+08:00
+updated: 2026-11-23T11:06:00+08:00
 url: null
 route: null
 session: null
@@ -33,7 +33,7 @@ No page capture. Reproduced on a build of main (0.9.0) with `CRT_SESSION_STUB=1`
 - [x] A non-loopback `Origin` gets 403 on every `/__crt/` route, including the no-preflight `POST`/`PUT` (N-50).
 - [x] A non-loopback `Host` gets 403 on every `/__crt/` route (N-50).
 - [x] A loopback app origin, a request with no `Origin` and an extension origin are answered as before (F-6, N-22).
-- [ ] `npm run check` green; `npm run e2e` green.
+- [x] `npm run check` green; `npm run e2e` green.
 
 ## Notes
 Proxy mode forwards everything outside `/__crt/` as before; only CRT's own routes are guarded. An app reached under a hosts-file alias of `127.0.0.1` (for example `myapp.test:4401` in proxy mode) loses the overlay, as it already lost the review page.
@@ -41,3 +41,4 @@ Proxy mode forwards everything outside `/__crt/` as before; only CRT's own route
 ## Log
 - 2026-11-23T10:55+08:00 — claimed; built on `claude/project-thread-cf6jbb`: the guard in `http.ts`, its call in `proxy.ts`, tests in `test/proxy.test.ts`, N-50 and the Privacy sentence.
 - 2026-11-23T11:05+08:00 — local run in a cloud container: typecheck, lint and build green; unit tests 977 of 978 run pass, e2e 85 of 86 — the two that fail (`exec.test.ts` "kills a process and its children", `embedded.spec.ts:148` the reuse line) fail the same way on main without this change, so the last DoD row waits for CI.
+- 2026-11-23T11:06+08:00 — verified: CI green on ae0350f — `check (ubuntu-latest)`, `check (windows-latest)` and `e2e (ubuntu)` (https://github.com/simv/crt/actions/runs/45103179380). The first Windows run timed out in `handoff.test.ts` "puts exactly the kept items on a new branch…" (5000 ms, a test that spawns git and that this change does not touch); its one re-run passed. The last DoD row ticked. The merge is Simon's.
