@@ -20,6 +20,20 @@ export function isLocalOrigin(origin: string | undefined): origin is string {
   return host === "localhost" || host.endsWith(".localhost") || host === "127.0.0.1" || host === "[::1]";
 }
 
+/**
+ * N-50: who may call a `/__crt/` route at all. The server binds 127.0.0.1, so a `Host` that is not
+ * a loopback name is a name someone rebound to this machine; an `Origin` that is neither loopback
+ * nor a browser extension's own (a scheme no web page can send) is a page from somewhere else.
+ * Both are refused before a route reads or does anything: without this a page on the internet
+ * could start a session with a no-preflight POST, and a rebound name could read every answer.
+ */
+export function crtRequestAllowed(req: Pick<IncomingMessage, "headers">): boolean {
+  const host = req.headers.host;
+  if (typeof host !== "string" || !isLocalOrigin(`http://${host.toLowerCase()}`)) return false;
+  const origin = req.headers.origin;
+  return origin === undefined || isLocalOrigin(origin) || /^chrome-extension:\/\/[a-p]{32}$/.test(origin);
+}
+
 export const CORS_METHODS = "GET, POST, PUT, DELETE, OPTIONS";
 export const CORS_HEADERS = "content-type, last-event-id";
 

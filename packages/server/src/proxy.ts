@@ -52,6 +52,8 @@
  *     `lastContentType` (the last document response) and `cspWarning` (the flagged policy).
  *   • Every other /__crt/ response carries CORS headers when the request's Origin is a localhost
  *     origin, so an app can load the overlay with a script tag instead of the proxy (F-6).
+ *   • N-50: before any of the above, a /__crt/ request whose Host is not a loopback name, or whose
+ *     Origin is neither loopback nor a browser extension's own, is refused with 403 (http.ts).
  * The caller binds the returned server to 127.0.0.1 (see serve.ts).
  */
 import { readFile } from "node:fs/promises";
@@ -75,7 +77,7 @@ import { CaptureValidationError, writeCapture } from "./captures.js";
 import type { CrtMode } from "./config.js";
 import { DoctorRoute } from "./doctor-route.js";
 import { ReviewRoute } from "./review-page.js";
-import { applyCors, json, readJson } from "./http.js";
+import { applyCors, crtRequestAllowed, json, readJson } from "./http.js";
 import { decodeBody, filterAcceptEncoding, injectOverlayTag, isHtml, relaxCsp, relaxFrameSrc } from "./inject.js";
 import { renderLanding } from "./landing.js";
 import { MARK, MARK_DARK, MARK_SMALL } from "./marks.js";
@@ -575,6 +577,11 @@ async function handleCrtRoute(
   const qs = url.indexOf("?");
   const path = qs === -1 ? url : url.slice(0, qs);
   const query = new URLSearchParams(qs === -1 ? "" : url.slice(qs + 1));
+  if (!crtRequestAllowed(req)) {
+    // N-50: a rebound name or a page that is not on this machine — refused before any route, with no CORS headers.
+    json(res, 403, { ok: false, error: "CRT answers this machine only: a loopback Host, and an Origin that is loopback or absent" });
+    return;
+  }
   if (path === INTERNAL_PREFIX || path.startsWith(INTERNAL_PREFIX + "/")) {
     // F-49/N-8: local processes only. A browser always sends Origin on a POST; refuse before CORS or a body read.
     if (req.headers.origin !== undefined) {
