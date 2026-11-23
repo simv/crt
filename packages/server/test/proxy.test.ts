@@ -291,16 +291,40 @@ describe("script-tag mode CORS (F-6)", () => {
     expect(js.headers["access-control-allow-origin"]).toBe("http://localhost:3000");
   });
 
-  it("gives non-local origins nothing (no header, preflight 403); same-origin requests are unaffected", async () => {
-    for (const origin of ["http://evil.example", "http://localhost.evil.example", "http://localhost:3000/", "null", "file://"]) {
-      const r = await raw("/__crt/health", { headers: { origin } });
-      expect(r.status).toBe(200);
-      expect(r.headers["access-control-allow-origin"]).toBeUndefined();
+  it("refuses a page that is not on this machine before any route, with no CORS header (N-50); same-origin requests are unaffected", async () => {
+    for (const origin of ["http://evil.example", "https://evil.example", "http://localhost.evil.example", "http://localhost:3000/", "null", "file://", "chrome-extension://short"]) {
+      for (const path of ["/__crt/health", "/__crt/sessions", "/__crt/providers", "/__crt/overlay.js", "/__crt/"]) {
+        const r = await raw(path, { headers: { origin } });
+        expect(r.status, `${origin} ${path}`).toBe(403);
+        expect(r.headers["access-control-allow-origin"]).toBeUndefined();
+      }
+      // The no-preflight POST a foreign page can make: refused before the body is read, so nothing starts.
+      for (const [method, path] of [["POST", "/__crt/sessions"], ["POST", "/__crt/captures"], ["PUT", "/__crt/config"]] as const) {
+        const r = await raw(path, { method, headers: { origin, "content-type": "text/plain" }, body: Buffer.from("{}") });
+        expect(r.status, `${origin} ${method} ${path}`).toBe(403);
+      }
     }
     const pre = await raw("/__crt/sessions", { method: "OPTIONS", headers: { origin: "http://evil.example" } });
     expect(pre.status).toBe(403);
+    // A browser extension's own origin is one no web page can send; it gets an answer and no CORS header.
+    const ext = await raw("/__crt/health", { headers: { origin: `chrome-extension://${"a".repeat(32)}` } });
+    expect(ext.status).toBe(200);
+    expect(ext.headers["access-control-allow-origin"]).toBeUndefined();
     const plain = await raw("/__crt/health");
+    expect(plain.status).toBe(200);
     expect(plain.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
+  it("refuses a Host that is not a loopback name: a name rebound to this machine reads nothing (N-50)", async () => {
+    for (const host of ["evil.example", "evil.example:4400", "localhost.evil.example", "10.0.0.5:4400", "0.0.0.0:4400"]) {
+      for (const path of ["/__crt/health", "/__crt/sessions", "/__crt/providers", "/__crt/doctor", "/__crt/overlay.js", "/__crt/"]) {
+        expect((await raw(path, { headers: { host } })).status, `${host} ${path}`).toBe(403);
+      }
+      expect((await raw("/__crt/internal/shutdown", { method: "POST", headers: { host } })).status).toBe(403);
+    }
+    for (const host of ["localhost:4400", "127.0.0.1:4400", "[::1]:4400", "app.localhost:4400", "LOCALHOST"]) {
+      expect((await raw("/__crt/health", { headers: { host } })).status, host).toBe(200);
+    }
   });
 });
 
@@ -734,10 +758,12 @@ describe("embedded mode (PRD-embedded F-91, F-93, F-94)", () => {
       expect(r.headers["cache-control"]).toContain("no-store");
       expect(r.headers["access-control-allow-origin"]).toBe("http://localhost:3000");
       expect(r.body.toString()).toBe(loaderJs);
-      expect((await e.get("/__crt/loader.js", { origin: "http://evil.example" })).headers["access-control-allow-origin"]).toBeUndefined();
+      const foreign = await e.get("/__crt/loader.js", { origin: "http://evil.example" }); // N-50: refused, and not counted
+      expect(foreign.status).toBe(403);
+      expect(foreign.headers["access-control-allow-origin"]).toBeUndefined();
       const h = await e.health();
       expect(h).toMatchObject({ ok: true, mode: "embedded", app: "http://localhost:3000", target: "http://localhost:3000", version: "0.4.0" });
-      expect(h.overlay).toMatchObject({ injected: 0, fetched: 0, loader: 2 });
+      expect(h.overlay).toMatchObject({ injected: 0, fetched: 0, loader: 1 });
       // Health keys are the proxy-mode keys plus nothing else: the same story in both modes.
       expect(Object.keys(h).sort()).toEqual(["app", "guest", "login", "mode", "ok", "overlay", "projectRoot", "provider", "review", "sessions", "startedAt", "store", "target", "tasks", "tasksDir", "version"]);
       // Nothing to forward a WebSocket to.
